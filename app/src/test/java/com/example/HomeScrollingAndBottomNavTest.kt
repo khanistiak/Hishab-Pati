@@ -416,5 +416,59 @@ class HomeScrollingAndBottomNavTest {
             (recordedHolder?.targetGlassProgress ?: 0f) > 0f
         )
     }
+
+    @Test
+    fun crystalLiquidIndicator_slidesFluidlyAcrossIntermediateTabs_whenJumpingFromHomeToInsights() {
+        composeTestRule.setContent {
+            var tabState by remember { mutableStateOf(MainTab.HOME) }
+            val graphicsLayer = rememberGraphicsLayer()
+            val bgLayer = rememberGraphicsLayer()
+            val backdropState = remember(graphicsLayer, bgLayer) {
+                FrostedBackdropState(graphicsLayer, bgLayer)
+            }
+
+            MyWalletTheme(themeMode = ThemeMode.DARK) {
+                CompositionLocalProvider(LocalFrostedBackdropState provides backdropState) {
+                    MyWalletBottomNavigationBar(
+                        currentTab = tabState,
+                        language = AppLanguage.ENGLISH,
+                        onTabSelected = { tabState = it },
+                        onAddClick = {}
+                    )
+                }
+            }
+        }
+
+        val homeCenterX = composeTestRule.onNodeWithTag("tab_home").fetchSemanticsNode().boundsInRoot.center.x
+        val insightsCenterX = composeTestRule.onNodeWithTag("tab_insights").fetchSemanticsNode().boundsInRoot.center.x
+        val indicatorNode = composeTestRule.onNodeWithTag("bottom_nav_selected_indicator")
+
+        assertTrue(
+            "Indicator should start aligned on Home",
+            abs(indicatorNode.fetchSemanticsNode().boundsInRoot.center.x - homeCenterX) < 4f
+        )
+
+        // Jump directly from Home (0) to Insights (3) and pause clock mid-flight
+        composeTestRule.mainClock.autoAdvance = false
+        composeTestRule.onNodeWithTag("tab_insights").performClick()
+        composeTestRule.mainClock.advanceTimeBy(120L)
+
+        val midFlightCenterX = indicatorNode.fetchSemanticsNode().boundsInRoot.center.x
+        assertTrue(
+            "Crystal liquid pill should glide across intermediate tabs instead of jumping instantaneously (mid=$midFlightCenterX, home=$homeCenterX, insights=$insightsCenterX)",
+            midFlightCenterX > homeCenterX + 10f && midFlightCenterX < insightsCenterX - 10f
+        )
+
+        // Let spring animation settle completely on Insights
+        composeTestRule.mainClock.autoAdvance = true
+        composeTestRule.waitForIdle()
+
+        val settledCenterX = indicatorNode.fetchSemanticsNode().boundsInRoot.center.x
+        assertTrue(
+            "Crystal liquid pill should settle centered on Insights (settled=$settledCenterX, insights=$insightsCenterX)",
+            abs(settledCenterX - insightsCenterX) < 4f
+        )
+    }
 }
+
 

@@ -1,19 +1,30 @@
 package com.example
 
+import android.Manifest
 import android.app.Application
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.backup.SampleDataGenerator
+import com.example.data.local.UserSettingsPreferences
+import com.example.data.model.ThemeMode
 import com.example.ui.DEFAULT_HOME_SECTIONS
+import com.example.ui.MainTab
 import com.example.ui.MainViewModel
 import com.example.ui.BalanceCardStyle
 import com.example.ui.HomeCardStyle
 import com.example.ui.HomeCustomization
+import com.example.ui.theme.MyWalletTheme
 import com.example.ui.util.DragDropListState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -21,18 +32,24 @@ import org.junit.Assert.assertTrue
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [34])
 class CustomizeHomeDragDropTest {
+
+    @get:Rule
+    val composeTestRule = createComposeRule()
 
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         if (FirebaseApp.getApps(context).isEmpty()) {
             FirebaseApp.initializeApp(
                 context,
@@ -407,6 +424,97 @@ class CustomizeHomeDragDropTest {
 
         state.onDragEnd()
         assertFalse(state.isDragging)
+    }
+
+    @Test
+    fun `legacy uppercase section keys normalize cleanly to canonical HomeScreen section ids`() {
+        val legacyKeys = listOf(
+            "QUICK_SHORTCUTS",
+            "BUDGET_PROGRESS",
+            "UPCOMING_BILLS",
+            "RECENT_ACTIVITY",
+            "SAVINGS_GOALS",
+            "FINANCIAL_HEALTH",
+            "SMART_INSIGHTS",
+            "TOP_SPENDING",
+            "SPENDING_BY_DAY",
+            "SPENDING_STREAK"
+        )
+        val normalized = UserSettingsPreferences.normalizeHomeSectionOrder(legacyKeys)
+        assertEquals(
+            listOf(
+                "shortcuts",
+                "budget",
+                "bills",
+                "recent_activity",
+                "savings",
+                "financial_health",
+                "smart_insights",
+                "top_spending",
+                "spending_by_day",
+                "spending_streak"
+            ),
+            normalized
+        )
+    }
+
+    @Test
+    fun `customise home all 10 sections enabled with sample data renders all 10 cards in configured order on HomeScreen`() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val viewModel = MainViewModel(app)
+        runBlocking {
+            val sampleJson = SampleDataGenerator.generateSampleJsonTemplate()
+            val restoreRes = viewModel.backupManager.restoreWithDetailedSummary(sampleJson, replaceAll = true)
+            assertTrue(restoreRes.isSuccess)
+        }
+
+        val customOrder = listOf(
+            "shortcuts",
+            "smart_insights",
+            "budget",
+            "bills",
+            "recent_activity",
+            "savings",
+            "financial_health",
+            "top_spending",
+            "spending_by_day",
+            "spending_streak"
+        )
+        viewModel.setTab(MainTab.HOME)
+        viewModel.updateHomeCustomization(
+            HomeCustomization(
+                cardStyle = HomeCardStyle.STACK,
+                balanceCardStyle = BalanceCardStyle.STANDARD,
+                showBudgetProgress = true,
+                showUpcomingBills = true,
+                showRecentActivity = true,
+                showSavingsGoals = true,
+                showFinancialHealth = true,
+                showSmartInsights = true,
+                showTopSpending = true,
+                showSpendingByDay = true,
+                showSpendingStreak = true,
+                showQuickShortcuts = true,
+                sectionOrder = customOrder
+            )
+        )
+
+        composeTestRule.setContent {
+            MyWalletTheme(themeMode = ThemeMode.LIGHT) {
+                MyWalletApp(viewModel = viewModel)
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        val expectedTagsInOrder = customOrder.map { "home_section_$it" }
+        expectedTagsInOrder.forEach { tag ->
+            composeTestRule.onNodeWithTag("home_lazy_column")
+                .performScrollToNode(hasTestTag(tag))
+            val node = composeTestRule.onNodeWithTag(tag)
+            node.assertIsDisplayed()
+            val bounds = node.fetchSemanticsNode().boundsInRoot
+            assertTrue("Expected $tag height > 0", bounds.height > 0f)
+        }
     }
 }
 

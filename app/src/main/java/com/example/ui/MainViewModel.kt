@@ -21,6 +21,7 @@ import com.example.data.backup.RestoreMode
 import com.example.data.backup.RestoreProgress
 import com.example.data.backup.RestoreStage
 import com.example.data.backup.RestoreUiState
+import com.example.data.backup.SampleDataGenerator
 import com.example.data.firebase.FirestoreWalletRepository
 import com.example.data.local.AppDatabase
 import com.example.data.local.ExtendedSettingsState
@@ -43,6 +44,10 @@ import com.example.data.model.ThemeMode
 import com.example.data.model.TransactionType
 import com.example.data.notification.NotificationStore
 import com.example.data.repository.WalletRepository
+import com.example.data.update.GitHubReleaseInfo
+import com.example.data.update.GitHubUpdateManager
+import com.example.data.update.InstallApkResult
+import com.example.data.update.UpdateState
 import com.example.ui.navigation.NavigationScrollStateStore
 import com.example.ui.navigation.SubScreenNavEntry
 import com.example.ui.screens.insights.InsightsTabMode
@@ -54,6 +59,7 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -61,6 +67,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -146,16 +153,16 @@ enum class BalanceCardStyle {
 }
 
 val DEFAULT_HOME_SECTIONS: List<String> = listOf(
-    "QUICK_SHORTCUTS",
-    "BUDGET_PROGRESS",
-    "UPCOMING_BILLS",
-    "RECENT_ACTIVITY",
-    "SAVINGS_GOALS",
-    "FINANCIAL_HEALTH",
-    "SMART_INSIGHTS",
-    "TOP_SPENDING",
-    "SPENDING_BY_DAY",
-    "SPENDING_STREAK"
+    "budget",
+    "bills",
+    "recent_activity",
+    "savings",
+    "financial_health",
+    "smart_insights",
+    "top_spending",
+    "spending_by_day",
+    "spending_streak",
+    "shortcuts"
 )
 
 data class HomeCustomization(
@@ -314,11 +321,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val transactionToEdit = MutableStateFlow<TransactionEntity?>(null)
     val newTransactionInitialType = MutableStateFlow(TransactionType.EXPENSE)
 
-    private fun loadHomeCustomization(): HomeCustomization = HomeCustomization()
+    private fun loadHomeCustomization(): HomeCustomization =
+        UserSettingsPreferences.loadHomeCustomization(getApplication())
+
     val homeCustomization = MutableStateFlow(loadHomeCustomization())
 
     fun updateHomeCustomization(customization: HomeCustomization) {
-        homeCustomization.value = customization
+        val normalized = customization.copy(
+            sectionOrder = UserSettingsPreferences.normalizeHomeSectionOrder(customization.sectionOrder)
+        )
+        homeCustomization.value = normalized
+        UserSettingsPreferences.saveHomeCustomization(getApplication(), normalized)
     }
 
     fun updateExtendedSettings(transform: (ExtendedSettingsState) -> ExtendedSettingsState) {
@@ -400,6 +413,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val currentUser = MutableStateFlow<FirebaseUser?>(runCatching { Firebase.auth.currentUser }.getOrNull())
     val autoBackupFrequency = MutableStateFlow(AutoBackupFrequency.DAILY)
 
+    val updateManager = GitHubUpdateManager()
+    val updateState: StateFlow<UpdateState> = updateManager.updateState
+    val isUpdateDialogVisible = MutableStateFlow(false)
+    val lastUpdateCheckTimestamp = MutableStateFlow(
+        UserSettingsPreferences.getLastUpdateCheckTimestamp(application)
+    )
+    val updatePermissionNotice = MutableStateFlow<String?>(null)
+    private var updateDownloadJob: Job? = null
+
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
         currentUser.value = auth.currentUser
     }
@@ -411,6 +433,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.initializeIfNeeded()
         }
+        checkForUpdatesOnLaunch()
     }
 
     override fun onCleared() {
@@ -1593,21 +1616,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getSampleJsonTemplate(): String {
-        return """
-            {
-              "appName": "Hishab Pati",
-              "schemaVersion": 4,
-              "backupDate": "2026-10-01T12:00:00Z",
-              "currency": "BDT",
-              "accounts": [],
-              "transactions": [],
-              "categories": [],
-              "subcategories": [],
-              "budgets": [],
-              "debts": [],
-              "savingsGoals": []
-            }
-        """.trimIndent()
+        return SampleDataGenerator.generateSampleJsonTemplate()
     }
 
     fun openBackupRestoreScreen() {
@@ -1648,5 +1657,124 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .filter { it.type == TransactionType.EXPENSE && fmt.format(Date(it.timestamp)) == monthYearPrefix }
             .groupBy { it.category }
             .mapValues { (_, list) -> list.sumOf { it.amount } }
+    }
+
+    private fun checkForUpdatesOnLaunch() {
+        val appContext = getApplication<Application>()
+        if (!UserSettingsPreferences.shouldRunAutoUpdateCheck(appContext)) return
+
+        viewModelScope.launch {
+            val result = updateManager.checkForUpdate(appContext)
+            if (result is UpdateState.UpToDate || result is UpdateState.Available) {
+                val now = System.currentTimeMillis()
+                UserSettingsPreferences.setLastUpdateCheckTimestamp(appContext, now)
+                lastUpdateCheckTimestamp.value = now
+            }
+            if (result is UpdateState.Available) {
+                val skipped = UserSettingsPreferences.getSkippedUpdateVersion(appContext)
+                val normalizedSkipped = skipped?.let { GitHubUpdateManager.normalizeVersionTag(it) }
+                if (normalizedSkipped != result.releaseInfo.versionName &&
+                    skipped != result.releaseInfo.tagName
+                ) {
+                    updatePermissionNotice.value = null
+                    isUpdateDialogVisible.value = true
+                }
+            }
+        }
+    }
+
+    fun checkForUpdatesManually() {
+        val appContext = getApplication<Application>()
+        if (updateState.value is UpdateState.Checking || updateState.value is UpdateState.Downloading) {
+            isUpdateDialogVisible.value = true
+            return
+        }
+        val isBangla = settings.value?.language == AppLanguage.BANGLA
+        updatePermissionNotice.value = null
+
+        viewModelScope.launch {
+            val result = updateManager.checkForUpdate(appContext)
+            if (result is UpdateState.UpToDate || result is UpdateState.Available) {
+                val now = System.currentTimeMillis()
+                UserSettingsPreferences.setLastUpdateCheckTimestamp(appContext, now)
+                lastUpdateCheckTimestamp.value = now
+            }
+            when (result) {
+                is UpdateState.Available -> {
+                    isUpdateDialogVisible.value = true
+                }
+                is UpdateState.UpToDate -> {
+                    isUpdateDialogVisible.value = false
+                    userNotificationMessage.value = if (isBangla) {
+                        "আপনি সর্বশেষ সংস্করণ ব্যবহার করছেন"
+                    } else {
+                        "You're on the latest version"
+                    }
+                }
+                is UpdateState.Error -> {
+                    isUpdateDialogVisible.value = true
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    fun startUpdateDownload(releaseInfo: GitHubReleaseInfo) {
+        val appContext = getApplication<Application>()
+        updatePermissionNotice.value = null
+        updateDownloadJob?.cancel()
+        isUpdateDialogVisible.value = true
+        updateDownloadJob = viewModelScope.launch {
+            updateManager.downloadApk(appContext, releaseInfo)
+        }
+    }
+
+    fun cancelUpdateDownload(fallbackRelease: GitHubReleaseInfo? = null) {
+        updateManager.cancelDownload(fallbackRelease)
+        updateDownloadJob?.cancel()
+        updateDownloadJob = null
+    }
+
+    fun installUpdate(apkFile: File, activityContext: Context? = null) {
+        val targetContext = activityContext ?: getApplication<Application>()
+        val isBangla = settings.value?.language == AppLanguage.BANGLA
+        when (updateManager.installApk(targetContext, apkFile)) {
+            InstallApkResult.NEEDS_UNKNOWN_SOURCES_PERMISSION -> {
+                updatePermissionNotice.value = if (isBangla) {
+                    "ইনস্টল করতে সেটিংস থেকে \"অজানা অ্যাপ ইনস্টল\" অনুমতি দিন এবং ফিরে এসে আবার \"এখনই ইনস্টল\" ট্যাপ করুন।"
+                } else {
+                    "Please allow \"Install unknown apps\" for Hishab Pati in Settings, then return and tap \"Install Now\"."
+                }
+            }
+            InstallApkResult.LAUNCHED -> {
+                updatePermissionNotice.value = null
+            }
+            else -> Unit
+        }
+    }
+
+    fun clearUpdatePermissionNoticeIfGranted(context: Context) {
+        if (updatePermissionNotice.value != null &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+            context.packageManager.canRequestPackageInstalls()
+        ) {
+            updatePermissionNotice.value = null
+        }
+    }
+
+    fun skipUpdateVersion(version: String) {
+        val appContext = getApplication<Application>()
+        UserSettingsPreferences.setSkippedUpdateVersion(appContext, version)
+        updatePermissionNotice.value = null
+        isUpdateDialogVisible.value = false
+        updateManager.resetToIdle()
+    }
+
+    fun dismissUpdateDialog() {
+        updatePermissionNotice.value = null
+        isUpdateDialogVisible.value = false
+        if (updateState.value is UpdateState.Error) {
+            updateManager.resetToIdle()
+        }
     }
 }

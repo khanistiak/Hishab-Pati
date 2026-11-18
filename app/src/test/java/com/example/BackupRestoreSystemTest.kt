@@ -58,6 +58,7 @@ class BackupRestoreSystemTest {
     @Test
     fun `1_current My Wallet attached backup parses, deduplicates sample seeds, and verifies financial integrity`() = runBlocking {
         val jsonText = SampleDataGenerator.generateSampleJsonTemplate()
+        val (defaultCats, defaultSubs) = com.example.data.local.InitialData.getDefaultCategories()
 
         val preview = backupManager.previewBackup(
             jsonString = jsonText,
@@ -68,12 +69,13 @@ class BackupRestoreSystemTest {
         assertTrue("Preview should be valid", preview.isValid)
         assertEquals(BackupFormatType.MY_WALLET_CURRENT, preview.formatType)
         assertEquals(1, preview.schemaVersion)
-        assertEquals(4, preview.accountsCount)
-        assertEquals(17, preview.transactionsCount)
-        assertEquals(11, preview.categoriesCount)
-        assertEquals(15, preview.subcategoriesCount)
-        assertEquals(3, preview.budgetsCount)
+        assertEquals(5, preview.accountsCount)
+        assertEquals(32, preview.transactionsCount)
+        assertEquals(defaultCats.size, preview.categoriesCount)
+        assertEquals(defaultSubs.size, preview.subcategoriesCount)
+        assertEquals(5, preview.budgetsCount)
         assertEquals(4, preview.debtsCount)
+        assertEquals(2, preview.savingsGoalsCount)
 
         // Execute Replace All restore and capture progress stages
         val observedStages = mutableListOf<RestoreStage>()
@@ -87,34 +89,35 @@ class BackupRestoreSystemTest {
         ).getOrThrow()
 
         assertTrue("All verification checks must pass", result.isFinancialIntegrityVerified)
-        assertEquals(4, result.accountsRestored)
-        assertEquals(17, result.transactionsRestored)
-        assertEquals(11, result.categoriesRestored)
-        assertEquals(15, result.subcategoriesRestored)
-        assertEquals(3, result.budgetsRestored)
+        assertEquals(5, result.accountsRestored)
+        assertEquals(32, result.transactionsRestored)
+        assertEquals(defaultCats.size, result.categoriesRestored)
+        assertEquals(defaultSubs.size, result.subcategoriesRestored)
+        assertEquals(5, result.budgetsRestored)
         assertEquals(4, result.debtsRestored)
+        assertEquals(2, result.savingsGoalsRestored)
         assertTrue(observedStages.contains(RestoreStage.PROCESSING_TRANSACTIONS))
         assertTrue(observedStages.contains(RestoreStage.SAVING_TO_DATABASE))
         assertTrue(observedStages.contains(RestoreStage.VERIFYING_RESTORED_DATA))
 
-        // Verify Net Worth = 120,300.0 assets - 4,500.0 liabilities = 115,800.0
-        assertEquals(115800.0, result.verifiedNetWorth, 0.01)
+        // Verify Net Worth = 146,720.0 assets - 5,050.0 liabilities = 141,670.0
+        assertEquals(141670.0, result.verifiedNetWorth, 0.01)
 
-        // Verify October 2026 consumption expenses = 40,000.0 (excluding internal transfers, CC payments, and debt flows)
+        // Verify current-month consumption expenses = 53,830.0 (excluding internal transfers, CC payments, and debt flows)
         val restoredTxs = db.transactionDao().getAllTransactions().first()
         val restoredBudgets = db.budgetDao().getAllBudgets().first()
+        val nowCal = Calendar.getInstance()
         val (refYear, refMonth) = FinancialIntegrityValidator.resolveReferenceYearMonth(restoredTxs, restoredBudgets)
-        assertEquals(2026, refYear)
-        assertEquals(Calendar.OCTOBER, refMonth)
+        assertEquals(nowCal.get(Calendar.YEAR), refYear)
+        assertEquals(nowCal.get(Calendar.MONTH), refMonth)
 
-        val octExpenses = restoredTxs.filter { tx ->
+        val currentMonthExpenses = restoredTxs.filter { tx ->
             if (!FinancialIntegrityValidator.isEligibleExpense(tx)) return@filter false
-            val cal = Calendar.getInstance().apply { timeInMillis = tx.timestamp }
-            cal.get(Calendar.YEAR) == 2026 && cal.get(Calendar.MONTH) == Calendar.OCTOBER
+            FinancialIntegrityValidator.isInYearMonth(tx.timestamp, refYear, refMonth)
         }
-        val octTotalSpent = octExpenses.sumOf { it.amount }
-        assertEquals(36200.0, octTotalSpent, 0.01)
-        assertEquals(36200.0, result.verifiedCurrentMonthExpense, 0.01)
+        val currentMonthTotalSpent = currentMonthExpenses.sumOf { it.amount }
+        assertEquals(53830.0, currentMonthTotalSpent, 0.01)
+        assertEquals(53830.0, result.verifiedCurrentMonthExpense, 0.01)
     }
 
     @Test

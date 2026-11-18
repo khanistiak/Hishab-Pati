@@ -66,6 +66,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SubdirectoryArrowRight
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -118,8 +119,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.BuildConfig
 import com.example.data.local.UserSettingsPreferences
 import com.example.data.model.AppLanguage
+import com.example.data.update.UpdateState
 import com.example.ui.MainViewModel
 import com.example.ui.SubScreen
 import com.example.ui.components.AvatarBadge
@@ -274,6 +277,8 @@ fun SettingsScreen(
     val homeCustomization by viewModel.homeCustomization.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
     val restoreUiState by viewModel.restoreUiState.collectAsState()
+    val updateState by viewModel.updateState.collectAsState()
+    val lastUpdateCheckTimestamp by viewModel.lastUpdateCheckTimestamp.collectAsState()
     val language = settings?.language ?: AppLanguage.ENGLISH
     val currencySymbol = settings?.currencySymbol ?: "৳"
     val isBangla = language == AppLanguage.BANGLA
@@ -970,6 +975,108 @@ fun SettingsScreen(
                         },
                         testTag = SettingsRowItem.ABOUT.testTag
                     )
+
+                    SettingsRowDivider(isDark = isDark)
+
+                    val lastCheckedLabel = remember(lastUpdateCheckTimestamp, isBangla) {
+                        if (lastUpdateCheckTimestamp <= 0L) {
+                            if (isBangla) "এখনো যাচাই করা হয়নি" else "Never checked"
+                        } else {
+                            val fmt = SimpleDateFormat("MMM d, h:mm a", Locale.ENGLISH)
+                            val formatted = fmt.format(Date(lastUpdateCheckTimestamp))
+                            if (isBangla) "সর্বশেষ যাচাই: $formatted" else "Last checked: $formatted"
+                        }
+                    }
+                    val updateRowSubtitle = when (val uState = updateState) {
+                        is UpdateState.Checking -> if (isBangla) "আপডেট খোঁজা হচ্ছে..." else "Checking for updates..."
+                        is UpdateState.UpToDate -> if (isBangla) {
+                            "v${BuildConfig.VERSION_NAME} · আপনি সর্বশেষ সংস্করণ ব্যবহার করছেন · $lastCheckedLabel"
+                        } else {
+                            "v${BuildConfig.VERSION_NAME} · You're on the latest version · $lastCheckedLabel"
+                        }
+                        is UpdateState.Available -> if (isBangla) {
+                            "v${BuildConfig.VERSION_NAME} → v${uState.releaseInfo.versionName} উপলব্ধ"
+                        } else {
+                            "v${BuildConfig.VERSION_NAME} · Update v${uState.releaseInfo.versionName} available"
+                        }
+                        is UpdateState.Downloading -> if (isBangla) {
+                            "আপডেট ডাউনলোড হচ্ছে..."
+                        } else {
+                            "Downloading update..."
+                        }
+                        is UpdateState.ReadyToInstall -> if (isBangla) {
+                            "ইনস্টলের জন্য প্রস্তুত"
+                        } else {
+                            "Ready to install"
+                        }
+                        else -> if (isBangla) {
+                            "বর্তমান সংস্করণ v${BuildConfig.VERSION_NAME} · $lastCheckedLabel"
+                        } else {
+                            "Current v${BuildConfig.VERSION_NAME} · $lastCheckedLabel"
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .testTag("settings_row_check_updates")
+                            .clickable {
+                                AppHaptics.performTap(view, hapticsEnabled)
+                                viewModel.checkForUpdatesManually()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .background(
+                                    color = Color(0xFF0EA5E9).copy(alpha = 0.14f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = null,
+                                tint = Color(0xFF0EA5E9),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isBangla) "আপডেট যাচাই করুন" else "Check for Updates",
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            )
+                            Text(
+                                text = updateRowSubtitle,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        if (updateState is UpdateState.Checking) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = if (isBangla) "আপডেট যাচাই" else "Check for Updates",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

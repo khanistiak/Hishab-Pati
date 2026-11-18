@@ -1,26 +1,57 @@
 package com.example
 
+import android.Manifest
+import android.app.Application
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToNode
+import androidx.test.core.app.ApplicationProvider
 import com.example.data.backup.FinancialIntegrityValidator
+import com.example.data.backup.SampleDataGenerator
+import com.example.data.local.ExtendedSettingsState
+import com.example.data.local.UserSettingsPreferences
 import com.example.data.local.entity.AccountEntity
 import com.example.data.local.entity.DebtEntity
 import com.example.data.local.entity.TransactionEntity
 import com.example.data.model.AccountType
+import com.example.data.model.ThemeMode
 import com.example.data.model.TransactionType
+import com.example.ui.DEFAULT_HOME_SECTIONS
+import com.example.ui.HomeCustomization
+import com.example.ui.MainTab
+import com.example.ui.MainViewModel
+import com.example.ui.theme.MyWalletTheme
 import com.example.ui.util.CurrencyFormatter
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
+import org.robolectric.annotation.Config
 import java.util.Calendar
 
 /**
- * Unit tests for Home Screen Summary Cards:
+ * Unit & Compose UI tests for Home Screen Summary Cards and all 10 dashboard sections:
  * 1. Total Balance calculation honoring `includeInTotal` and hidden status.
  * 2. Spent This Month calculation using FinancialIntegrityValidator.
  * 3. Adding/updating transactions reactively updates monthly spending.
  * 4. Internal transfers and CC payments excluded from monthly spending.
  * 5. Consistent currency formatting across both cards.
+ * 6. All 10 Customise Home sections render and scroll into view with sample data & empty states.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class HomeSummaryCardsTest {
+
+    @get:Rule
+    val composeTestRule = createComposeRule()
 
     private fun calculateNetWorth(
         accountsList: List<AccountEntity>,
@@ -188,5 +219,132 @@ class HomeSummaryCardsTest {
 
         assertTrue(formattedBalance.contains("1,70,936"))
         assertTrue(formattedSpent.contains("44,020"))
+    }
+
+    private fun initViewModelWithApp(): MainViewModel {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        if (FirebaseApp.getApps(app).isEmpty()) {
+            FirebaseApp.initializeApp(
+                app,
+                FirebaseOptions.Builder()
+                    .setApplicationId("com.example.app")
+                    .setProjectId("test-project")
+                    .setApiKey("fake-api-key")
+                    .build()
+            )
+        }
+        UserSettingsPreferences.save(app, ExtendedSettingsState())
+        return MainViewModel(app)
+    }
+
+    @Test
+    fun allTenEnabledSections_renderAndScrollIntoView_withSampleDataLoaded() {
+        val viewModel = initViewModelWithApp()
+        runBlocking {
+            val sampleJson = SampleDataGenerator.generateSampleJsonTemplate()
+            val result = viewModel.backupManager.restoreWithDetailedSummary(sampleJson, replaceAll = true)
+            assertTrue("Sample backup restore must succeed", result.isSuccess)
+        }
+
+        viewModel.setTab(MainTab.HOME)
+        viewModel.updateHomeCustomization(
+            HomeCustomization(
+                showBudgetProgress = true,
+                showUpcomingBills = true,
+                showRecentActivity = true,
+                showSavingsGoals = true,
+                showFinancialHealth = true,
+                showSmartInsights = true,
+                showTopSpending = true,
+                showSpendingByDay = true,
+                showSpendingStreak = true,
+                showQuickShortcuts = true,
+                sectionOrder = DEFAULT_HOME_SECTIONS
+            )
+        )
+
+        composeTestRule.setContent {
+            MyWalletTheme(themeMode = ThemeMode.LIGHT) {
+                MyWalletApp(viewModel = viewModel)
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("home_lazy_column").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_total_balance_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_spent_this_month_card").assertIsDisplayed()
+
+        val allSectionTags = listOf(
+            "home_section_budget",
+            "home_section_bills",
+            "home_section_recent_activity",
+            "home_section_savings",
+            "home_section_financial_health",
+            "home_section_smart_insights",
+            "home_section_top_spending",
+            "home_section_spending_by_day",
+            "home_section_spending_streak",
+            "home_section_shortcuts"
+        )
+
+        allSectionTags.forEach { tag ->
+            composeTestRule.onNodeWithTag("home_lazy_column")
+                .performScrollToNode(hasTestTag(tag))
+            composeTestRule.onNodeWithTag(tag)
+                .assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun allTenEnabledSections_renderEmptyStatesVisibly_whenListsAreEmpty() {
+        val viewModel = initViewModelWithApp()
+        runBlocking {
+            viewModel.eraseAllData(preserveCloud = true)
+        }
+
+        viewModel.setTab(MainTab.HOME)
+        viewModel.updateHomeCustomization(
+            HomeCustomization(
+                showBudgetProgress = true,
+                showUpcomingBills = true,
+                showRecentActivity = true,
+                showSavingsGoals = true,
+                showFinancialHealth = true,
+                showSmartInsights = true,
+                showTopSpending = true,
+                showSpendingByDay = true,
+                showSpendingStreak = true,
+                showQuickShortcuts = true,
+                sectionOrder = DEFAULT_HOME_SECTIONS
+            )
+        )
+
+        composeTestRule.setContent {
+            MyWalletTheme(themeMode = ThemeMode.LIGHT) {
+                MyWalletApp(viewModel = viewModel)
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        val allSectionTags = listOf(
+            "home_section_budget",
+            "home_section_bills",
+            "home_section_recent_activity",
+            "home_section_savings",
+            "home_section_financial_health",
+            "home_section_smart_insights",
+            "home_section_top_spending",
+            "home_section_spending_by_day",
+            "home_section_spending_streak",
+            "home_section_shortcuts"
+        )
+
+        allSectionTags.forEach { tag ->
+            composeTestRule.onNodeWithTag("home_lazy_column")
+                .performScrollToNode(hasTestTag(tag))
+            composeTestRule.onNodeWithTag(tag)
+                .assertIsDisplayed()
+        }
     }
 }

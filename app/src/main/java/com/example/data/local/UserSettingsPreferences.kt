@@ -3,6 +3,10 @@ package com.example.data.local
 import android.content.Context
 import com.example.data.local.entity.AccountEntity
 import com.example.data.model.AppLanguage
+import com.example.ui.BalanceCardStyle
+import com.example.ui.DEFAULT_HOME_SECTIONS
+import com.example.ui.HomeCardStyle
+import com.example.ui.HomeCustomization
 import java.util.Calendar
 import java.util.Locale
 
@@ -292,4 +296,138 @@ object UserSettingsPreferences {
             .putBoolean("hapticFeedbackEnabled", state.hapticFeedbackEnabled)
             .apply()
     }
+
+    private const val KEY_LAST_UPDATE_CHECK_MS = "lastUpdateCheckTimestamp"
+    private const val KEY_SKIPPED_UPDATE_VERSION = "skippedUpdateVersion"
+    const val UPDATE_CHECK_THROTTLE_MS = 12L * 60L * 60L * 1000L
+
+    fun getLastUpdateCheckTimestamp(context: Context): Long {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getLong(KEY_LAST_UPDATE_CHECK_MS, 0L)
+    }
+
+    fun setLastUpdateCheckTimestamp(context: Context, timestampMillis: Long) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putLong(KEY_LAST_UPDATE_CHECK_MS, timestampMillis).apply()
+    }
+
+    fun getSkippedUpdateVersion(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_SKIPPED_UPDATE_VERSION, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun setSkippedUpdateVersion(context: Context, version: String?) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            if (version.isNullOrBlank()) {
+                remove(KEY_SKIPPED_UPDATE_VERSION)
+            } else {
+                putString(KEY_SKIPPED_UPDATE_VERSION, version.trim())
+            }
+        }.apply()
+    }
+
+    fun shouldRunAutoUpdateCheck(
+        context: Context,
+        nowMillis: Long = System.currentTimeMillis(),
+        throttleMs: Long = UPDATE_CHECK_THROTTLE_MS
+    ): Boolean {
+        val lastChecked = getLastUpdateCheckTimestamp(context)
+        if (lastChecked <= 0L) return true
+        return (nowMillis - lastChecked) >= throttleMs
+    }
+
+    private const val HOME_CUSTOMIZATION_PREFS_NAME = "hishab_pati_home_customization"
+    private const val KEY_HOME_CARD_STYLE = "card_style"
+    private const val KEY_HOME_BALANCE_CARD_STYLE = "balance_card_style"
+    private const val KEY_HOME_SHOW_BUDGET = "show_budget_progress"
+    private const val KEY_HOME_SHOW_BILLS = "show_upcoming_bills"
+    private const val KEY_HOME_SHOW_RECENT = "show_recent_activity"
+    private const val KEY_HOME_SHOW_SAVINGS = "show_savings_goals"
+    private const val KEY_HOME_SHOW_HEALTH = "show_financial_health"
+    private const val KEY_HOME_SHOW_INSIGHTS = "show_smart_insights"
+    private const val KEY_HOME_SHOW_TOP_SPENDING = "show_top_spending"
+    private const val KEY_HOME_SHOW_SPENDING_BY_DAY = "show_spending_by_day"
+    private const val KEY_HOME_SHOW_SPENDING_STREAK = "show_spending_streak"
+    private const val KEY_HOME_SHOW_SHORTCUTS = "show_quick_shortcuts"
+    private const val KEY_HOME_SECTION_ORDER = "section_order"
+
+    fun normalizeHomeSectionKey(rawKey: String): String? {
+        return when (rawKey.trim().lowercase(Locale.US)) {
+            "budget", "budget_progress", "monthly_budget" -> "budget"
+            "bills", "upcoming_bills" -> "bills"
+            "recent_activity" -> "recent_activity"
+            "savings", "savings_goals" -> "savings"
+            "financial_health" -> "financial_health"
+            "smart_insights", "smart_insight" -> "smart_insights"
+            "top_spending" -> "top_spending"
+            "spending_by_day" -> "spending_by_day"
+            "spending_streak" -> "spending_streak"
+            "shortcuts", "quick_shortcuts" -> "shortcuts"
+            else -> null
+        }
+    }
+
+    fun normalizeHomeSectionOrder(rawOrder: List<String>): List<String> {
+        val normalized = LinkedHashSet<String>()
+        rawOrder.forEach { raw ->
+            normalizeHomeSectionKey(raw)?.let { normalized.add(it) }
+        }
+        DEFAULT_HOME_SECTIONS.forEach { defaultKey ->
+            normalizeHomeSectionKey(defaultKey)?.let { normalized.add(it) }
+        }
+        return normalized.toList()
+    }
+
+    fun loadHomeCustomization(context: Context): HomeCustomization {
+        val prefs = context.getSharedPreferences(HOME_CUSTOMIZATION_PREFS_NAME, Context.MODE_PRIVATE)
+        val cardStyle = prefs.getString(KEY_HOME_CARD_STYLE, HomeCardStyle.STACK.name)
+            ?.let { raw -> HomeCardStyle.entries.firstOrNull { it.name == raw } }
+            ?: HomeCardStyle.STACK
+        val balanceCardStyle = prefs.getString(KEY_HOME_BALANCE_CARD_STYLE, BalanceCardStyle.STANDARD.name)
+            ?.let { raw -> BalanceCardStyle.entries.firstOrNull { it.name == raw } }
+            ?: BalanceCardStyle.STANDARD
+        val rawOrder = prefs.getString(KEY_HOME_SECTION_ORDER, null)
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: DEFAULT_HOME_SECTIONS
+
+        return HomeCustomization(
+            cardStyle = cardStyle,
+            balanceCardStyle = balanceCardStyle,
+            showBudgetProgress = prefs.getBoolean(KEY_HOME_SHOW_BUDGET, true),
+            showUpcomingBills = prefs.getBoolean(KEY_HOME_SHOW_BILLS, true),
+            showRecentActivity = prefs.getBoolean(KEY_HOME_SHOW_RECENT, true),
+            showSavingsGoals = prefs.getBoolean(KEY_HOME_SHOW_SAVINGS, true),
+            showFinancialHealth = prefs.getBoolean(KEY_HOME_SHOW_HEALTH, true),
+            showSmartInsights = prefs.getBoolean(KEY_HOME_SHOW_INSIGHTS, true),
+            showTopSpending = prefs.getBoolean(KEY_HOME_SHOW_TOP_SPENDING, true),
+            showSpendingByDay = prefs.getBoolean(KEY_HOME_SHOW_SPENDING_BY_DAY, true),
+            showSpendingStreak = prefs.getBoolean(KEY_HOME_SHOW_SPENDING_STREAK, true),
+            showQuickShortcuts = prefs.getBoolean(KEY_HOME_SHOW_SHORTCUTS, true),
+            sectionOrder = normalizeHomeSectionOrder(rawOrder)
+        )
+    }
+
+    fun saveHomeCustomization(context: Context, customization: HomeCustomization) {
+        val prefs = context.getSharedPreferences(HOME_CUSTOMIZATION_PREFS_NAME, Context.MODE_PRIVATE)
+        val normalizedOrder = normalizeHomeSectionOrder(customization.sectionOrder)
+        prefs.edit()
+            .putString(KEY_HOME_CARD_STYLE, customization.cardStyle.name)
+            .putString(KEY_HOME_BALANCE_CARD_STYLE, customization.balanceCardStyle.name)
+            .putBoolean(KEY_HOME_SHOW_BUDGET, customization.showBudgetProgress)
+            .putBoolean(KEY_HOME_SHOW_BILLS, customization.showUpcomingBills)
+            .putBoolean(KEY_HOME_SHOW_RECENT, customization.showRecentActivity)
+            .putBoolean(KEY_HOME_SHOW_SAVINGS, customization.showSavingsGoals)
+            .putBoolean(KEY_HOME_SHOW_HEALTH, customization.showFinancialHealth)
+            .putBoolean(KEY_HOME_SHOW_INSIGHTS, customization.showSmartInsights)
+            .putBoolean(KEY_HOME_SHOW_TOP_SPENDING, customization.showTopSpending)
+            .putBoolean(KEY_HOME_SHOW_SPENDING_BY_DAY, customization.showSpendingByDay)
+            .putBoolean(KEY_HOME_SHOW_SPENDING_STREAK, customization.showSpendingStreak)
+            .putBoolean(KEY_HOME_SHOW_SHORTCUTS, customization.showQuickShortcuts)
+            .putString(KEY_HOME_SECTION_ORDER, normalizedOrder.joinToString(","))
+            .apply()
+    }
 }
+

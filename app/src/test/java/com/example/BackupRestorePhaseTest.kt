@@ -61,18 +61,47 @@ class BackupRestorePhaseTest {
         val sampleJson = SampleDataGenerator.generateSampleJsonTemplate()
         assertNotNull(sampleJson)
         assertTrue(sampleJson.isNotBlank())
+        assertTrue("Sample JSON should be pretty-printed", sampleJson.contains("\n  \"appName\""))
 
         val root = JSONObject(sampleJson)
         assertEquals("Hishab Pati", root.getString("appName"))
         assertEquals(1, root.getInt("schemaVersion"))
         assertTrue(root.has("accounts"))
         assertTrue(root.has("transactions"))
+        assertTrue(root.has("categories"))
+        assertTrue(root.has("subcategories"))
+        assertTrue(root.has("budgets"))
         assertTrue(root.has("debts"))
+        assertTrue(root.has("savingsGoals"))
 
-        // Check required fictional examples exist in transactions
+        // Verify all required account types (Cash, bKash/Nagad MFS, Bank Debit Card, Credit Card)
+        val accArr = root.getJSONArray("accounts")
+        assertEquals(5, accArr.length())
+        val accountTypes = mutableSetOf<String>()
+        val accountNames = mutableListOf<String>()
+        for (i in 0 until accArr.length()) {
+            val acc = accArr.getJSONObject(i)
+            accountTypes.add(acc.getString("type"))
+            accountNames.add(acc.getString("name").lowercase())
+        }
+        assertTrue(accountTypes.contains("CASH"))
+        assertTrue(accountTypes.contains("MFS"))
+        assertTrue(accountTypes.contains("BANK"))
+        assertTrue(accountTypes.contains("CREDIT_CARD"))
+        assertTrue("Must include bKash MFS wallet", accountNames.any { it.contains("bkash") })
+        assertTrue("Must include Nagad MFS wallet", accountNames.any { it.contains("nagad") })
+
+        // Verify every default Expense and Income category from InitialData has a sample transaction
+        val (defaultCategories, _) = com.example.data.local.InitialData.getDefaultCategories()
+        val expectedExpenseAndIncomeCategories = defaultCategories
+            .filter { !it.isTransfer }
+            .map { it.name }
+            .toSet()
+
         val txArr = root.getJSONArray("transactions")
-        assertTrue(txArr.length() >= 17)
+        assertTrue(txArr.length() >= 32)
 
+        val coveredCategories = mutableSetOf<String>()
         var hasIncome = false
         var hasExpense = false
         var hasTransfer = false
@@ -81,24 +110,37 @@ class BackupRestorePhaseTest {
         var hasRepay = false
         var hasRepayReceived = false
         var hasCcPayment = false
+        var hasSubcategories = true
 
         for (i in 0 until txArr.length()) {
             val tx = txArr.getJSONObject(i)
             val type = tx.getString("type")
             val title = tx.getString("title").lowercase()
-            val cat = tx.getString("category").lowercase()
+            val cat = tx.getString("category")
+            val catLower = cat.lowercase()
+            coveredCategories.add(cat)
+            if (tx.optString("subcategory", "").isBlank()) {
+                hasSubcategories = false
+            }
             when {
-                type == "BORROW" || (type == "INCOME" && (cat.contains("borrow") || title.contains("borrow") || cat.contains("loan received"))) -> hasBorrow = true
-                type == "LEND" || (type == "EXPENSE" && (cat.contains("lend") || title.contains("lend") || cat.contains("loan given"))) -> hasLend = true
-                type == "INCOME" && (cat.contains("repayment received") || title.contains("repayment received") || title.contains("received back")) -> hasRepayReceived = true
-                type == "EXPENSE" && (cat.contains("repay") || title.contains("repay") || title.contains("settlement")) -> hasRepay = true
-                type == "CC_PAYMENT" || (type == "EXPENSE" && title.contains("credit card bill")) -> hasCcPayment = true
+                type == "BORROW" -> hasBorrow = true
+                type == "LEND" -> hasLend = true
+                type == "INCOME" && (catLower.contains("repayment received") || title.contains("repayment received") || title.contains("received back")) -> hasRepayReceived = true
+                type == "EXPENSE" && (catLower.contains("repay") || title.contains("repay") || title.contains("settlement")) -> hasRepay = true
+                type == "CC_PAYMENT" -> hasCcPayment = true
                 type == "TRANSFER" -> hasTransfer = true
                 type == "INCOME" -> hasIncome = true
                 type == "EXPENSE" -> hasExpense = true
             }
         }
 
+        assertTrue("All sample transactions should specify a subcategory", hasSubcategories)
+        for (expectedCategory in expectedExpenseAndIncomeCategories) {
+            assertTrue(
+                "Missing sample transaction for default category '$expectedCategory'",
+                coveredCategories.contains(expectedCategory)
+            )
+        }
         assertTrue("Must include income", hasIncome)
         assertTrue("Must include expense", hasExpense)
         assertTrue("Must include wallet-to-wallet transfer", hasTransfer)
@@ -111,23 +153,43 @@ class BackupRestorePhaseTest {
         // 2. Validate preview of sample JSON
         val preview = backupManager.previewBackup(sampleJson, "Sample_Template.json")
         assertTrue("Preview of sample JSON must be valid", preview.isValid)
-        assertEquals(4, preview.accountsCount)
-        assertEquals(17, preview.transactionsCount)
+        assertEquals(5, preview.accountsCount)
+        assertEquals(32, preview.transactionsCount)
+        assertEquals(defaultCategories.size, preview.categoriesCount)
+        assertEquals(5, preview.budgetsCount)
         assertEquals(4, preview.debtsCount)
+        assertEquals(2, preview.savingsGoalsCount)
 
-        // 3. Restore sample JSON into in-memory DB
+        // 3. Restore sample JSON into in-memory DB & verify via FinancialIntegrityValidator
         val restoreResult = backupManager.restoreWithDetailedSummary(sampleJson, replaceAll = true).getOrThrow()
         assertTrue(restoreResult.isFinancialIntegrityVerified)
-        assertEquals(4, restoreResult.accountsRestored)
-        assertEquals(17, restoreResult.transactionsRestored)
+        assertEquals(5, restoreResult.accountsRestored)
+        assertEquals(32, restoreResult.transactionsRestored)
+        assertEquals(5, restoreResult.budgetsRestored)
         assertEquals(4, restoreResult.debtsRestored)
+        assertEquals(2, restoreResult.savingsGoalsRestored)
 
         val restoredAccs = db.accountDao().getAllAccounts().first()
         val restoredTxs = db.transactionDao().getAllTransactions().first()
+        val restoredBudgets = db.budgetDao().getAllBudgets().first()
         val restoredDebts = db.debtDao().getAllDebts().first()
-        assertEquals(4, restoredAccs.size)
-        assertEquals(17, restoredTxs.size)
+        val restoredGoals = db.savingsGoalDao().getAllGoals().first()
+
+        assertEquals(5, restoredAccs.size)
+        assertEquals(32, restoredTxs.size)
+        assertEquals(5, restoredBudgets.size)
         assertEquals(4, restoredDebts.size)
+        assertEquals(2, restoredGoals.size)
+        assertTrue(restoredDebts.any { it.type == DebtType.LENT && !it.isSettled && it.paidAmount > 0.0 })
+        assertTrue(restoredDebts.any { it.type == DebtType.BORROWED && !it.isSettled && it.paidAmount > 0.0 })
+
+        val integrityReport = com.example.data.backup.FinancialIntegrityValidator.verifyRestoredData(
+            accounts = restoredAccs,
+            transactions = restoredTxs,
+            budgets = restoredBudgets,
+            debts = restoredDebts
+        )
+        assertTrue("Sample JSON must pass FinancialIntegrityValidator", integrityReport.isValid)
     }
 
     @Test
@@ -292,7 +354,14 @@ class BackupRestorePhaseTest {
         assertTrue(handled2)
         assertEquals(SubScreen.NONE, viewModel.currentSubScreen.value)
 
-        // 6. Test Profile subscreen opened from Settings
+        // 6. Verify ViewModel sample JSON template used by Backup & Restore Save/Share is populated
+        val vmSampleJson = viewModel.getSampleJsonTemplate()
+        assertTrue("ViewModel sample template must not be empty", vmSampleJson.isNotBlank())
+        val vmSampleRoot = JSONObject(vmSampleJson)
+        assertEquals(5, vmSampleRoot.getJSONArray("accounts").length())
+        assertTrue(vmSampleRoot.getJSONArray("transactions").length() >= 32)
+
+        // 7. Test Profile subscreen opened from Settings
         viewModel.openSubScreen(SubScreen.SETTINGS)
         viewModel.openSubScreen(SubScreen.USER_PROFILE)
         assertEquals(SubScreen.USER_PROFILE, viewModel.currentSubScreen.value)

@@ -135,7 +135,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.data.backup.FinancialIntegrityValidator
+import com.example.data.local.UserSettingsPreferences
 import com.example.data.local.entity.AccountEntity
+import com.example.data.local.entity.BudgetEntity
+import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.DebtEntity
 import com.example.data.local.entity.SavingsGoalEntity
 import com.example.data.local.entity.TransactionEntity
@@ -179,6 +182,7 @@ fun HomeScreen(
     val context = LocalContext.current
     val accounts by viewModel.accounts.collectAsState()
     val transactions by viewModel.transactions.collectAsState()
+    val categories by viewModel.categories.collectAsState()
     val budgets by viewModel.budgets.collectAsState()
     val debts by viewModel.debts.collectAsState()
     val savingsGoals by viewModel.savingsGoals.collectAsState()
@@ -231,7 +235,8 @@ fun HomeScreen(
     val scrollLayout = rememberScrollAwareGlassLayout(
         listState = listState,
         defaultHeaderHeight = 68.dp,
-        extraTopGap = 4.dp
+        extraTopGap = 4.dp,
+        bottomNavClearance = 112.dp
     )
 
     val currentUser by viewModel.currentUser.collectAsState()
@@ -303,7 +308,8 @@ fun HomeScreen(
         }
 
         // 4. Dynamic Sections in User-Customized Order
-        homeCustomization.sectionOrder.forEach { sectionKey ->
+        val orderedSections = UserSettingsPreferences.normalizeHomeSectionOrder(homeCustomization.sectionOrder)
+        orderedSections.forEach { sectionKey ->
             when (sectionKey) {
                 "budget" -> {
                     if (homeCustomization.showBudgetProgress) {
@@ -322,9 +328,11 @@ fun HomeScreen(
                         item(key = "home_upcoming_bills") {
                             UpcomingBillsSection(
                                 debts = debts,
+                                accounts = accounts,
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
                                 onManageDebtsClick = { viewModel.openSubScreen(SubScreen.MANAGE_DEBTS) },
+                                onAccountClick = { accId -> viewModel.openAccountDetail(accId) },
                                 onAddDebtClick = { viewModel.openSubScreen(SubScreen.ADD_DEBT) }
                             )
                         }
@@ -334,8 +342,10 @@ fun HomeScreen(
                     if (homeCustomization.showRecentActivity) {
                         item(key = "home_recent_activity") {
                             RecentActivitySection(
-                                transactions = transactions.take(5),
+                                transactions = transactions.sortedByDescending { it.timestamp }.take(5),
+                                categories = categories,
                                 currencySymbol = currencySymbol,
+                                isBangla = isBangla,
                                 onSeeAllClick = { viewModel.setTab(MainTab.ACTIVITY) },
                                 onTransactionClick = { tx ->
                                     viewModel.transactionToEdit.value = tx
@@ -349,7 +359,7 @@ fun HomeScreen(
                     if (homeCustomization.showSavingsGoals) {
                         item(key = "home_savings_goals") {
                             HomeSavingsGoalsSection(
-                                goals = savingsGoals,
+                                goals = savingsGoals.sortedBy { it.isCompleted },
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
                                 onSeeAllClick = { viewModel.setTab(MainTab.PLAN) },
@@ -364,6 +374,7 @@ fun HomeScreen(
                             FinancialHealthCard(
                                 transactions = transactions,
                                 budgets = budgets,
+                                isBangla = isBangla,
                                 onDetailsClick = { viewModel.setTab(MainTab.INSIGHTS) }
                             )
                         }
@@ -373,7 +384,10 @@ fun HomeScreen(
                     if (homeCustomization.showSmartInsights) {
                         item(key = "home_smart_insight") {
                             SmartInsightBanner(
-                                text = if (isBangla) "দারুণ অগ্রগতি! গত মাসের তুলনায় ব্যয় নিয়ন্ত্রিত।" else "Great job! You're spending 50% less than last month.",
+                                transactions = transactions,
+                                budgets = budgets,
+                                currencySymbol = currencySymbol,
+                                isBangla = isBangla,
                                 onClick = { viewModel.setTab(MainTab.INSIGHTS) }
                             )
                         }
@@ -384,7 +398,9 @@ fun HomeScreen(
                         item(key = "home_top_spending") {
                             TopSpendingSection(
                                 transactions = transactions,
+                                categories = categories,
                                 currencySymbol = currencySymbol,
+                                isBangla = isBangla,
                                 onInsightsClick = { viewModel.setTab(MainTab.INSIGHTS) }
                             )
                         }
@@ -397,6 +413,7 @@ fun HomeScreen(
                                 transactions = transactions,
                                 currencySymbol = currencySymbol,
                                 startOfWeek = extendedSettings.startOfWeek,
+                                isBangla = isBangla,
                                 onInsightsClick = { viewModel.setTab(MainTab.INSIGHTS) }
                             )
                         }
@@ -406,6 +423,8 @@ fun HomeScreen(
                     if (homeCustomization.showSpendingStreak) {
                         item(key = "home_spending_streak") {
                             SpendingStreakSection(
+                                transactions = transactions,
+                                budgets = budgets,
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
                                 onDetailsClick = { viewModel.setTab(MainTab.INSIGHTS) }
@@ -1580,32 +1599,41 @@ private fun QuickShortcutsRow(
     onExpenseClick: () -> Unit,
     onVoiceEntryClick: () -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .testTag("home_section_shortcuts")
     ) {
-        QuickActionButton(
-            icon = Icons.AutoMirrored.Filled.CompareArrows,
-            label = if (isBangla) "স্থানান্তর" else "Transfer",
-            onClick = onTransferClick
+        SectionHeader(
+            title = if (isBangla) "শর্টকাটস" else "Shortcuts"
         )
-        QuickActionButton(
-            icon = Icons.Default.CameraAlt,
-            label = if (isBangla) "রসিদ স্ক্যান" else "Scan receipt",
-            onClick = onScanReceiptClick
-        )
-        QuickActionButton(
-            icon = Icons.Default.ReceiptLong,
-            label = if (isBangla) "ব্যয়" else "Expense",
-            onClick = onExpenseClick
-        )
-        QuickActionButton(
-            icon = Icons.Default.Mic,
-            label = if (isBangla) "ভয়েস এন্ট্রি" else "Voice Entry",
-            onClick = onVoiceEntryClick
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            QuickActionButton(
+                icon = Icons.AutoMirrored.Filled.CompareArrows,
+                label = if (isBangla) "স্থানান্তর" else "Transfer",
+                onClick = onTransferClick
+            )
+            QuickActionButton(
+                icon = Icons.Default.CameraAlt,
+                label = if (isBangla) "রসিদ স্ক্যান" else "Scan receipt",
+                onClick = onScanReceiptClick
+            )
+            QuickActionButton(
+                icon = Icons.Default.ReceiptLong,
+                label = if (isBangla) "ব্যয়" else "Expense",
+                onClick = onExpenseClick
+            )
+            QuickActionButton(
+                icon = Icons.Default.Mic,
+                label = if (isBangla) "ভয়েস এন্ট্রি" else "Voice Entry",
+                onClick = onVoiceEntryClick
+            )
+        }
     }
 }
 
@@ -1656,11 +1684,11 @@ internal fun CustomizeHomeBottomSheet(
     val metaMap = remember(sectionMetaList) { sectionMetaList.associateBy { it.id } }
 
     var localSectionOrder by remember {
-        val validOrder = current.sectionOrder.filter { metaMap.containsKey(it) }.toMutableList()
-        metaMap.keys.forEach { key ->
-            if (!validOrder.contains(key)) validOrder.add(key)
-        }
-        mutableStateOf(validOrder)
+        mutableStateOf(
+            UserSettingsPreferences.normalizeHomeSectionOrder(current.sectionOrder)
+                .filter { metaMap.containsKey(it) }
+                .toMutableList()
+        )
     }
 
     val bottomSheetListState = rememberLazyListState()
@@ -1682,17 +1710,25 @@ internal fun CustomizeHomeBottomSheet(
             onUpdate(current.copy(sectionOrder = localSectionOrder))
         },
         onDragCancel = {
-            val validOrder = current.sectionOrder.filter { metaMap.containsKey(it) }.toMutableList()
-            metaMap.keys.forEach { key ->
-                if (!validOrder.contains(key)) validOrder.add(key)
-            }
-            localSectionOrder = validOrder
+            localSectionOrder = UserSettingsPreferences.normalizeHomeSectionOrder(current.sectionOrder)
+                .filter { metaMap.containsKey(it) }
+                .toMutableList()
         },
         keyProvider = { idx ->
             if (idx in localSectionOrder.indices) "sec_reorder_${localSectionOrder[idx]}" else idx
         },
         liveReorder = true
     )
+
+    LaunchedEffect(current.sectionOrder) {
+        if (!dragDropState.isDragging) {
+            val normalized = UserSettingsPreferences.normalizeHomeSectionOrder(current.sectionOrder)
+                .filter { metaMap.containsKey(it) }
+            if (normalized != localSectionOrder) {
+                localSectionOrder = normalized.toMutableList()
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -2271,7 +2307,7 @@ private fun QuickActionButton(
 
 @Composable
 private fun MonthlyBudgetSection(
-    budgets: List<com.example.data.local.entity.BudgetEntity>,
+    budgets: List<BudgetEntity>,
     transactions: List<TransactionEntity>,
     currencySymbol: String,
     onDetailsClick: () -> Unit
@@ -2319,7 +2355,8 @@ private fun MonthlyBudgetSection(
     TranslucentCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .testTag("home_section_budget"),
         onClick = onDetailsClick
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -2425,89 +2462,116 @@ private fun MonthlyBudgetSection(
                     )
                 )
 
-                // Category progress bar preview
                 val categoryBudgets = monthBudgets.filter { !it.isOverall }.take(3)
-            if (categoryBudgets.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                categoryBudgets.forEach { catBgt ->
-                    val catSpent = monthExpenseTransactions
-                        .filter { it.category.equals(catBgt.categoryName, ignoreCase = true) }
-                        .sumOf { it.amount }
-                    val catProgress = if (catBgt.monthlyLimit > 0) (catSpent / catBgt.monthlyLimit).toFloat().coerceIn(0f, 1f) else 0f
-                    val catIsOver = catSpent > catBgt.monthlyLimit
-                    val catPct = if (catBgt.monthlyLimit > 0) (catSpent / catBgt.monthlyLimit * 100).toInt() else 0
-
-                    Row(
+                if (categoryBudgets.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 3.dp),
+                            .height(1.dp)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    categoryBudgets.forEach { catBgt ->
+                        val catSpent = monthExpenseTransactions
+                            .filter { it.category.equals(catBgt.categoryName, ignoreCase = true) }
+                            .sumOf { it.amount }
+                        val catProgress = if (catBgt.monthlyLimit > 0) (catSpent / catBgt.monthlyLimit).toFloat().coerceIn(0f, 1f) else 0f
+                        val catIsOver = catSpent > catBgt.monthlyLimit
+                        val catPct = if (catBgt.monthlyLimit > 0) (catSpent / catBgt.monthlyLimit * 100).toInt() else 0
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = catBgt.categoryName,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1.3f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(2f)
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(fraction = catProgress)
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (catIsOver) ExpenseRed else MaterialTheme.colorScheme.primary)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            val catPctStr = if (isBn) CurrencyFormatter.convertToBanglaDigits("$catPct%") else "$catPct%"
+                            Text(
+                                text = catPctStr,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (catIsOver) ExpenseRed else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.width(36.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = catBgt.categoryName,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1.3f),
-                            maxLines = 1
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(2f)
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(fraction = catProgress)
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(if (catIsOver) ExpenseRed else MaterialTheme.colorScheme.primary)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        val catPctStr = if (isBn) CurrencyFormatter.convertToBanglaDigits("$catPct%") else "$catPct%"
-                        Text(
-                            text = catPctStr,
+                            text = if (isBn) "ক্যাটাগরি ড্যাশবোর্ড দেখুন →" else "Open Category Dashboard →",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (catIsOver) ExpenseRed else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            modifier = Modifier.width(36.dp)
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (isBn) "ক্যাটাগরি ড্যাশবোর্ড দেখুন →" else "Open Category Dashboard →",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
             }
         }
     }
 }
 
+private fun resolveHomeCategoryVisual(
+    categoryName: String,
+    categories: List<CategoryEntity>,
+    fallbackColorHex: String
+): Pair<String, String> {
+    val matched = categories.firstOrNull { it.name.equals(categoryName, ignoreCase = true) }
+    if (matched != null) {
+        return matched.iconName to matched.colorHex
+    }
+    val lower = categoryName.lowercase()
+    val icon = when {
+        lower.contains("rent") || lower.contains("housing") || lower.contains("util") -> "home"
+        lower.contains("grocer") || lower.contains("essential") -> "shopping_cart"
+        lower.contains("food") || lower.contains("dining") || lower.contains("eat") -> "restaurant"
+        lower.contains("transport") || lower.contains("fuel") -> "directions_car"
+        lower.contains("health") || lower.contains("medical") -> "medical_services"
+        lower.contains("shop") -> "shopping_bag"
+        lower.contains("educat") -> "school"
+        lower.contains("entertain") -> "movie"
+        lower.contains("salary") || lower.contains("income") -> "payments"
+        else -> "category"
+    }
+    return icon to fallbackColorHex
+}
+
 @Composable
 private fun TopSpendingSection(
     transactions: List<TransactionEntity>,
+    categories: List<CategoryEntity> = emptyList(),
     currencySymbol: String,
+    isBangla: Boolean = false,
     onInsightsClick: () -> Unit
 ) {
     val (refYear, refMonth) = remember(transactions) {
@@ -2527,74 +2591,120 @@ private fun TopSpendingSection(
             .take(5)
     }
 
-    if (categoryTotals.isEmpty()) return
+    val maxAmount = categoryTotals.firstOrNull()?.second?.coerceAtLeast(1.0) ?: 1.0
 
-    val maxAmount = categoryTotals.firstOrNull()?.second ?: 1.0
-
-    SectionHeader(title = "Top spending", actionText = "Insights", onActionClick = onInsightsClick)
-
-    TranslucentCard(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .testTag("home_section_top_spending")
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            categoryTotals.forEachIndexed { index, (cat, amt) ->
+        SectionHeader(
+            title = if (isBangla) "শীর্ষ ব্যয়" else "Top spending",
+            actionText = if (isBangla) "ইনসাইটস" else "Insights",
+            onActionClick = onInsightsClick
+        )
+
+        TranslucentCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            onClick = onInsightsClick
+        ) {
+            if (categoryTotals.isEmpty()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    CategoryIcon(
-                        iconName = when (cat) {
-                            "Rent & Utilities" -> "home"
-                            "Daily Essentials" -> "shopping_cart"
-                            "Eating Out" -> "restaurant"
-                            "Transportation" -> "directions_car"
-                            "Health Care" -> "medical_services"
-                            else -> "category"
-                        },
-                        colorHex = when (index) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Category,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = if (isBangla) "এই মাসে কোনো ব্যয় রেকর্ড হয়নি" else "No spending recorded this month",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = if (isBangla) "শীর্ষ ব্যয়ের ক্যাটাগরি দেখতে একটি ব্যয় যোগ করুন।" else "Log an expense to see where your money went.",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                fontSize = 12.sp
+                            )
+                        )
+                    }
+                }
+            } else {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    categoryTotals.forEachIndexed { index, (cat, amt) ->
+                        val fallbackColor = when (index) {
                             0 -> "#3B82F6"
                             1 -> "#10B981"
                             2 -> "#6366F1"
                             3 -> "#F59E0B"
                             else -> "#EC4899"
-                        },
-                        size = 38.dp
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = cat,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp
-                                )
-                            )
-                            Text(
-                                text = CurrencyFormatter.format(amt, currencySymbol),
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            )
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        LinearProgressIndicator(
-                            progress = { (amt / maxAmount).toFloat().coerceIn(0f, 1f) },
+                        val (iconName, colorHex) = resolveHomeCategoryVisual(cat, categories, fallbackColor)
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = Color(0xFFF1F5F9)
-                        )
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CategoryIcon(
+                                iconName = iconName,
+                                colorHex = colorHex,
+                                size = 38.dp
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = cat,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 14.sp
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = CurrencyFormatter.format(amt, currencySymbol),
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                LinearProgressIndicator(
+                                    progress = { (amt / maxAmount).toFloat().coerceIn(0f, 1f) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(5.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = Color(0xFFF1F5F9)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -2607,23 +2717,16 @@ private fun SpendingByDaySection(
     transactions: List<TransactionEntity>,
     currencySymbol: String,
     startOfWeek: Int = Calendar.SUNDAY,
+    isBangla: Boolean = false,
     onInsightsClick: () -> Unit
 ) {
-    val isBangla = CurrencyFormatter.currentLanguage == com.example.data.model.AppLanguage.BANGLA
-    SectionHeader(
-        title = if (isBangla) "দিনভিত্তিক ব্যয়" else "Spending by day",
-        actionText = if (isBangla) "ইনসাইটস" else "Insights",
-        onActionClick = onInsightsClick
-    )
-
     val orderedWeekDays = remember(startOfWeek) {
-        com.example.data.local.UserSettingsPreferences.orderedWeekDays(startOfWeek)
+        UserSettingsPreferences.orderedWeekDays(startOfWeek)
     }
     val dayLabels = remember(orderedWeekDays, isBangla) {
         orderedWeekDays.map { if (isBangla) it.shortBn else it.singleEn }
     }
 
-    // Compute actual spending for the last 7 days anchored to latest transaction or now
     val expenseTxs = transactions.filter { FinancialIntegrityValidator.isEligibleExpense(it) }
     val dayAmounts = FloatArray(7)
     val anchorTime = expenseTxs.maxOfOrNull { it.timestamp } ?: System.currentTimeMillis()
@@ -2639,49 +2742,104 @@ private fun SpendingByDaySection(
     }
 
     val hasData = dayAmounts.any { it > 0f }
-    val effectiveValues = if (hasData) dayAmounts.toList() else listOf(1800f, 2400f, 5600f, 3100f, 950f, 4200f, 3800f)
+    val effectiveValues = dayAmounts.toList()
     val maxVal = effectiveValues.maxOrNull()?.coerceAtLeast(1f) ?: 1f
 
-    TranslucentCard(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .testTag("home_section_spending_by_day")
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        SectionHeader(
+            title = if (isBangla) "দিনভিত্তিক ব্যয়" else "Spending by day",
+            actionText = if (isBangla) "ইনসাইটস" else "Insights",
+            onActionClick = onInsightsClick
+        )
+
+        TranslucentCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            onClick = onInsightsClick
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(110.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                effectiveValues.forEachIndexed { idx, v ->
-                    val barHeight = (v / maxVal * 85).dp.coerceAtLeast(8.dp)
-                    val isPeak = v == maxVal
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
+            if (!hasData) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .width(22.dp)
-                                .height(barHeight)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(
-                                    if (isPeak) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                                )
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.BarChart,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Column {
                         Text(
-                            text = dayLabels[idx],
+                            text = if (isBangla) "কোনো দৈনিক ব্যয়ের তথ্য নেই" else "No daily spending data yet",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = if (isBangla) "কোন দিনগুলোতে বেশি ব্যয় হয় তা দেখতে ব্যয় যোগ করুন।" else "Record expenses to see which weekdays cost the most.",
                             style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                fontSize = 11.sp,
-                                fontWeight = if (isPeak) FontWeight.Bold else FontWeight.Medium
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                fontSize = 12.sp
                             )
                         )
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(110.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        effectiveValues.forEachIndexed { idx, v ->
+                            val barHeight = if (v > 0f) (v / maxVal * 85).dp.coerceAtLeast(8.dp) else 4.dp
+                            val isPeak = v > 0f && v == maxVal
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(22.dp)
+                                        .height(barHeight)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(
+                                            when {
+                                                isPeak -> MaterialTheme.colorScheme.primary
+                                                v > 0f -> MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                                                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                            }
+                                        )
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = dayLabels[idx],
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isPeak) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -2692,111 +2850,127 @@ private fun SpendingByDaySection(
 @Composable
 private fun RecentActivitySection(
     transactions: List<TransactionEntity>,
+    categories: List<CategoryEntity> = emptyList(),
     currencySymbol: String,
+    isBangla: Boolean = false,
     onSeeAllClick: () -> Unit,
     onTransactionClick: (TransactionEntity) -> Unit
 ) {
-    SectionHeader(title = "Recent activity", actionText = "See all", onActionClick = onSeeAllClick)
-
-    TranslucentCard(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .testTag("home_section_recent_activity")
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            if (transactions.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 18.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "No recent transactions yet",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-                        )
-                    )
-                }
-            } else {
-                transactions.forEach { tx ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onTransactionClick(tx) }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val isTransfer = FinancialIntegrityValidator.isInternalTransfer(tx)
-                    val isPositive = tx.type == TransactionType.INCOME || tx.type == TransactionType.BORROW
-                    CategoryIcon(
-                        iconName = when {
-                            isTransfer -> "swap_horiz"
-                            tx.category == "Daily Essentials" -> "shopping_cart"
-                            tx.category == "Eating Out" -> "restaurant"
-                            tx.category == "Transportation" -> "directions_car"
-                            tx.category == "Health Care" -> "medical_services"
-                            tx.category == "Rent & Utilities" -> "home"
-                            else -> "category"
-                        },
-                        colorHex = when {
-                            isTransfer -> "#3B82F6"
-                            isPositive -> "#10B981"
-                            else -> "#EF4444"
-                        },
-                        size = 40.dp
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+        SectionHeader(
+            title = if (isBangla) "সাম্প্রতিক কার্যকলাপ" else "Recent activity",
+            actionText = if (isBangla) "সব দেখুন" else "See all",
+            onActionClick = onSeeAllClick
+        )
+
+        TranslucentCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                if (transactions.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = tx.title,
+                            text = if (isBangla) "এখনো কোনো সাম্প্রতিক লেনদেন নেই" else "No recent transactions yet",
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp
-                            )
-                        )
-                        Text(
-                            text = "${tx.category} · ${tx.subcategory.ifBlank { "Account" }}",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                fontSize = 12.sp
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
                             )
                         )
                     }
-                    val prefix = when {
-                        isTransfer -> "⇄ "
-                        isPositive -> "+"
-                        else -> "-"
+                } else {
+                    transactions.forEach { tx ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onTransactionClick(tx) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val isTransfer = FinancialIntegrityValidator.isInternalTransfer(tx)
+                            val isPositive = tx.type == TransactionType.INCOME || tx.type == TransactionType.BORROW
+                            val fallbackColor = when {
+                                isTransfer -> "#3B82F6"
+                                isPositive -> "#10B981"
+                                else -> "#EF4444"
+                            }
+                            val (iconName, resolvedColor) = if (isTransfer) {
+                                "swap_horiz" to fallbackColor
+                            } else {
+                                resolveHomeCategoryVisual(tx.category, categories, fallbackColor)
+                            }
+                            CategoryIcon(
+                                iconName = iconName,
+                                colorHex = resolvedColor,
+                                size = 40.dp
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = tx.title,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${tx.category} · ${tx.subcategory.ifBlank { if (isBangla) "অ্যাকাউন্ট" else "Account" }}",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        fontSize = 12.sp
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            val prefix = when {
+                                isTransfer -> "⇄ "
+                                isPositive -> "+"
+                                else -> "-"
+                            }
+                            val amountColor = when {
+                                isTransfer -> MaterialTheme.colorScheme.primary
+                                isPositive -> IncomeGreen
+                                else -> MaterialTheme.colorScheme.onBackground
+                            }
+                            Text(
+                                text = prefix + CurrencyFormatter.format(tx.amount, currencySymbol),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = amountColor
+                                )
+                            )
+                        }
                     }
-                    val amountColor = when {
-                        isTransfer -> MaterialTheme.colorScheme.primary
-                        isPositive -> IncomeGreen
-                        else -> MaterialTheme.colorScheme.onBackground
-                    }
-                    Text(
-                        text = prefix + CurrencyFormatter.format(tx.amount, currencySymbol),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = amountColor
-                        )
-                    )
                 }
             }
         }
     }
 }
-}
 
 @Composable
 private fun FinancialHealthCard(
     transactions: List<TransactionEntity>,
-    budgets: List<com.example.data.local.entity.BudgetEntity>,
+    budgets: List<BudgetEntity>,
+    isBangla: Boolean = false,
     onDetailsClick: () -> Unit
 ) {
     val (refYear, refMonth) = remember(transactions, budgets) {
         FinancialIntegrityValidator.resolveReferenceYearMonth(transactions, budgets)
     }
-    val (score, gradeText, summaryText) = remember(transactions, refYear, refMonth) {
+    val (hasActivity, score, gradeText, summaryText) = remember(transactions, refYear, refMonth, isBangla) {
         val monthIncome = transactions.filter { tx ->
             if (!FinancialIntegrityValidator.isEligibleIncome(tx)) return@filter false
             val cal = Calendar.getInstance().apply { timeInMillis = tx.timestamp }
@@ -2809,97 +2983,193 @@ private fun FinancialHealthCard(
             cal.get(Calendar.YEAR) == refYear && cal.get(Calendar.MONTH) == refMonth
         }.sumOf { it.amount }
 
-        val savingsRate = if (monthIncome > 0) {
-            (((monthIncome - monthExpense) / monthIncome) * 100).toInt().coerceIn(-100, 100)
-        } else 0
-
-        val computedScore = when {
-            monthIncome <= 0 && monthExpense <= 0 -> 80
-            savingsRate >= 30 -> (85 + (savingsRate - 30) / 3).coerceIn(85, 98)
-            savingsRate >= 15 -> (72 + (savingsRate - 15)).coerceIn(72, 84)
-            savingsRate >= 0 -> (55 + savingsRate).coerceIn(55, 71)
-            else -> (50 + savingsRate / 2).coerceIn(25, 54)
-        }
-        val grade = when {
-            computedScore >= 80 -> "Excellent · A"
-            computedScore >= 65 -> "Good · B"
-            computedScore >= 50 -> "Fair · C"
-            else -> "Needs Attention · D"
-        }
-        val text = if (monthIncome > 0 && savingsRate >= 0) {
-            "You kept $savingsRate% of your income this month."
-        } else if (monthIncome > 0) {
-            "Expenses exceeded monthly income by ${kotlin.math.abs(savingsRate)}%."
+        val active = monthIncome > 0 || monthExpense > 0
+        if (!active) {
+            HealthSummaryTuple(
+                hasActivity = false,
+                score = 0,
+                gradeText = if (isBangla) "এখনো তথ্য নেই" else "No monthly activity yet",
+                summaryText = if (isBangla) "সঞ্চয়ের হার দেখতে আয় এবং ব্যয় যোগ করুন।" else "Track income and expenses to see your savings rate."
+            )
         } else {
-            "Track income and expenses to see your savings rate."
+            val savingsRate = if (monthIncome > 0) {
+                (((monthIncome - monthExpense) / monthIncome) * 100).toInt().coerceIn(-100, 100)
+            } else -100
+
+            val computedScore = when {
+                savingsRate >= 30 -> (85 + (savingsRate - 30) / 3).coerceIn(85, 98)
+                savingsRate >= 15 -> (72 + (savingsRate - 15)).coerceIn(72, 84)
+                savingsRate >= 0 -> (55 + savingsRate).coerceIn(55, 71)
+                else -> (50 + savingsRate / 2).coerceIn(25, 54)
+            }
+            val grade = when {
+                computedScore >= 80 -> if (isBangla) "চমৎকার · A" else "Excellent · A"
+                computedScore >= 65 -> if (isBangla) "ভালো · B" else "Good · B"
+                computedScore >= 50 -> if (isBangla) "মোটামুটি · C" else "Fair · C"
+                else -> if (isBangla) "মনোযোগ প্রয়োজন · D" else "Needs Attention · D"
+            }
+            val text = if (monthIncome > 0 && savingsRate >= 0) {
+                if (isBangla) "এই মাসে আপনি আয়ের $savingsRate% সঞ্চয় করেছেন।" else "You kept $savingsRate% of your income this month."
+            } else if (monthIncome > 0) {
+                val overPct = kotlin.math.abs(savingsRate)
+                if (isBangla) "এই মাসে ব্যয় আয়ের চেয়ে $overPct% বেশি।" else "Expenses exceeded monthly income by $overPct%."
+            } else {
+                if (isBangla) "সঞ্চয়ের হার হিসাব করতে এই মাসের আয় যোগ করুন।" else "Log income alongside expenses to calculate your savings rate."
+            }
+            HealthSummaryTuple(true, computedScore, grade, text)
         }
-        Triple(computedScore, grade, text)
     }
 
-    SectionHeader(title = "Financial health", actionText = "Details", onActionClick = onDetailsClick)
-
-    TranslucentCard(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp),
-        onClick = onDetailsClick
+            .testTag("home_section_financial_health")
     ) {
-        Row(
-            modifier = Modifier.padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically
+        SectionHeader(
+            title = if (isBangla) "আর্থিক স্বাস্থ্য" else "Financial health",
+            actionText = if (isBangla) "বিস্তারিত" else "Details",
+            onActionClick = onDetailsClick
+        )
+
+        TranslucentCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            onClick = onDetailsClick
         ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(64.dp)
+            Row(
+                modifier = Modifier.padding(18.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                CircularProgressIndicator(
-                    progress = { (score / 100f).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxSize(),
-                    color = if (score >= 65) IncomeGreen else ExpenseRed,
-                    trackColor = Color(0xFFE2E8F0),
-                    strokeWidth = 6.dp
-                )
-                Text(
-                    text = "$score",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(64.dp)
+                ) {
+                    CircularProgressIndicator(
+                        progress = { if (hasActivity) (score / 100f).coerceIn(0f, 1f) else 0f },
+                        modifier = Modifier.fillMaxSize(),
+                        color = if (!hasActivity) MaterialTheme.colorScheme.outlineVariant else if (score >= 65) IncomeGreen else ExpenseRed,
+                        trackColor = Color(0xFFE2E8F0),
+                        strokeWidth = 6.dp
                     )
-                )
-            }
+                    Text(
+                        text = if (hasActivity) {
+                            if (isBangla) CurrencyFormatter.convertToBanglaDigits("$score") else "$score"
+                        } else "--",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                    )
+                }
 
-            Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(16.dp))
 
-            Column {
-                Text(
-                    text = gradeText,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = if (score >= 65) IncomeGreen else ExpenseRed
+                Column {
+                    Text(
+                        text = gradeText,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = when {
+                                !hasActivity -> MaterialTheme.colorScheme.onSurface
+                                score >= 65 -> IncomeGreen
+                                else -> ExpenseRed
+                            }
+                        )
                     )
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = summaryText,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        fontSize = 12.sp
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = summaryText,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            fontSize = 12.sp
+                        )
                     )
-                )
+                }
             }
         }
     }
 }
 
+private data class HealthSummaryTuple(
+    val hasActivity: Boolean,
+    val score: Int,
+    val gradeText: String,
+    val summaryText: String
+)
+
 @Composable
 private fun SmartInsightBanner(
-    text: String,
+    transactions: List<TransactionEntity>,
+    budgets: List<BudgetEntity>,
+    currencySymbol: String,
+    isBangla: Boolean = false,
     onClick: () -> Unit
 ) {
+    val insightText = remember(transactions, budgets, currencySymbol, isBangla) {
+        if (transactions.isEmpty()) {
+            if (isBangla) "মাসিক ব্যয়ের ব্যক্তিগত পরামর্শ পেতে লেনদেন যোগ করুন।"
+            else "Add transactions to unlock personalized monthly spending insights."
+        } else {
+            val (refYear, refMonth) = FinancialIntegrityValidator.resolveReferenceYearMonth(transactions, budgets)
+            val prevCal = Calendar.getInstance().apply {
+                set(Calendar.YEAR, refYear)
+                set(Calendar.MONTH, refMonth)
+                set(Calendar.DAY_OF_MONTH, 1)
+                add(Calendar.MONTH, -1)
+            }
+            val prevYear = prevCal.get(Calendar.YEAR)
+            val prevMonth = prevCal.get(Calendar.MONTH)
+
+            val thisMonthExpenses = transactions.filter {
+                FinancialIntegrityValidator.isEligibleExpense(it) &&
+                    FinancialIntegrityValidator.isInYearMonth(it.timestamp, refYear, refMonth)
+            }
+            val thisExpenseTotal = thisMonthExpenses.sumOf { it.amount }
+            val lastExpenseTotal = transactions.filter {
+                FinancialIntegrityValidator.isEligibleExpense(it) &&
+                    FinancialIntegrityValidator.isInYearMonth(it.timestamp, prevYear, prevMonth)
+            }.sumOf { it.amount }
+
+            val topCategory = thisMonthExpenses
+                .groupBy { it.category }
+                .mapValues { it.value.sumOf { tx -> tx.amount } }
+                .maxByOrNull { it.value }
+
+            when {
+                lastExpenseTotal > 0.0 && thisExpenseTotal > 0.0 -> {
+                    val deltaPct = (((thisExpenseTotal - lastExpenseTotal) / lastExpenseTotal) * 100).toInt()
+                    if (deltaPct <= 0) {
+                        val absPct = kotlin.math.abs(deltaPct)
+                        if (isBangla) "দারুণ অগ্রগতি! গত মাসের তুলনায় ব্যয় $absPct% কম হয়েছে।"
+                        else "Great job! You're spending $absPct% less than last month."
+                    } else {
+                        if (isBangla) "গত মাসের তুলনায় এই মাসে ব্যয় $deltaPct% বেশি হয়েছে।"
+                        else "Spending is up $deltaPct% compared to last month so far."
+                    }
+                }
+                topCategory != null && thisExpenseTotal > 0.0 -> {
+                    val sharePct = ((topCategory.value / thisExpenseTotal) * 100).toInt().coerceIn(1, 100)
+                    val formattedAmt = CurrencyFormatter.format(topCategory.value, currencySymbol)
+                    if (isBangla) {
+                        "এই মাসে সর্বোচ্চ ব্যয় ${topCategory.key} ($formattedAmt, মোট ব্যয়ের $sharePct%)।"
+                    } else {
+                        "${topCategory.key} leads this month's spending at $formattedAmt ($sharePct% of expenses)."
+                    }
+                }
+                else -> {
+                    if (isBangla) "এই মাসে ব্যয় বিশ্লেষণের জন্য আরও লেনদেন যোগ করুন।"
+                    else "Log an expense this month to highlight your top spending pattern."
+                }
+            }
+        }
+    }
+
     TranslucentCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .testTag("home_section_smart_insights"),
         onClick = onClick
     ) {
         Row(
@@ -2915,7 +3185,7 @@ private fun SmartInsightBanner(
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = "SMART INSIGHT",
+                    text = if (isBangla) "স্মার্ট অন্তর্দৃষ্টি" else "SMART INSIGHT",
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold,
@@ -2925,7 +3195,7 @@ private fun SmartInsightBanner(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = text,
+                    text = insightText,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Medium,
                         fontSize = 13.sp,
@@ -2937,19 +3207,75 @@ private fun SmartInsightBanner(
     }
 }
 
+private data class HomeUpcomingBillItem(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val amount: Double,
+    val isCreditCard: Boolean,
+    val accountId: String? = null
+)
+
 @Composable
 private fun UpcomingBillsSection(
     debts: List<DebtEntity>,
+    accounts: List<AccountEntity> = emptyList(),
     currencySymbol: String,
     isBangla: Boolean,
     onManageDebtsClick: () -> Unit,
+    onAccountClick: (String) -> Unit = {},
     onAddDebtClick: () -> Unit
 ) {
-    val payableBills = debts.filter { it.type == DebtType.BORROWED && !it.isSettled && it.amount > 0.0 }
+    val upcomingBills = remember(debts, accounts, isBangla) {
+        val creditCardBills = accounts
+            .filter {
+                !it.isHidden &&
+                    it.type == AccountType.CREDIT_CARD &&
+                    (it.paymentDueDate.isNotBlank() || it.balance < 0.0 || it.minPayment > 0.0)
+            }
+            .map { cc ->
+                val outstanding = if (cc.balance < 0.0) kotlin.math.abs(cc.balance) else cc.minPayment
+                val dueLabel = if (cc.paymentDueDate.isNotBlank()) {
+                    if (isBangla) "বিল তারিখ: ${cc.paymentDueDate}" else "Card bill · Due ${cc.paymentDueDate}"
+                } else {
+                    if (isBangla) "ক্রেডিট কার্ড বিল" else "Credit card payment due"
+                }
+                HomeUpcomingBillItem(
+                    id = "cc_${cc.id}",
+                    title = cc.name,
+                    subtitle = dueLabel,
+                    amount = outstanding,
+                    isCreditCard = true,
+                    accountId = cc.id
+                )
+            }
+
+        val debtBills = debts
+            .filter { it.type == DebtType.BORROWED && !it.isSettled && it.amount > 0.0 }
+            .map { debt ->
+                val dueStr = debt.tentativeCloseDateStr.ifBlank { debt.dueDate }
+                val subtitle = if (dueStr.isNotBlank()) {
+                    if (isBangla) "পরিশোধের তারিখ: $dueStr" else "Due: $dueStr"
+                } else {
+                    if (isBangla) "পরিশোধযোগ্য ঋণ" else "Payable loan due"
+                }
+                HomeUpcomingBillItem(
+                    id = "debt_${debt.id}",
+                    title = debt.personName,
+                    subtitle = subtitle,
+                    amount = debt.amount,
+                    isCreditCard = false
+                )
+            }
+
+        (creditCardBills + debtBills).take(3)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 8.dp)
+            .testTag("home_section_bills")
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2969,11 +3295,13 @@ private fun UpcomingBillsSection(
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 ),
-                modifier = Modifier.clickable { onManageDebtsClick() }
+                modifier = Modifier
+                    .clickable { onManageDebtsClick() }
+                    .padding(horizontal = 4.dp, vertical = 8.dp)
             )
         }
-        Spacer(modifier = Modifier.height(10.dp))
-        if (payableBills.isEmpty()) {
+        Spacer(modifier = Modifier.height(6.dp))
+        if (upcomingBills.isEmpty()) {
             TranslucentCard(
                 modifier = Modifier.fillMaxWidth(),
                 cornerRadius = 18.dp
@@ -2986,6 +3314,7 @@ private fun UpcomingBillsSection(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
+                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -3022,18 +3351,25 @@ private fun UpcomingBillsSection(
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
                         ),
-                        modifier = Modifier.clickable { onAddDebtClick() }
+                        modifier = Modifier
+                            .clickable { onAddDebtClick() }
+                            .padding(horizontal = 8.dp, vertical = 10.dp)
                     )
                 }
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                payableBills.take(3).forEach { debt ->
+                upcomingBills.forEach { bill ->
                     TranslucentCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onManageDebtsClick() },
-                        cornerRadius = 16.dp
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 16.dp,
+                        onClick = {
+                            if (bill.isCreditCard && bill.accountId != null) {
+                                onAccountClick(bill.accountId)
+                            } else {
+                                onManageDebtsClick()
+                            }
+                        }
                     ) {
                         Row(
                             modifier = Modifier
@@ -3043,43 +3379,48 @@ private fun UpcomingBillsSection(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = ExpenseRed.copy(alpha = 0.12f),
+                                    color = if (bill.isCreditCard) Color(0xFFF59E0B).copy(alpha = 0.14f) else ExpenseRed.copy(alpha = 0.12f),
                                     modifier = Modifier.size(38.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
-                                            imageVector = Icons.Default.ReceiptLong,
+                                            imageVector = if (bill.isCreditCard) Icons.Default.CreditCard else Icons.Default.ReceiptLong,
                                             contentDescription = null,
-                                            tint = ExpenseRed,
+                                            tint = if (bill.isCreditCard) Color(0xFFD97706) else ExpenseRed,
                                             modifier = Modifier.size(19.dp)
                                         )
                                     }
                                 }
                                 Column {
                                     Text(
-                                        text = debt.personName,
-                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                        text = bill.title,
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
-                                    val dueDateText = if (debt.dueDate.isNotBlank()) "Due: ${debt.dueDate}" else "Payment due soon"
                                     Text(
-                                        text = dueDateText,
+                                        text = bill.subtitle,
                                         style = MaterialTheme.typography.bodySmall.copy(
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                             fontSize = 11.sp
-                                        )
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = CurrencyFormatter.format(debt.amount, currencySymbol),
+                                text = CurrencyFormatter.format(bill.amount, currencySymbol),
                                 style = MaterialTheme.typography.titleSmall.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = ExpenseRed
+                                    color = if (bill.isCreditCard) Color(0xFFD97706) else ExpenseRed
                                 )
                             )
                         }
@@ -3102,6 +3443,7 @@ private fun HomeSavingsGoalsSection(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 8.dp)
+            .testTag("home_section_savings")
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -3121,10 +3463,12 @@ private fun HomeSavingsGoalsSection(
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 ),
-                modifier = Modifier.clickable { onSeeAllClick() }
+                modifier = Modifier
+                    .clickable { onSeeAllClick() }
+                    .padding(horizontal = 4.dp, vertical = 8.dp)
             )
         }
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         if (goals.isEmpty()) {
             TranslucentCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -3138,6 +3482,7 @@ private fun HomeSavingsGoalsSection(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
+                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -3174,7 +3519,9 @@ private fun HomeSavingsGoalsSection(
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
                         ),
-                        modifier = Modifier.clickable { onAddGoalClick() }
+                        modifier = Modifier
+                            .clickable { onAddGoalClick() }
+                            .padding(horizontal = 8.dp, vertical = 10.dp)
                     )
                 }
             }
@@ -3182,10 +3529,9 @@ private fun HomeSavingsGoalsSection(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 goals.take(2).forEach { goal ->
                     TranslucentCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSeeAllClick() },
-                        cornerRadius = 16.dp
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 16.dp,
+                        onClick = onSeeAllClick
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                             Row(
@@ -3195,11 +3541,15 @@ private fun HomeSavingsGoalsSection(
                             ) {
                                 Text(
                                     text = goal.name,
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
                                 )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 val progressPercent = if (goal.targetAmount > 0) ((goal.savedAmount / goal.targetAmount) * 100).toInt() else 0
                                 Text(
-                                    text = "$progressPercent%",
+                                    text = if (isBangla) CurrencyFormatter.convertToBanglaDigits("$progressPercent%") else "$progressPercent%",
                                     style = MaterialTheme.typography.labelMedium.copy(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
@@ -3222,15 +3572,17 @@ private fun HomeSavingsGoalsSection(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
+                                val savedFormatted = CurrencyFormatter.format(goal.savedAmount, currencySymbol)
+                                val targetFormatted = CurrencyFormatter.format(goal.targetAmount, currencySymbol)
                                 Text(
-                                    text = "${CurrencyFormatter.format(goal.savedAmount, currencySymbol)} saved",
+                                    text = if (isBangla) "$savedFormatted সঞ্চিত" else "$savedFormatted saved",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 )
                                 Text(
-                                    text = "Target: ${CurrencyFormatter.format(goal.targetAmount, currencySymbol)}",
+                                    text = if (isBangla) "লক্ষ্য: $targetFormatted" else "Target: $targetFormatted",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
@@ -3247,16 +3599,68 @@ private fun HomeSavingsGoalsSection(
 
 @Composable
 private fun SpendingStreakSection(
+    transactions: List<TransactionEntity> = emptyList(),
+    budgets: List<BudgetEntity> = emptyList(),
     currencySymbol: String,
     isBangla: Boolean,
     onDetailsClick: () -> Unit
 ) {
+    val (hasExpenses, streakDays) = remember(transactions, budgets) {
+        val (refYear, refMonth) = FinancialIntegrityValidator.resolveReferenceYearMonth(transactions, budgets)
+        val monthExpenses = transactions.filter {
+            FinancialIntegrityValidator.isEligibleExpense(it) &&
+                FinancialIntegrityValidator.isInYearMonth(it.timestamp, refYear, refMonth)
+        }
+        if (monthExpenses.isEmpty()) {
+            false to 0
+        } else {
+            val cal = Calendar.getInstance()
+            val byDay = mutableMapOf<Int, Double>()
+            var maxDay = 1
+            for (tx in monthExpenses) {
+                cal.timeInMillis = tx.timestamp
+                val dom = cal.get(Calendar.DAY_OF_MONTH)
+                if (dom > maxDay) maxDay = dom
+                byDay[dom] = (byDay[dom] ?: 0.0) + tx.amount
+            }
+            val nowCal = Calendar.getInstance()
+            val anchorDay = if (nowCal.get(Calendar.YEAR) == refYear && nowCal.get(Calendar.MONTH) == refMonth) {
+                maxOf(maxDay, nowCal.get(Calendar.DAY_OF_MONTH))
+            } else {
+                maxDay
+            }
+            val dailyAverage = (monthExpenses.sumOf { it.amount } / anchorDay.coerceAtLeast(1)).coerceAtLeast(1.0)
+            var streak = 0
+            for (d in anchorDay downTo 1) {
+                val spend = byDay[d] ?: 0.0
+                if (spend <= dailyAverage) {
+                    streak++
+                } else {
+                    break
+                }
+            }
+            true to streak
+        }
+    }
+
+    val badgeLabel = if (isBangla) {
+        "${CurrencyFormatter.convertToBanglaDigits(streakDays.toString())} দিন"
+    } else {
+        "$streakDays ${if (streakDays == 1) "day" else "days"}"
+    }
+    val subtitleText = when {
+        !hasExpenses -> if (isBangla) "দৈনিক গড় ব্যয়ের নিচে থাকার দিন দেখতে ব্যয় যোগ করুন" else "Log expenses to track days under your daily average"
+        streakDays > 0 -> if (isBangla) "টানা $badgeLabel দৈনিক ব্যয়ের গড়ের নিচে" else "$badgeLabel under your daily average"
+        else -> if (isBangla) "আজকের ব্যয় দৈনিক গড়ের উপরে ছিল" else "Today's spending went above your daily average"
+    }
+
     TranslucentCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 8.dp)
-            .clickable { onDetailsClick() },
-        cornerRadius = 20.dp
+            .testTag("home_section_spending_streak"),
+        cornerRadius = 20.dp,
+        onClick = onDetailsClick
     ) {
         Row(
             modifier = Modifier
@@ -3280,7 +3684,7 @@ private fun SpendingStreakSection(
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    text = if (isBangla) "টানা ৪ দিন দৈনিক বাজেট গড়ের নিচে" else "4 days under your daily average",
+                    text = subtitleText,
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                         fontSize = 12.sp
@@ -3293,7 +3697,7 @@ private fun SpendingStreakSection(
                 modifier = Modifier.padding(start = 4.dp)
             ) {
                 Text(
-                    text = if (isBangla) "৪ দিন" else "4 days",
+                    text = badgeLabel,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,

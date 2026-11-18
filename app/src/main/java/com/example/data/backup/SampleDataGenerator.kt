@@ -1,727 +1,889 @@
 package com.example.data.backup
 
+import com.example.data.local.InitialData
+import com.example.data.local.entity.AccountEntity
+import com.example.data.local.entity.AppSettingsEntity
+import com.example.data.local.entity.BudgetEntity
+import com.example.data.local.entity.DebtEntity
+import com.example.data.local.entity.SavingsGoalEntity
+import com.example.data.local.entity.TransactionEntity
+import com.example.data.model.AccountType
+import com.example.data.model.BackgroundTextureOption
+import com.example.data.model.DebtType
+import com.example.data.model.ThemeColorOption
+import com.example.data.model.ThemeMode
+import com.example.data.model.TransactionType
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 object SampleDataGenerator {
 
-    fun generateSampleJsonTemplate(): String {
+    fun generateSampleJsonTemplate(referenceTimeMillis: Long = System.currentTimeMillis()): String {
         val root = JSONObject()
-        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-        val now = 1793145600000L // Fictional baseline: Oct 27, 2026
+        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+
+        val nowCal = Calendar.getInstance().apply { timeInMillis = referenceTimeMillis }
+        val currentMonthKey = String.format(
+            Locale.US,
+            "%04d-%02d",
+            nowCal.get(Calendar.YEAR),
+            nowCal.get(Calendar.MONTH) + 1
+        )
+        val monthStartCal = (nowCal.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val monthStartMillis = monthStartCal.timeInMillis
+        val availableSpanMillis = (referenceTimeMillis - monthStartMillis).coerceAtLeast(60_000L)
+
+        fun tsAtStep(step: Int, totalSteps: Int): Long {
+            val clamped = step.coerceIn(0, totalSteps)
+            return monthStartMillis + (availableSpanMillis * clamped) / totalSteps
+        }
+
+        fun dateStrDaysFromNow(daysOffset: Int): String {
+            val cal = (nowCal.clone() as Calendar).apply {
+                add(Calendar.DAY_OF_YEAR, daysOffset)
+            }
+            return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+        }
 
         root.put("appName", "Hishab Pati")
         root.put("schemaVersion", BackupMigrationEngine.CURRENT_SCHEMA_VERSION)
-        root.put("backupDate", isoFormat.format(Date(now)))
+        root.put("backupDate", isoFormat.format(Date(referenceTimeMillis)))
         root.put("currency", "BDT")
         root.put(
             "_comment",
-            "DEMONSTRATION ONLY: Completely fictional sample data for Hishab Pati. " +
-                "Includes fully reconciled opening/closing balances and complete examples of all supported transaction types " +
-                "(Income, Expense, Transfer, Credit Card Payment, Borrowed, Lent, Partial Repayments, and Full Settlements)."
+            "SAMPLE TEMPLATE: Complete fictional data for Hishab Pati matching the backup schema. " +
+                "Includes reconciled opening/closing balances across Cash, bKash/Nagad MFS, Bank Debit Card, and Credit Card accounts, " +
+                "all default Expense/Income/Transfer categories & subcategories, monthly budgets, savings goals, and Lent/Borrowed debts with repayments."
         )
 
-        // Fictional App Settings
+        // 1. Settings matching AppSettingsEntity & JsonBackupManager
+        val defaultSettings = AppSettingsEntity(
+            userName = "Demo User",
+            country = "Bangladesh",
+            currencyCode = "BDT",
+            currencySymbol = "৳",
+            themeMode = ThemeMode.AUTO,
+            themeColor = ThemeColorOption.SKY_CYAN,
+            backgroundTexture = BackgroundTextureOption.AURORA
+        )
         val settingsObj = JSONObject().apply {
-            put("userName", "Fictional Demo User")
-            put("country", "Bangladesh")
-            put("currencyCode", "BDT")
-            put("currencySymbol", "৳")
-            put("language", "ENGLISH")
-            put("themeMode", "AUTO")
-            put("themeColor", "SKY_CYAN")
-            put("backgroundTexture", "AURORA")
-            put("appLockEnabled", false)
-            put("screenshotProtectionEnabled", false)
-            put("notificationsEnabled", true)
+            put("userName", defaultSettings.userName)
+            put("country", defaultSettings.country)
+            put("currencyCode", defaultSettings.currencyCode)
+            put("currencySymbol", defaultSettings.currencySymbol)
+            put("language", defaultSettings.language.name)
+            put("themeMode", defaultSettings.themeMode.name)
+            put("themeColor", defaultSettings.themeColor.name)
+            put("backgroundTexture", defaultSettings.backgroundTexture.name)
+            put("appLockEnabled", defaultSettings.appLockEnabled)
+            put("screenshotProtectionEnabled", defaultSettings.screenshotProtectionEnabled)
+            put("notificationsEnabled", defaultSettings.notificationsEnabled)
         }
         root.put("settings", settingsObj)
 
-        // 4 Reconciled Fictional Accounts
-        // 1. Bank: opening 40,000 + 75000 (inc) - 15000 (trf) - 16000 (exp) + 18000 (borrow) - 6000 (repay) + 10000 (borrow) - 10000 (settle) + 12000 (rcv settle) - 8500 (cc pay) = 99,500
-        // 2. Cash: opening 5,000 + 15000 (trf in) - 4350 (groceries) - 1650 (dining) = 14,000
-        // 3. MFS:  opening 25,000 - 8000 (lend) + 3000 (rcv inst) - 12000 (lend) - 1200 (pharmacy) = 6,800
-        // 4. Card: opening 0.0 - 8500 (shopping) + 8500 (cc pay) - 4500 (electronics) = -4,500
-        val accountsArr = JSONArray().apply {
-            put(JSONObject().apply {
-                put("id", "acc_fictional_bank")
-                put("name", "City Horizon Bank")
-                put("type", "BANK")
-                put("institution", "City Bank PLC")
-                put("balance", 99500.0)
-                put("openingBalance", 40000.0)
-                put("accountNumberLast4", "4821")
-                put("colorHex", "#2563EB")
-                put("iconName", "account_balance")
-                put("isHidden", false)
-                put("sortOrder", 0)
-                put("notes", "Fictional salary and checking account")
-            })
-            put(JSONObject().apply {
-                put("id", "acc_fictional_cash")
-                put("name", "Cash Wallet")
-                put("type", "CASH")
-                put("institution", "Physical Cash")
-                put("balance", 14000.0)
-                put("openingBalance", 5000.0)
-                put("accountNumberLast4", "")
-                put("colorHex", "#10B981")
-                put("iconName", "payments")
-                put("isHidden", false)
-                put("sortOrder", 1)
-                put("notes", "Daily cash in hand")
-            })
-            put(JSONObject().apply {
-                put("id", "acc_fictional_mfs")
-                put("name", "bKash Digital Wallet")
-                put("type", "MFS")
-                put("institution", "bKash Limited")
-                put("balance", 6800.0)
-                put("openingBalance", 25000.0)
-                put("accountNumberLast4", "0171")
-                put("colorHex", "#E11D48")
-                put("iconName", "phone_android")
-                put("isHidden", false)
-                put("sortOrder", 2)
-                put("notes", "Mobile wallet for peer transfers")
-            })
-            put(JSONObject().apply {
-                put("id", "acc_fictional_card")
-                put("name", "Standard Visa Platinum")
-                put("type", "CREDIT_CARD")
-                put("institution", "Standard Chartered")
-                put("balance", -4500.0)
-                put("openingBalance", 0.0)
-                put("accountNumberLast4", "9204")
-                put("creditLimit", 150000.0)
-                put("colorHex", "#8B5CF6")
-                put("iconName", "credit_card")
-                put("isHidden", false)
-                put("sortOrder", 3)
-                put("notes", "Fictional credit card for online/card shopping")
-            })
+        // 2. Default Categories & Subcategories directly from InitialData
+        val (categories, subcategories) = InitialData.getDefaultCategories()
+
+        // 3. Transactions covering ALL 12 default Expense categories, ALL 5 default Income categories,
+        // Transfers between accounts, Credit Card Payment, and Borrow/Lend + partial & full repayments.
+        val totalSteps = 29
+        val transactions = listOf(
+            // --- Income (all 5 default Income categories) ---
+            TransactionEntity(
+                id = "tx_sample_inc_salary",
+                type = TransactionType.INCOME,
+                amount = 75000.0,
+                title = "Monthly Corporate Salary",
+                category = "Salary",
+                subcategory = "Monthly Salary",
+                accountId = "acc_sample_bank",
+                timestamp = tsAtStep(1, totalSteps),
+                notes = "Sample monthly salary deposit",
+                isRecurring = true,
+                payeeOrPayer = "Tech Innovations Ltd."
+            ),
+            TransactionEntity(
+                id = "tx_sample_inc_bonus",
+                type = TransactionType.INCOME,
+                amount = 12000.0,
+                title = "Quarterly Performance Bonus",
+                category = "Bonus",
+                subcategory = "Performance Bonus",
+                accountId = "acc_sample_bank",
+                timestamp = tsAtStep(2, totalSteps),
+                notes = "Sample performance bonus credit",
+                payeeOrPayer = "Tech Innovations Ltd."
+            ),
+            TransactionEntity(
+                id = "tx_sample_inc_business",
+                type = TransactionType.INCOME,
+                amount = 15000.0,
+                title = "UI Consulting Milestone",
+                category = "Business",
+                subcategory = "Consulting",
+                accountId = "acc_sample_bkash",
+                timestamp = tsAtStep(3, totalSteps),
+                notes = "Sample freelance consulting fee",
+                payeeOrPayer = "Apex Digital Studio"
+            ),
+            TransactionEntity(
+                id = "tx_sample_inc_gift",
+                type = TransactionType.INCOME,
+                amount = 3000.0,
+                title = "Family Occasion Cash Gift",
+                category = "Gifts Received",
+                subcategory = "Cash Gift",
+                accountId = "acc_sample_cash",
+                timestamp = tsAtStep(4, totalSteps),
+                notes = "Sample family gift",
+                payeeOrPayer = "Family"
+            ),
+            TransactionEntity(
+                id = "tx_sample_inc_cashback",
+                type = TransactionType.INCOME,
+                amount = 500.0,
+                title = "Mobile Payment Cashback",
+                category = "Other Income",
+                subcategory = "Refunds & Cashbacks",
+                accountId = "acc_sample_nagad",
+                timestamp = tsAtStep(5, totalSteps),
+                notes = "Sample merchant cashback reward",
+                payeeOrPayer = "Nagad Rewards"
+            ),
+
+            // --- Transfers between accounts ---
+            TransactionEntity(
+                id = "tx_sample_trf_atm",
+                type = TransactionType.TRANSFER,
+                amount = 8000.0,
+                title = "ATM Cash Withdrawal",
+                category = "Bank Transfer",
+                subcategory = "ATM Withdrawal",
+                accountId = "acc_sample_bank",
+                toAccountId = "acc_sample_cash",
+                timestamp = tsAtStep(6, totalSteps),
+                notes = "Sample ATM withdrawal from bank debit card to cash wallet",
+                payeeOrPayer = "City Bank ATM"
+            ),
+            TransactionEntity(
+                id = "tx_sample_trf_bkash",
+                type = TransactionType.TRANSFER,
+                amount = 10000.0,
+                title = "Add Money to bKash",
+                category = "Wallet Transfer",
+                subcategory = "Mobile Financial Service",
+                accountId = "acc_sample_bank",
+                toAccountId = "acc_sample_bkash",
+                timestamp = tsAtStep(7, totalSteps),
+                notes = "Sample bank-to-bKash transfer",
+                payeeOrPayer = "bKash Add Money"
+            ),
+            TransactionEntity(
+                id = "tx_sample_trf_nagad",
+                type = TransactionType.TRANSFER,
+                amount = 3000.0,
+                title = "bKash to Nagad Wallet Transfer",
+                category = "Wallet Transfer",
+                subcategory = "Mobile Financial Service",
+                accountId = "acc_sample_bkash",
+                toAccountId = "acc_sample_nagad",
+                timestamp = tsAtStep(8, totalSteps),
+                notes = "Sample wallet-to-wallet transfer",
+                payeeOrPayer = "Self Transfer"
+            ),
+
+            // --- Expenses (all 12 default Expense categories + subcategories) ---
+            TransactionEntity(
+                id = "tx_sample_exp_food_dinner",
+                type = TransactionType.EXPENSE,
+                amount = 1650.0,
+                title = "Family Weekend Dinner",
+                category = "Food & Dining",
+                subcategory = "Restaurant",
+                accountId = "acc_sample_cash",
+                timestamp = tsAtStep(9, totalSteps),
+                notes = "Sample dinner out",
+                payeeOrPayer = "Spice Garden Cafe"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_food_coffee",
+                type = TransactionType.EXPENSE,
+                amount = 480.0,
+                title = "Evening Coffee & Snacks",
+                category = "Food & Dining",
+                subcategory = "Cafes & Coffee",
+                accountId = "acc_sample_bkash",
+                timestamp = tsAtStep(10, totalSteps),
+                notes = "Sample cafe visit",
+                payeeOrPayer = "North End Roasters"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_shopping_clothes",
+                type = TransactionType.EXPENSE,
+                amount = 6500.0,
+                title = "Seasonal Apparel Purchase",
+                category = "Shopping",
+                subcategory = "Clothing",
+                accountId = "acc_sample_card",
+                timestamp = tsAtStep(11, totalSteps),
+                notes = "Sample clothing purchase on credit card",
+                payeeOrPayer = "Aarong"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_shopping_elec",
+                type = TransactionType.EXPENSE,
+                amount = 4200.0,
+                title = "Wireless Earbuds",
+                category = "Shopping",
+                subcategory = "Electronics",
+                accountId = "acc_sample_card",
+                timestamp = tsAtStep(12, totalSteps),
+                notes = "Sample electronics purchase on credit card",
+                payeeOrPayer = "Gadget Galaxy"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_transport",
+                type = TransactionType.EXPENSE,
+                amount = 950.0,
+                title = "City Ride Sharing",
+                category = "Transportation",
+                subcategory = "Ride Sharing",
+                accountId = "acc_sample_bkash",
+                timestamp = tsAtStep(13, totalSteps),
+                notes = "Sample daily commute rides",
+                payeeOrPayer = "Pathao Rides"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_rent",
+                type = TransactionType.EXPENSE,
+                amount = 18000.0,
+                title = "Apartment Monthly Rent",
+                category = "Rent & Utilities",
+                subcategory = "House Rent",
+                accountId = "acc_sample_bank",
+                timestamp = tsAtStep(14, totalSteps),
+                notes = "Sample monthly house rent",
+                isRecurring = true,
+                payeeOrPayer = "Skyline Properties"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_internet",
+                type = TransactionType.EXPENSE,
+                amount = 1200.0,
+                title = "Broadband Fiber Internet Bill",
+                category = "Rent & Utilities",
+                subcategory = "Internet",
+                accountId = "acc_sample_bkash",
+                timestamp = tsAtStep(15, totalSteps),
+                notes = "Sample monthly internet bill",
+                isRecurring = true,
+                payeeOrPayer = "AmberIT"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_health",
+                type = TransactionType.EXPENSE,
+                amount = 1450.0,
+                title = "Pharmacy Medicines & Vitamins",
+                category = "Health & Medical",
+                subcategory = "Medicines",
+                accountId = "acc_sample_nagad",
+                timestamp = tsAtStep(16, totalSteps),
+                notes = "Sample pharmacy bill",
+                payeeOrPayer = "Lazz Pharma"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_entertainment",
+                type = TransactionType.EXPENSE,
+                amount = 850.0,
+                title = "Streaming Subscription Bundle",
+                category = "Entertainment",
+                subcategory = "Streaming Services",
+                accountId = "acc_sample_card",
+                timestamp = tsAtStep(17, totalSteps),
+                notes = "Sample monthly entertainment subscription",
+                isRecurring = true,
+                payeeOrPayer = "StreamHub"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_personal_care",
+                type = TransactionType.EXPENSE,
+                amount = 750.0,
+                title = "Haircut & Grooming",
+                category = "Personal Care",
+                subcategory = "Salon & Grooming",
+                accountId = "acc_sample_cash",
+                timestamp = tsAtStep(18, totalSteps),
+                notes = "Sample salon service",
+                payeeOrPayer = "Urban Grooming Studio"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_groceries_veg",
+                type = TransactionType.EXPENSE,
+                amount = 3200.0,
+                title = "Fresh Vegetables & Fish Market",
+                category = "Groceries",
+                subcategory = "Produce & Vegetables",
+                accountId = "acc_sample_cash",
+                timestamp = tsAtStep(19, totalSteps),
+                notes = "Sample weekly fresh groceries",
+                payeeOrPayer = "Green Harvest Market"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_groceries_pantry",
+                type = TransactionType.EXPENSE,
+                amount = 2100.0,
+                title = "Rice, Lentils & Cooking Oil",
+                category = "Groceries",
+                subcategory = "Pantry Staples",
+                accountId = "acc_sample_nagad",
+                timestamp = tsAtStep(20, totalSteps),
+                notes = "Sample supermarket pantry restock",
+                payeeOrPayer = "Shwapno Superstore"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_travel",
+                type = TransactionType.EXPENSE,
+                amount = 5500.0,
+                title = "Weekend Resort Booking",
+                category = "Travel",
+                subcategory = "Hotel & Lodging",
+                accountId = "acc_sample_bank",
+                timestamp = tsAtStep(21, totalSteps),
+                notes = "Sample weekend getaway hotel stay",
+                payeeOrPayer = "Sylhet Valley Resort"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_family",
+                type = TransactionType.EXPENSE,
+                amount = 6000.0,
+                title = "Parents Monthly Allowance",
+                category = "Family",
+                subcategory = "Parents Support",
+                accountId = "acc_sample_nagad",
+                timestamp = tsAtStep(22, totalSteps),
+                notes = "Sample monthly support sent home",
+                isRecurring = true,
+                payeeOrPayer = "Parents"
+            ),
+            TransactionEntity(
+                id = "tx_sample_exp_other",
+                type = TransactionType.EXPENSE,
+                amount = 1000.0,
+                title = "Community Charity Contribution",
+                category = "Other Expenses",
+                subcategory = "Donations & Charity",
+                accountId = "acc_sample_cash",
+                timestamp = tsAtStep(23, totalSteps),
+                notes = "Sample charitable donation",
+                payeeOrPayer = "Local Community Welfare"
+            ),
+
+            // --- Credit Card Bill Payment ---
+            TransactionEntity(
+                id = "tx_sample_cc_payment",
+                type = TransactionType.CC_PAYMENT,
+                amount = 6500.0,
+                title = "Credit Card Statement Payment",
+                category = "Bank Transfer",
+                subcategory = "Account to Account",
+                accountId = "acc_sample_bank",
+                toAccountId = "acc_sample_card",
+                timestamp = tsAtStep(24, totalSteps),
+                notes = "Sample credit card statement payment from debit bank account",
+                payeeOrPayer = "Standard Chartered Bank"
+            ),
+
+            // --- Loans & Debts: Borrowed (Payable) + Partial Repayment + Settled ---
+            TransactionEntity(
+                id = "tx_sample_borrow_arian",
+                type = TransactionType.BORROW,
+                amount = 18000.0,
+                title = "Medical Emergency Loan Borrowed",
+                category = "Other Income",
+                subcategory = "Miscellaneous",
+                accountId = "acc_sample_bank",
+                timestamp = tsAtStep(25, totalSteps),
+                notes = "Sample borrowed amount from Arian Chowdhury [Debt:debt_sample_borrow_arian]",
+                payeeOrPayer = "Arian Chowdhury",
+                debtId = "debt_sample_borrow_arian"
+            ),
+            TransactionEntity(
+                id = "tx_sample_repay_arian_1",
+                type = TransactionType.EXPENSE,
+                amount = 6000.0,
+                title = "Loan 1st Installment Repayment",
+                category = "Debt Repayment",
+                subcategory = "Installment (EMI)",
+                accountId = "acc_sample_bank",
+                timestamp = tsAtStep(26, totalSteps),
+                notes = "Sample partial repayment (৳6,000 of ৳18,000) to Arian Chowdhury [Debt:debt_sample_borrow_arian]",
+                payeeOrPayer = "Arian Chowdhury",
+                debtId = "debt_sample_borrow_arian"
+            ),
+            TransactionEntity(
+                id = "tx_sample_borrow_farhan",
+                type = TransactionType.BORROW,
+                amount = 10000.0,
+                title = "Short-Term Project Loan Borrowed",
+                category = "Other Income",
+                subcategory = "Miscellaneous",
+                accountId = "acc_sample_nagad",
+                timestamp = tsAtStep(25, totalSteps),
+                notes = "Sample borrowed amount from Farhan Kabir [Debt:debt_sample_borrow_farhan]",
+                payeeOrPayer = "Farhan Kabir",
+                debtId = "debt_sample_borrow_farhan"
+            ),
+            TransactionEntity(
+                id = "tx_sample_settle_farhan",
+                type = TransactionType.EXPENSE,
+                amount = 10000.0,
+                title = "Loan Full Settlement Repayment",
+                category = "Debt Repayment",
+                subcategory = "Loan Principal",
+                accountId = "acc_sample_bank",
+                timestamp = tsAtStep(28, totalSteps),
+                notes = "Sample full settlement repayment (৳10,000) to Farhan Kabir [Debt:debt_sample_borrow_farhan]",
+                payeeOrPayer = "Farhan Kabir",
+                debtId = "debt_sample_borrow_farhan"
+            ),
+
+            // --- Loans & Debts: Lent (Receivable) + Partial Collection + Settled ---
+            TransactionEntity(
+                id = "tx_sample_lend_nabila",
+                type = TransactionType.LEND,
+                amount = 9000.0,
+                title = "Education Support Loan Lent",
+                category = "Other Expenses",
+                subcategory = "General Miscellaneous",
+                accountId = "acc_sample_bkash",
+                timestamp = tsAtStep(26, totalSteps),
+                notes = "Sample loan lent to Nabila Rahman for semester fees [Debt:debt_sample_lend_nabila]",
+                payeeOrPayer = "Nabila Rahman",
+                debtId = "debt_sample_lend_nabila"
+            ),
+            TransactionEntity(
+                id = "tx_sample_collect_nabila_1",
+                type = TransactionType.INCOME,
+                amount = 4000.0,
+                title = "Loan Partial Repayment Received Back",
+                category = "Other Income",
+                subcategory = "Miscellaneous",
+                accountId = "acc_sample_bkash",
+                timestamp = tsAtStep(27, totalSteps),
+                notes = "Sample partial installment (৳4,000 of ৳9,000) received from Nabila Rahman [Debt:debt_sample_lend_nabila]",
+                payeeOrPayer = "Nabila Rahman",
+                debtId = "debt_sample_lend_nabila"
+            ),
+            TransactionEntity(
+                id = "tx_sample_lend_rafi",
+                type = TransactionType.LEND,
+                amount = 10000.0,
+                title = "Friendly Assistance Loan Lent",
+                category = "Other Expenses",
+                subcategory = "General Miscellaneous",
+                accountId = "acc_sample_bank",
+                timestamp = tsAtStep(26, totalSteps),
+                notes = "Sample short-term assistance lent to Rafi Hasan [Debt:debt_sample_lend_rafi]",
+                payeeOrPayer = "Rafi Hasan",
+                debtId = "debt_sample_lend_rafi"
+            ),
+            TransactionEntity(
+                id = "tx_sample_collect_rafi",
+                type = TransactionType.INCOME,
+                amount = 10000.0,
+                title = "Loan Full Settlement Received Back",
+                category = "Other Income",
+                subcategory = "Miscellaneous",
+                accountId = "acc_sample_bank",
+                timestamp = tsAtStep(29, totalSteps),
+                notes = "Sample full settlement (৳10,000) received from Rafi Hasan [Debt:debt_sample_lend_rafi]",
+                payeeOrPayer = "Rafi Hasan",
+                debtId = "debt_sample_lend_rafi"
+            )
+        )
+
+        // 4. Sample Accounts across all types (Cash, bKash MFS, Nagad MFS, Bank Debit Card, Credit Card)
+        // Balances are computed dynamically from openingBalance + exact transaction deltas so every account reconciles 100%.
+        val baseAccounts = listOf(
+            AccountEntity(
+                id = "acc_sample_cash",
+                name = "Cash Wallet",
+                type = AccountType.CASH,
+                institution = "Physical Cash",
+                openingBalance = 8000.0,
+                colorHex = "#10B981",
+                iconName = "payments",
+                sortOrder = 0,
+                notes = "Daily pocket & household cash",
+                includeInTotal = true
+            ),
+            AccountEntity(
+                id = "acc_sample_bkash",
+                name = "bKash Personal",
+                type = AccountType.MFS,
+                institution = "bKash Limited",
+                openingBalance = 18000.0,
+                accountNumberLast4 = "0171",
+                colorHex = "#E2136E",
+                iconName = "phone_android",
+                sortOrder = 1,
+                notes = "Mobile wallet for daily merchant & peer payments",
+                includeInTotal = true
+            ),
+            AccountEntity(
+                id = "acc_sample_nagad",
+                name = "Nagad Personal",
+                type = AccountType.MFS,
+                institution = "Nagad Limited",
+                openingBalance = 12000.0,
+                accountNumberLast4 = "0182",
+                colorHex = "#F26522",
+                iconName = "phone_android",
+                sortOrder = 2,
+                notes = "Secondary mobile wallet for utilities & cashback",
+                includeInTotal = true
+            ),
+            AccountEntity(
+                id = "acc_sample_bank",
+                name = "City Bank Debit Card",
+                type = AccountType.BANK,
+                institution = "City Bank PLC",
+                openingBalance = 45000.0,
+                accountNumberLast4 = "4821",
+                colorHex = "#2563EB",
+                iconName = "account_balance",
+                sortOrder = 3,
+                notes = "Subtype:Salary Account\nNetwork:Visa",
+                includeInTotal = true
+            ),
+            AccountEntity(
+                id = "acc_sample_card",
+                name = "Standard Visa Platinum",
+                type = AccountType.CREDIT_CARD,
+                institution = "Standard Chartered",
+                openingBalance = 0.0,
+                accountNumberLast4 = "9204",
+                creditLimit = 150000.0,
+                billingDate = "15",
+                paymentDueDate = "05",
+                minPayment = 2500.0,
+                colorHex = "#8B5CF6",
+                iconName = "credit_card",
+                sortOrder = 4,
+                notes = "Network:Visa",
+                includeInTotal = true
+            )
+        )
+
+        val accounts = baseAccounts.map { acc ->
+            val delta = transactions.sumOf { tx ->
+                FinancialIntegrityValidator.computeSingleTxBalanceDelta(tx, acc.id)
+            }
+            acc.copy(balance = acc.openingBalance + delta)
         }
-        root.put("accounts", accountsArr)
 
-        // Fictional Categories
-        val catArr = JSONArray().apply {
-            put(JSONObject().apply {
-                put("id", "cat_fictional_salary")
-                put("name", "Salary")
-                put("nameBn", "বেতন")
-                put("isIncome", true)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "payments")
-                put("colorHex", "#10B981")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_essentials")
-                put("name", "Daily Essentials")
-                put("nameBn", "দৈনন্দিন বাজার")
-                put("isIncome", false)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "shopping_cart")
-                put("colorHex", "#10B981")
-                put("sortOrder", 2)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_eating")
-                put("name", "Eating Out")
-                put("nameBn", "বাইরে খাওয়া")
-                put("isIncome", false)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "restaurant")
-                put("colorHex", "#F59E0B")
-                put("sortOrder", 3)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_rent")
-                put("name", "Rent & Utilities")
-                put("nameBn", "ভাড়া ও ইউটিলিটি")
-                put("isIncome", false)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "home")
-                put("colorHex", "#3B82F6")
-                put("sortOrder", 4)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_shopping")
-                put("name", "Shopping")
-                put("nameBn", "কেনাকাটা")
-                put("isIncome", false)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "checkroom")
-                put("colorHex", "#EC4899")
-                put("sortOrder", 5)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_transfer")
-                put("name", "Transfer")
-                put("nameBn", "স্থানান্তর")
-                put("isIncome", false)
-                put("isTransfer", true)
-                put("isActive", true)
-                put("iconName", "swap_horiz")
-                put("colorHex", "#6366F1")
-                put("sortOrder", 6)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_financial")
-                put("name", "Financial")
-                put("nameBn", "আর্থিক")
-                put("isIncome", false)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "credit_card")
-                put("colorHex", "#0EA5E9")
-                put("sortOrder", 7)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_borrow")
-                put("name", "Debt / Borrow")
-                put("nameBn", "ধার / ঋণ")
-                put("isIncome", true)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "handshake")
-                put("colorHex", "#0EA5E9")
-                put("sortOrder", 8)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_repay")
-                put("name", "Debt Repayment")
-                put("nameBn", "ঋণ পরিশোধ")
-                put("isIncome", false)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "receipt_long")
-                put("colorHex", "#8B5CF6")
-                put("sortOrder", 9)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_lend")
-                put("name", "Lend Money")
-                put("nameBn", "ঋণ প্রদান")
-                put("isIncome", false)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "volunteer_activism")
-                put("colorHex", "#EC4899")
-                put("sortOrder", 10)
-            })
-            put(JSONObject().apply {
-                put("id", "cat_fictional_money_rcv")
-                put("name", "Money Received")
-                put("nameBn", "টাকা প্রাপ্তি")
-                put("isIncome", true)
-                put("isTransfer", false)
-                put("isActive", true)
-                put("iconName", "payments")
-                put("colorHex", "#10B981")
-                put("sortOrder", 11)
-            })
-        }
-        root.put("categories", catArr)
+        // 5. Monthly Budgets matching BudgetEntity & JsonBackupManager
+        val budgets = listOf(
+            BudgetEntity(
+                id = "bgt_sample_food",
+                categoryName = "Food & Dining",
+                monthlyLimit = 6000.0,
+                monthYear = currentMonthKey,
+                isOverall = false,
+                rolloverEnabled = false,
+                name = "Food & Dining",
+                iconName = "restaurant",
+                colorHex = "#F59E0B",
+                alertPercentage = 80
+            ),
+            BudgetEntity(
+                id = "bgt_sample_groceries",
+                categoryName = "Groceries",
+                monthlyLimit = 10000.0,
+                monthYear = currentMonthKey,
+                isOverall = false,
+                rolloverEnabled = false,
+                name = "Groceries",
+                iconName = "shopping_cart",
+                colorHex = "#10B981",
+                alertPercentage = 80
+            ),
+            BudgetEntity(
+                id = "bgt_sample_rent",
+                categoryName = "Rent & Utilities",
+                monthlyLimit = 22000.0,
+                monthYear = currentMonthKey,
+                isOverall = false,
+                rolloverEnabled = false,
+                name = "Rent & Utilities",
+                iconName = "home",
+                colorHex = "#3B82F6",
+                alertPercentage = 85
+            ),
+            BudgetEntity(
+                id = "bgt_sample_shopping",
+                categoryName = "Shopping",
+                monthlyLimit = 12000.0,
+                monthYear = currentMonthKey,
+                isOverall = false,
+                rolloverEnabled = false,
+                name = "Shopping",
+                iconName = "shopping_bag",
+                colorHex = "#EC4899",
+                alertPercentage = 80
+            ),
+            BudgetEntity(
+                id = "bgt_sample_transport",
+                categoryName = "Transportation",
+                monthlyLimit = 3000.0,
+                monthYear = currentMonthKey,
+                isOverall = false,
+                rolloverEnabled = false,
+                name = "Transportation",
+                iconName = "directions_car",
+                colorHex = "#6366F1",
+                alertPercentage = 80
+            )
+        )
 
-        // Fictional Subcategories with valid category references
-        val subArr = JSONArray().apply {
-            put(JSONObject().apply {
-                put("id", "sub_fictional_salary_monthly")
-                put("categoryId", "cat_fictional_salary")
-                put("name", "Monthly Salary")
-                put("nameBn", "মাসিক বেতন")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_groceries")
-                put("categoryId", "cat_fictional_essentials")
-                put("name", "Groceries")
-                put("nameBn", "মুদি বাজার")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_pharmacy")
-                put("categoryId", "cat_fictional_essentials")
-                put("name", "Medicines")
-                put("nameBn", "ওষুধ")
-                put("sortOrder", 2)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_restaurant")
-                put("categoryId", "cat_fictional_eating")
-                put("name", "Restaurant")
-                put("nameBn", "রেস্তোরাঁ")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_house_rent")
-                put("categoryId", "cat_fictional_rent")
-                put("name", "House Rent")
-                put("nameBn", "বাড়ি ভাড়া")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_clothing")
-                put("categoryId", "cat_fictional_shopping")
-                put("name", "Clothing")
-                put("nameBn", "পোশাক")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_electronics")
-                put("categoryId", "cat_fictional_shopping")
-                put("name", "Electronics")
-                put("nameBn", "ইলেকট্রনিক্স")
-                put("sortOrder", 2)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_transfer_atm")
-                put("categoryId", "cat_fictional_transfer")
-                put("name", "Account Transfer")
-                put("nameBn", "অ্যাকাউন্ট ট্রান্সফার")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_financial_cc")
-                put("categoryId", "cat_fictional_financial")
-                put("name", "Credit Card Payment")
-                put("nameBn", "ক্রেডিট কার্ড পরিশোধ")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_borrow_funds")
-                put("categoryId", "cat_fictional_borrow")
-                put("name", "Bank Loan")
-                put("nameBn", "ব্যাংক ঋণ")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_repay_inst")
-                put("categoryId", "cat_fictional_repay")
-                put("name", "Installment")
-                put("nameBn", "কিস্তি")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_repay_settle")
-                put("categoryId", "cat_fictional_repay")
-                put("name", "Final Settlement")
-                put("nameBn", "চূড়ান্ত পরিশোধ")
-                put("sortOrder", 2)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_lend_loan")
-                put("categoryId", "cat_fictional_lend")
-                put("name", "Personal Loan")
-                put("nameBn", "ব্যক্তিগত ঋণ")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_rcv_inst")
-                put("categoryId", "cat_fictional_money_rcv")
-                put("name", "From Family/Friend")
-                put("nameBn", "পরিবার/বন্ধু হতে")
-                put("sortOrder", 1)
-            })
-            put(JSONObject().apply {
-                put("id", "sub_fictional_rcv_settle")
-                put("categoryId", "cat_fictional_money_rcv")
-                put("name", "Settlement Return")
-                put("nameBn", "চূড়ান্ত ফেরত")
-                put("sortOrder", 2)
-            })
-        }
-        root.put("subcategories", subArr)
+        // 6. Loans & Debts covering BOTH Lent (Receivable) & Borrowed (Payable) with partial & settled histories
+        val debts = listOf(
+            DebtEntity(
+                id = "debt_sample_borrow_arian",
+                personName = "Arian Chowdhury",
+                amount = 12000.0,
+                totalAmount = 18000.0,
+                paidAmount = 6000.0,
+                type = DebtType.BORROWED,
+                dueDate = dateStrDaysFromNow(45),
+                notes = "Sample medical emergency support loan (1 installment paid)",
+                isSettled = false,
+                accountId = "acc_sample_bank",
+                reason = "Medical Emergency",
+                colorHex = "#EF4444",
+                tentativeCloseDateStr = dateStrDaysFromNow(45),
+                tags = "Medical, Installment"
+            ),
+            DebtEntity(
+                id = "debt_sample_borrow_farhan",
+                personName = "Farhan Kabir",
+                amount = 0.0,
+                totalAmount = 10000.0,
+                paidAmount = 10000.0,
+                type = DebtType.BORROWED,
+                dueDate = dateStrDaysFromNow(-2),
+                notes = "Sample project bridge loan - fully settled",
+                isSettled = true,
+                accountId = "acc_sample_nagad",
+                reason = "Project Bridge",
+                colorHex = "#10B981",
+                tentativeCloseDateStr = dateStrDaysFromNow(-2),
+                tags = "Settled"
+            ),
+            DebtEntity(
+                id = "debt_sample_lend_nabila",
+                personName = "Nabila Rahman",
+                amount = 5000.0,
+                totalAmount = 9000.0,
+                paidAmount = 4000.0,
+                type = DebtType.LENT,
+                dueDate = dateStrDaysFromNow(30),
+                notes = "Sample college education loan (partial repayment received)",
+                isSettled = false,
+                accountId = "acc_sample_bkash",
+                reason = "Semester Fees",
+                colorHex = "#3B82F6",
+                tentativeCloseDateStr = dateStrDaysFromNow(30),
+                tags = "Education, Receivable"
+            ),
+            DebtEntity(
+                id = "debt_sample_lend_rafi",
+                personName = "Rafi Hasan",
+                amount = 0.0,
+                totalAmount = 10000.0,
+                paidAmount = 10000.0,
+                type = DebtType.LENT,
+                dueDate = dateStrDaysFromNow(-1),
+                notes = "Sample friendly assistance - fully collected",
+                isSettled = true,
+                accountId = "acc_sample_bank",
+                reason = "Friendly Loan",
+                colorHex = "#10B981",
+                tentativeCloseDateStr = dateStrDaysFromNow(-1),
+                tags = "Settled"
+            )
+        )
 
-        // Complete set of 17 Fictional Transactions covering all supported types
-        val txArr = JSONArray().apply {
-            // 1. Income (Corporate Salary)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_inc_1")
-                put("type", "INCOME")
-                put("amount", 75000.0)
-                put("title", "Monthly Corporate Salary")
-                put("category", "Salary")
-                put("subcategory", "Monthly Salary")
-                put("accountId", "acc_fictional_bank")
-                put("timestamp", 1791244800000L) // Oct 05, 2026
-                put("payeeOrPayer", "Tech Innovations Ltd.")
-                put("notes", "Fictional corporate salary credit for October")
-                put("isRecurring", true)
-            })
+        // 7. Savings Goals matching SavingsGoalEntity & JsonBackupManager
+        val futureDeadlineCal = (nowCal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 180) }
+        val savingsGoals = listOf(
+            SavingsGoalEntity(
+                id = "goal_sample_emergency",
+                name = "Emergency Reserve Fund",
+                targetAmount = 100000.0,
+                savedAmount = 45000.0,
+                themeColorHex = "#06B6D4",
+                iconName = "savings",
+                targetDeadline = futureDeadlineCal.timeInMillis,
+                targetDeadlineStr = dateStrDaysFromNow(180),
+                createdAt = monthStartMillis,
+                isCompleted = false
+            ),
+            SavingsGoalEntity(
+                id = "goal_sample_workstation",
+                name = "Home Workstation Upgrade",
+                targetAmount = 35000.0,
+                savedAmount = 35000.0,
+                themeColorHex = "#10B981",
+                iconName = "laptop",
+                targetDeadline = referenceTimeMillis,
+                targetDeadlineStr = dateStrDaysFromNow(0),
+                createdAt = monthStartMillis,
+                isCompleted = true
+            )
+        )
 
-            // 2. Wallet-to-wallet transfer (Bank -> Cash)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_trf_1")
-                put("type", "TRANSFER")
-                put("amount", 15000.0)
-                put("title", "ATM Cash Withdrawal to Pocket")
-                put("category", "Transfer")
-                put("subcategory", "Account Transfer")
-                put("accountId", "acc_fictional_bank")
-                put("toAccountId", "acc_fictional_cash")
-                put("timestamp", 1791504000000L) // Oct 08, 2026
-                put("payeeOrPayer", "Self Transfer")
-                put("notes", "Fictional cash withdrawal for grocery and household expenses")
-                put("isRecurring", false)
-            })
+        // Serialize to JSON matching JsonBackupManager.createBackupJson() exactly
+        root.put("accounts", JSONArray().apply {
+            accounts.forEach { acc ->
+                put(JSONObject().apply {
+                    put("id", acc.id)
+                    put("name", acc.name)
+                    put("type", acc.type.name)
+                    put("institution", acc.institution)
+                    put("balance", acc.balance)
+                    put("openingBalance", acc.openingBalance)
+                    put("accountNumberLast4", acc.accountNumberLast4)
+                    put("colorHex", acc.colorHex)
+                    put("iconName", acc.iconName)
+                    put("isHidden", acc.isHidden)
+                    put("sortOrder", acc.sortOrder)
+                    put("creditLimit", acc.creditLimit)
+                    put("billingDate", acc.billingDate)
+                    put("paymentDueDate", acc.paymentDueDate)
+                    put("minPayment", acc.minPayment)
+                    put("notes", acc.notes)
+                    put("includeInTotal", acc.includeInTotal)
+                })
+            }
+        })
 
-            // 3. Expense (Cash Groceries)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_exp_grocery")
-                put("type", "EXPENSE")
-                put("amount", 4350.0)
-                put("title", "Supermarket Weekly Groceries")
-                put("category", "Daily Essentials")
-                put("subcategory", "Groceries")
-                put("accountId", "acc_fictional_cash")
-                put("timestamp", 1791849600000L) // Oct 12, 2026
-                put("payeeOrPayer", "Green Harvest Mart")
-                put("notes", "Fictional pantry essentials and household goods")
-                put("isRecurring", false)
-            })
+        root.put("transactions", JSONArray().apply {
+            transactions.forEach { tx ->
+                put(JSONObject().apply {
+                    put("id", tx.id)
+                    put("type", tx.type.name)
+                    put("amount", tx.amount)
+                    put("title", tx.title)
+                    put("category", tx.category)
+                    put("subcategory", tx.subcategory)
+                    put("accountId", tx.accountId)
+                    if (!tx.toAccountId.isNullOrBlank()) put("toAccountId", tx.toAccountId)
+                    put("timestamp", tx.timestamp)
+                    put("notes", tx.notes)
+                    put("isRecurring", tx.isRecurring)
+                    put("payeeOrPayer", tx.payeeOrPayer)
+                    if (!tx.debtId.isNullOrBlank()) put("debtId", tx.debtId)
+                })
+            }
+        })
 
-            // 4. Expense on Credit Card (Shopping)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_exp_shopping")
-                put("type", "EXPENSE")
-                put("amount", 8500.0)
-                put("title", "Seasonal Work Apparel")
-                put("category", "Shopping")
-                put("subcategory", "Clothing")
-                put("accountId", "acc_fictional_card")
-                put("timestamp", 1791849600000L) // Oct 12, 2026
-                put("payeeOrPayer", "Apex Tailors")
-                put("notes", "Fictional clothing purchase on credit card")
-                put("isRecurring", false)
-            })
+        root.put("categories", JSONArray().apply {
+            categories.forEach { cat ->
+                put(JSONObject().apply {
+                    put("id", cat.id)
+                    put("name", cat.name)
+                    put("nameBn", cat.nameBn)
+                    put("isIncome", cat.isIncome)
+                    put("isTransfer", cat.isTransfer)
+                    put("isActive", cat.isActive)
+                    put("iconName", cat.iconName)
+                    put("colorHex", cat.colorHex)
+                    put("sortOrder", cat.sortOrder)
+                })
+            }
+        })
 
-            // 5. Expense (Dining Out)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_exp_dining")
-                put("type", "EXPENSE")
-                put("amount", 1650.0)
-                put("title", "Family Weekend Dinner")
-                put("category", "Eating Out")
-                put("subcategory", "Restaurant")
-                put("accountId", "acc_fictional_cash")
-                put("timestamp", 1792108800000L) // Oct 15, 2026
-                put("payeeOrPayer", "Spice Garden Cafe")
-                put("notes", "Fictional weekend dinner with family")
-                put("isRecurring", false)
-            })
+        root.put("subcategories", JSONArray().apply {
+            subcategories.forEach { sub ->
+                put(JSONObject().apply {
+                    put("id", sub.id)
+                    put("categoryId", sub.categoryId)
+                    put("name", sub.name)
+                    put("nameBn", sub.nameBn)
+                    put("sortOrder", sub.sortOrder)
+                })
+            }
+        })
 
-            // 6. Expense (Apartment Rent from Bank)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_exp_rent")
-                put("type", "EXPENSE")
-                put("amount", 16000.0)
-                put("title", "Apartment Rent & Utility Bill")
-                put("category", "Rent & Utilities")
-                put("subcategory", "House Rent")
-                put("accountId", "acc_fictional_bank")
-                put("timestamp", 1792368000000L) // Oct 18, 2026
-                put("payeeOrPayer", "Skyline Property Management")
-                put("notes", "Fictional monthly rent and utility billing")
-                put("isRecurring", false)
-            })
+        root.put("budgets", JSONArray().apply {
+            budgets.forEach { b ->
+                put(JSONObject().apply {
+                    put("id", b.id)
+                    put("categoryName", b.categoryName)
+                    put("monthlyLimit", b.monthlyLimit)
+                    put("monthYear", b.monthYear)
+                    put("isOverall", b.isOverall)
+                    put("rolloverEnabled", b.rolloverEnabled)
+                    put("name", b.name)
+                    put("subcategoryName", b.subcategoryName)
+                    put("iconName", b.iconName)
+                    put("colorHex", b.colorHex)
+                    put("alertPercentage", b.alertPercentage)
+                })
+            }
+        })
 
-            // 7. Borrowed money received (Partial Debt: Arian Chowdhury)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_borrow_arian")
-                put("type", "BORROW")
-                put("amount", 18000.0)
-                put("title", "Emergency Medical Loan Borrowed")
-                put("category", "Debt / Borrow")
-                put("subcategory", "Bank Loan")
-                put("accountId", "acc_fictional_bank")
-                put("timestamp", 1792540800000L) // Oct 20, 2026
-                put("payeeOrPayer", "Arian Chowdhury")
-                put("debtId", "debt_fictional_borrow_arian")
-                put("notes", "Fictional borrowed funds from Arian Chowdhury for temporary medical emergency [Debt:debt_fictional_borrow_arian]")
-                put("isRecurring", false)
-            })
+        root.put("debts", JSONArray().apply {
+            debts.forEach { d ->
+                put(JSONObject().apply {
+                    put("id", d.id)
+                    put("personName", d.personName)
+                    put("amount", d.amount)
+                    put("totalAmount", d.totalAmount)
+                    put("paidAmount", d.paidAmount)
+                    put("type", d.type.name)
+                    put("dueDate", d.dueDate)
+                    put("notes", d.notes)
+                    put("isSettled", d.isSettled)
+                    put("accountId", d.accountId)
+                    put("reason", d.reason)
+                    put("colorHex", d.colorHex)
+                    put("tentativeCloseDateStr", d.tentativeCloseDateStr)
+                    put("tags", d.tags)
+                })
+            }
+        })
 
-            // 8. Borrowed money received (Settled Debt: Farhan Kabir)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_borrow_farhan")
-                put("type", "BORROW")
-                put("amount", 10000.0)
-                put("title", "Project Bridge Loan Borrowed")
-                put("category", "Debt / Borrow")
-                put("subcategory", "Bank Loan")
-                put("accountId", "acc_fictional_bank")
-                put("timestamp", 1792713600000L) // Oct 22, 2026
-                put("payeeOrPayer", "Farhan Kabir")
-                put("debtId", "debt_fictional_borrow_farhan")
-                put("notes", "Fictional short-term borrowed amount from Farhan Kabir [Debt:debt_fictional_borrow_farhan]")
-                put("isRecurring", false)
-            })
-
-            // 9. Debt repayment - Partial installment (to Arian Chowdhury)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_repay_arian")
-                put("type", "EXPENSE")
-                put("amount", 6000.0)
-                put("title", "Loan 1st Installment Repayment")
-                put("category", "Debt Repayment")
-                put("subcategory", "Installment")
-                put("accountId", "acc_fictional_bank")
-                put("timestamp", 1792713600000L) // Oct 22, 2026
-                put("payeeOrPayer", "Arian Chowdhury")
-                put("debtId", "debt_fictional_borrow_arian")
-                put("notes", "Fictional 1st installment repayment (৳6,000 of ৳18,000) to Arian Chowdhury [Debt:debt_fictional_borrow_arian]")
-                put("isRecurring", false)
-            })
-
-            // 10. Money lent (to Nabila Rahman - Partial)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_lend_nabila")
-                put("type", "LEND")
-                put("amount", 8000.0)
-                put("title", "Money Lent for Education")
-                put("category", "Lend Money")
-                put("subcategory", "Personal Loan")
-                put("accountId", "acc_fictional_mfs")
-                put("timestamp", 1792713600000L) // Oct 22, 2026
-                put("payeeOrPayer", "Nabila Rahman")
-                put("debtId", "debt_fictional_lend_nabila")
-                put("notes", "Fictional personal loan lent to Nabila Rahman for college books [Debt:debt_fictional_lend_nabila]")
-                put("isRecurring", false)
-            })
-
-            // 11. Money lent (to Rafi Hasan - for Full Settlement)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_lend_rafi")
-                put("type", "LEND")
-                put("amount", 12000.0)
-                put("title", "Short-Term Friendly Loan Lent")
-                put("category", "Lend Money")
-                put("subcategory", "Personal Loan")
-                put("accountId", "acc_fictional_mfs")
-                put("timestamp", 1792713600000L) // Oct 22, 2026
-                put("payeeOrPayer", "Rafi Hasan")
-                put("debtId", "debt_fictional_lend_rafi")
-                put("notes", "Fictional short-term assistance lent to Rafi Hasan [Debt:debt_fictional_lend_rafi]")
-                put("isRecurring", false)
-            })
-
-            // 12. Credit Card Payment (Bank -> Card)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_cc_pay")
-                put("type", "CC_PAYMENT")
-                put("amount", 8500.0)
-                put("title", "Credit Card Full Statement Payment")
-                put("category", "Financial")
-                put("subcategory", "Credit Card Payment")
-                put("accountId", "acc_fictional_bank")
-                put("toAccountId", "acc_fictional_card")
-                put("timestamp", 1792713600000L) // Oct 22, 2026
-                put("payeeOrPayer", "Standard Chartered Bank")
-                put("notes", "Fictional statement payment for Visa Platinum from Bank")
-                put("isRecurring", false)
-            })
-
-            // 13. Debt repayment - Full settlement (to Farhan Kabir)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_settle_farhan")
-                put("type", "EXPENSE")
-                put("amount", 10000.0)
-                put("title", "Loan Full Settlement")
-                put("category", "Debt Repayment")
-                put("subcategory", "Final Settlement")
-                put("accountId", "acc_fictional_bank")
-                put("timestamp", 1792886400000L) // Oct 24, 2026
-                put("payeeOrPayer", "Farhan Kabir")
-                put("debtId", "debt_fictional_borrow_farhan")
-                put("notes", "Fictional full settlement payment (৳10,000) to Farhan Kabir [Debt:debt_fictional_borrow_farhan]")
-                put("isRecurring", false)
-            })
-
-            // 14. Repayment received for money lent - Partial collection (from Nabila Rahman)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_collect_nabila")
-                put("type", "INCOME")
-                put("amount", 3000.0)
-                put("title", "Loan Partial Repayment Received")
-                put("category", "Money Received")
-                put("subcategory", "From Family/Friend")
-                put("accountId", "acc_fictional_mfs")
-                put("timestamp", 1792972800000L) // Oct 25, 2026
-                put("payeeOrPayer", "Nabila Rahman")
-                put("debtId", "debt_fictional_lend_nabila")
-                put("notes", "Fictional partial installment (৳3,000 of ৳8,000) received from Nabila Rahman [Debt:debt_fictional_lend_nabila]")
-                put("isRecurring", false)
-            })
-
-            // 15. Repayment received for money lent - Full settlement (from Rafi Hasan into Bank)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_collect_rafi")
-                put("type", "INCOME")
-                put("amount", 12000.0)
-                put("title", "Full Settlement Received for Loan")
-                put("category", "Money Received")
-                put("subcategory", "Settlement Return")
-                put("accountId", "acc_fictional_bank")
-                put("timestamp", 1793059200000L) // Oct 26, 2026
-                put("payeeOrPayer", "Rafi Hasan")
-                put("debtId", "debt_fictional_lend_rafi")
-                put("notes", "Fictional complete settlement (৳12,000) received from Rafi Hasan [Debt:debt_fictional_lend_rafi]")
-                put("isRecurring", false)
-            })
-
-            // 16. Expense on Credit Card (Electronics)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_exp_electronics")
-                put("type", "EXPENSE")
-                put("amount", 4500.0)
-                put("title", "Wireless Bluetooth Headphones")
-                put("category", "Shopping")
-                put("subcategory", "Electronics")
-                put("accountId", "acc_fictional_card")
-                put("timestamp", 1793059200000L) // Oct 26, 2026
-                put("payeeOrPayer", "Gadget Galaxy")
-                put("notes", "Fictional electronics purchase on credit card")
-                put("isRecurring", false)
-            })
-
-            // 17. Expense on MFS (Health / Pharmacy)
-            put(JSONObject().apply {
-                put("id", "tx_fictional_exp_pharmacy")
-                put("type", "EXPENSE")
-                put("amount", 1200.0)
-                put("title", "Family Health & First Aid Supplies")
-                put("category", "Daily Essentials")
-                put("subcategory", "Medicines")
-                put("accountId", "acc_fictional_mfs")
-                put("timestamp", 1793145600000L) // Oct 27, 2026
-                put("payeeOrPayer", "MedPlus Pharmacy")
-                put("notes", "Fictional first-aid and medical supplies")
-                put("isRecurring", false)
-            })
-        }
-        root.put("transactions", txArr)
-
-        // Fictional Debts with reconciled principal, paid amounts, and outstanding balance
-        val debtArr = JSONArray().apply {
-            // 1. Borrowed from Arian Chowdhury (Active, Partial Repaid: 18,000 - 6,000 = 12,000)
-            put(JSONObject().apply {
-                put("id", "debt_fictional_borrow_arian")
-                put("personName", "Arian Chowdhury")
-                put("amount", 12000.0)
-                put("totalAmount", 18000.0)
-                put("paidAmount", 6000.0)
-                put("type", "BORROWED")
-                put("dueDate", "2026-12-31")
-                put("notes", "Fictional medical emergency support loan")
-                put("reason", "Medical Emergency")
-                put("isSettled", false)
-                put("accountId", "acc_fictional_bank")
-                put("colorHex", "#EF4444")
-            })
-
-            // 2. Borrowed from Farhan Kabir (Settled: 10,000 - 10,000 = 0.0)
-            put(JSONObject().apply {
-                put("id", "debt_fictional_borrow_farhan")
-                put("personName", "Farhan Kabir")
-                put("amount", 0.0)
-                put("totalAmount", 10000.0)
-                put("paidAmount", 10000.0)
-                put("type", "BORROWED")
-                put("dueDate", "2026-10-31")
-                put("notes", "Fictional bridge loan - fully settled")
-                put("reason", "Project Bridge")
-                put("isSettled", true)
-                put("accountId", "acc_fictional_bank")
-                put("colorHex", "#10B981")
-            })
-
-            // 3. Lent to Nabila Rahman (Active, Partial Repaid: 8,000 - 3,000 = 5,000)
-            put(JSONObject().apply {
-                put("id", "debt_fictional_lend_nabila")
-                put("personName", "Nabila Rahman")
-                put("amount", 5000.0)
-                put("totalAmount", 8000.0)
-                put("paidAmount", 3000.0)
-                put("type", "LENT")
-                put("dueDate", "2026-11-30")
-                put("notes", "Fictional college education assistance")
-                put("reason", "Semester Fees")
-                put("isSettled", false)
-                put("accountId", "acc_fictional_mfs")
-                put("colorHex", "#3B82F6")
-            })
-
-            // 4. Lent to Rafi Hasan (Settled: 12,000 - 12,000 = 0.0)
-            put(JSONObject().apply {
-                put("id", "debt_fictional_lend_rafi")
-                put("personName", "Rafi Hasan")
-                put("amount", 0.0)
-                put("totalAmount", 12000.0)
-                put("paidAmount", 12000.0)
-                put("type", "LENT")
-                put("dueDate", "2026-10-31")
-                put("notes", "Fictional friendly assistance - fully repaid")
-                put("reason", "Friendly Loan")
-                put("isSettled", true)
-                put("accountId", "acc_fictional_mfs")
-                put("colorHex", "#10B981")
-            })
-        }
-        root.put("debts", debtArr)
-
-        // Fictional Budgets with valid category names
-        val bgtArr = JSONArray().apply {
-            put(JSONObject().apply {
-                put("id", "bgt_fictional_essentials")
-                put("categoryName", "Daily Essentials")
-                put("monthlyLimit", 15000.0)
-                put("monthYear", "2026-10")
-                put("isOverall", false)
-                put("rolloverEnabled", false)
-            })
-            put(JSONObject().apply {
-                put("id", "bgt_fictional_eating")
-                put("categoryName", "Eating Out")
-                put("monthlyLimit", 6000.0)
-                put("monthYear", "2026-10")
-                put("isOverall", false)
-                put("rolloverEnabled", false)
-            })
-            put(JSONObject().apply {
-                put("id", "bgt_fictional_rent")
-                put("categoryName", "Rent & Utilities")
-                put("monthlyLimit", 20000.0)
-                put("monthYear", "2026-10")
-                put("isOverall", false)
-                put("rolloverEnabled", false)
-            })
-        }
-        root.put("budgets", bgtArr)
-
-        // Fictional Savings Goal
-        val goalArr = JSONArray().apply {
-            put(JSONObject().apply {
-                put("id", "goal_fictional_emergency")
-                put("name", "Fictional Emergency Reserve")
-                put("targetAmount", 50000.0)
-                put("savedAmount", 20000.0)
-                put("themeColorHex", "#06B6D4")
-                put("iconName", "savings")
-                put("createdAt", 1791244800000L)
-                put("isCompleted", false)
-            })
-        }
-        root.put("savingsGoals", goalArr)
+        root.put("savingsGoals", JSONArray().apply {
+            savingsGoals.forEach { g ->
+                put(JSONObject().apply {
+                    put("id", g.id)
+                    put("name", g.name)
+                    put("targetAmount", g.targetAmount)
+                    put("savedAmount", g.savedAmount)
+                    put("themeColorHex", g.themeColorHex)
+                    put("iconName", g.iconName)
+                    if (g.targetDeadline != null) put("targetDeadline", g.targetDeadline)
+                    put("targetDeadlineStr", g.targetDeadlineStr)
+                    put("createdAt", g.createdAt)
+                    put("isCompleted", g.isCompleted)
+                })
+            }
+        })
 
         return root.toString(2)
     }

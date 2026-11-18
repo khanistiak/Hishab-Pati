@@ -4,6 +4,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -68,6 +75,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -80,6 +88,12 @@ import com.example.ui.components.FrostedBackdropState
 import com.example.ui.components.FrostedGlassSurface
 import com.example.ui.components.LocalFrostedBackdropState
 import com.example.ui.components.crystalOuterShadow
+import com.example.ui.components.rememberReducedMotionEnabled
+import com.example.ui.theme.CrystalAquaDeep
+import com.example.ui.theme.CrystalSkyCyan
+import com.example.ui.theme.CrystalSkyCyanBright
+import com.example.ui.theme.CrystalSkyCyanDeep
+import com.example.ui.theme.CrystalSkyCyanLightText
 import com.example.data.model.BackgroundTextureOption
 import com.example.data.model.ThemeColorOption
 import com.example.data.model.ThemeMode
@@ -120,6 +134,7 @@ import com.example.ui.screens.notifications.NotificationsScreen
 import com.example.ui.screens.transaction.AddTransactionScreen
 import com.example.ui.screens.backup.BackupRestoreScreen
 import com.example.ui.components.BackupRestoreModal
+import com.example.ui.components.UpdateDialog
 import com.example.ui.theme.MyWalletBackground
 import com.example.ui.theme.MyWalletTheme
 import com.example.ui.util.AppHaptics
@@ -160,6 +175,7 @@ import com.example.ui.auth.configureAppCheck
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
+import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
     private var pendingNotificationIntent by mutableStateOf<Intent?>(null)
@@ -410,6 +426,9 @@ fun MyWalletApp(viewModel: MainViewModel) {
                         isUnlockedForSession = false
                         hasAutoPromptedLock = false
                     }
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    viewModel.clearUpdatePermissionNoticeIfGranted(context)
                 }
                 else -> {}
             }
@@ -788,6 +807,23 @@ fun MyWalletApp(viewModel: MainViewModel) {
         onGoToDashboard = { viewModel.completeRestoreAndGoToDashboard() },
         onDismiss = { viewModel.cancelRestore() }
     )
+
+    // In-App GitHub Release Update Modal
+    val updateState by viewModel.updateState.collectAsState()
+    val isUpdateDialogVisible by viewModel.isUpdateDialogVisible.collectAsState()
+    val updatePermissionNotice by viewModel.updatePermissionNotice.collectAsState()
+    UpdateDialog(
+        visible = isUpdateDialogVisible,
+        state = updateState,
+        isBangla = settings?.language == AppLanguage.BANGLA,
+        permissionNotice = updatePermissionNotice,
+        onUpdateNow = { releaseInfo -> viewModel.startUpdateDownload(releaseInfo) },
+        onInstallNow = { apkFile -> viewModel.installUpdate(apkFile, context) },
+        onCancelDownload = { fallbackRelease -> viewModel.cancelUpdateDownload(fallbackRelease) },
+        onSkipVersion = { version -> viewModel.skipUpdateVersion(version) },
+        onRetryCheck = { viewModel.checkForUpdatesManually() },
+        onDismiss = { viewModel.dismissUpdateDialog() }
+    )
 }
 
 private data class NavItem(
@@ -812,16 +848,16 @@ internal fun MyWalletBottomNavigationBar(
     )
 
     val surfaceColor = MaterialTheme.colorScheme.surface
-    val primaryColor = MaterialTheme.colorScheme.primary
     val isDark = surfaceColor.luminance() < 0.5f
     val capsuleShape = RoundedCornerShape(32.dp)
     val view = LocalView.current
     val hapticsEnabled = LocalHapticsEnabled.current
+    val reducedMotion = rememberReducedMotionEnabled()
 
     // Always-frosted, clear low-opacity liquid-glass appearance:
     // - Keeps the bottom navigation capsule and '+' button frosted at all times (even when idle at top)
     // - Background and scrolling content remain visible through the subtle blur (9.dp)
-    // - Light surface tint (14%–22% in light mode, 18%–26% in dark mode) with a soft specular edge highlight
+    // - Light surface tint (14%–24% in light mode, 18%–28% in dark mode) with a soft specular edge highlight
     val capsuleBaseBg = if (isDark) {
         MaterialTheme.colorScheme.background.copy(alpha = 0.18f)
     } else {
@@ -830,24 +866,29 @@ internal fun MyWalletBottomNavigationBar(
     val capsuleOverlayBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF1E293B).copy(alpha = 0.26f),
+                Color(0xFF1E293B).copy(alpha = 0.28f),
                 Color(0xFF0F172A).copy(alpha = 0.18f)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.22f),
-                Color.White.copy(alpha = 0.12f)
+                Color.White.copy(alpha = 0.24f),
+                Color(0xFFE0F2FE).copy(alpha = 0.14f)
             )
         )
     }
     val capsuleBorder = BorderStroke(
         width = 1.dp,
-        color = Color.White.copy(alpha = if (isDark) 0.20f else 0.68f)
+        brush = Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = if (isDark) 0.26f else 0.72f),
+                CrystalSkyCyanBright.copy(alpha = if (isDark) 0.16f else 0.22f)
+            )
+        )
     )
     val capsuleOuterShadowColor = Color.Black.copy(
-        alpha = if (isDark) 0.22f else 0.09f
+        alpha = if (isDark) 0.24f else 0.09f
     )
 
     Row(
@@ -883,62 +924,125 @@ internal fun MyWalletBottomNavigationBar(
                     .fillMaxSize()
                     .padding(horizontal = 6.dp, vertical = 5.dp)
             ) {
-                val tabSlotWidth = maxWidth / items.size.toFloat()
-                val indicatorOffsetX = tabSlotWidth * currentTab.ordinal.toFloat()
+                val tabWidth = maxWidth / items.size.toFloat()
+                val selectedIndex = currentTab.ordinal
+                val targetOffsetX = tabWidth * selectedIndex.toFloat()
+
+                val indicatorOffsetX by animateDpAsState(
+                    targetValue = targetOffsetX,
+                    animationSpec = if (reducedMotion) {
+                        snap()
+                    } else {
+                        spring(
+                            dampingRatio = 0.78f,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    },
+                    label = "crystal_liquid_indicator_offset"
+                )
+
+                val offsetDeltaDp = (targetOffsetX - indicatorOffsetX).value
+                val travelRatio = if (tabWidth.value > 0f) {
+                    (offsetDeltaDp / tabWidth.value).coerceIn(-1.5f, 1.5f)
+                } else {
+                    0f
+                }
+                val isSliding = abs(offsetDeltaDp) > 0.5f
+
+                val stretchScaleX by animateFloatAsState(
+                    targetValue = if (!reducedMotion && isSliding) {
+                        1f + (abs(travelRatio) * 0.045f).coerceAtMost(0.085f)
+                    } else {
+                        1f
+                    },
+                    animationSpec = spring(
+                        dampingRatio = 0.68f,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "crystal_liquid_stretch_x"
+                )
+                val squeezeScaleY by animateFloatAsState(
+                    targetValue = if (!reducedMotion && isSliding) {
+                        1f - (abs(travelRatio) * 0.022f).coerceAtMost(0.045f)
+                    } else {
+                        1f
+                    },
+                    animationSpec = spring(
+                        dampingRatio = 0.68f,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "crystal_liquid_squeeze_y"
+                )
+                val specularShift by animateFloatAsState(
+                    targetValue = if (!reducedMotion) travelRatio else 0f,
+                    animationSpec = spring(
+                        dampingRatio = 0.74f,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "crystal_liquid_specular_shift"
+                )
+
                 val pillShape = RoundedCornerShape(26.dp)
 
-                // Clear liquid-crystal selected-tab indicator:
-                // - High-clarity translucent body (clear center so the capsule's frosted backdrop shows through,
-                //   never milky or overly bright)
-                // - Subtle diagonal/top specular sheen and restrained outer ambient depth
-                // - Soft refractive edge highlight around the pill perimeter
+                // Crystal Liquid Sky Cyan / Aqua sliding capsule underlay:
+                // - Multi-stop translucent cyan/aqua gradient with crystalline top sheen
+                // - Crisp 1.dp specular rim border catching light like a raised liquid droplet
+                // - Cyan ambient glow underneath without clouding the translucent interior
                 val crystalBodyBrush = if (isDark) {
                     Brush.verticalGradient(
-                        0.0f to Color.White.copy(alpha = 0.10f),
-                        0.42f to primaryColor.copy(alpha = 0.08f),
-                        1.0f to primaryColor.copy(alpha = 0.14f)
+                        0.0f to Color.White.copy(alpha = 0.16f),
+                        0.36f to CrystalSkyCyanBright.copy(alpha = 0.24f),
+                        1.0f to CrystalAquaDeep.copy(alpha = 0.30f)
                     )
                 } else {
                     Brush.verticalGradient(
-                        0.0f to Color.White.copy(alpha = 0.22f),
-                        0.45f to primaryColor.copy(alpha = 0.05f),
-                        1.0f to primaryColor.copy(alpha = 0.10f)
+                        0.0f to Color.White.copy(alpha = 0.44f),
+                        0.38f to CrystalSkyCyanBright.copy(alpha = 0.17f),
+                        1.0f to CrystalSkyCyan.copy(alpha = 0.22f)
                     )
                 }
                 val crystalBorderBrush = Brush.verticalGradient(
-                    0.0f to Color.White.copy(alpha = if (isDark) 0.28f else 0.62f),
-                    0.5f to primaryColor.copy(alpha = if (isDark) 0.20f else 0.16f),
-                    1.0f to Color.White.copy(alpha = if (isDark) 0.10f else 0.30f)
+                    0.0f to Color.White.copy(alpha = if (isDark) 0.56f else 0.75f),
+                    0.52f to Color.White.copy(alpha = if (isDark) 0.22f else 0.32f),
+                    1.0f to CrystalSkyCyanBright.copy(alpha = 0.35f)
                 )
-                val crystalTopSheenAlpha = if (isDark) 0.07f else 0.16f
-                val crystalOuterDepthColor = primaryColor.copy(
-                    alpha = if (isDark) 0.14f else 0.07f
+                val crystalGlowColor = CrystalSkyCyan.copy(
+                    alpha = if (isDark) 0.28f else 0.22f
                 )
 
                 Box(
                     modifier = Modifier
                         .offset(x = indicatorOffsetX)
-                        .width(tabSlotWidth)
+                        .width(tabWidth)
                         .fillMaxHeight()
+                        .graphicsLayer {
+                            scaleX = stretchScaleX
+                            scaleY = squeezeScaleY
+                        }
                         .crystalOuterShadow(
                             shape = pillShape,
-                            color = crystalOuterDepthColor,
-                            blurSpread = 4.dp,
-                            offsetY = 1.5.dp
+                            color = crystalGlowColor,
+                            blurSpread = 7.dp,
+                            offsetY = 2.dp
                         )
                         .clip(pillShape)
                         .background(crystalBodyBrush)
                         .drawBehind {
-                            // Subtle diagonal liquid-crystal sheen across the upper surface
+                            val shiftPx = size.width * 0.24f * specularShift
                             drawRect(
                                 brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = crystalTopSheenAlpha),
-                                        Color.Transparent,
-                                        primaryColor.copy(alpha = if (isDark) 0.05f else 0.03f)
-                                    ),
-                                    start = Offset(0f, 0f),
-                                    end = Offset(size.width * 0.85f, size.height)
+                                    0.0f to Color.White.copy(alpha = if (isDark) 0.16f else 0.34f),
+                                    0.45f to CrystalSkyCyanBright.copy(alpha = if (isDark) 0.12f else 0.10f),
+                                    0.78f to Color.Transparent,
+                                    1.0f to CrystalSkyCyan.copy(alpha = if (isDark) 0.14f else 0.08f),
+                                    start = Offset(shiftPx, 0f),
+                                    end = Offset(size.width * 0.9f + shiftPx, size.height)
+                                )
+                            )
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    0.0f to Color.White.copy(alpha = if (isDark) 0.18f else 0.38f),
+                                    0.38f to Color.Transparent
                                 )
                             )
                         }
@@ -955,13 +1059,18 @@ internal fun MyWalletBottomNavigationBar(
                 ) {
                     items.forEach { item ->
                         val selected = currentTab == item.tab
-                        val contentTint = if (selected) {
-                            primaryColor
+                        val targetTint = if (selected) {
+                            if (isDark) CrystalSkyCyanLightText else CrystalSkyCyanDeep
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(
                                 alpha = if (isDark) 0.84f else 0.78f
                             )
                         }
+                        val contentTint by animateColorAsState(
+                            targetValue = targetTint,
+                            animationSpec = if (reducedMotion) snap() else tween(durationMillis = 220),
+                            label = "crystal_tab_tint_${item.tab.name}"
+                        )
 
                         Box(
                             modifier = Modifier
@@ -969,8 +1078,10 @@ internal fun MyWalletBottomNavigationBar(
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(26.dp))
                                 .clickable {
-                                    AppHaptics.performTap(view, hapticsEnabled)
-                                    onTabSelected(item.tab)
+                                    if (item.tab != currentTab) {
+                                        AppHaptics.performTap(view, hapticsEnabled)
+                                        onTabSelected(item.tab)
+                                    }
                                 }
                                 .padding(vertical = 4.dp)
                                 .testTag(item.testTag),

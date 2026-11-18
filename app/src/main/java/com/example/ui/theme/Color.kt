@@ -14,6 +14,13 @@ val CardBorderLight = Color(0x1F6366F1)
 val CardBackgroundLight = Color(0xFFFFFFFF)
 val CardBackgroundDark = Color(0xFF1E1E2E)
 
+// Crystal Liquid Bottom Navigation Tokens (Sky Cyan / Aqua)
+val CrystalSkyCyan = Color(0xFF0284C7)
+val CrystalSkyCyanDeep = Color(0xFF0369A1)
+val CrystalSkyCyanBright = Color(0xFF38BDF8)
+val CrystalAquaDeep = Color(0xFF0EA5E9)
+val CrystalSkyCyanLightText = Color(0xFF7DD3FC)
+
 fun getPrimaryColor(option: ThemeColorOption): Color = Color(option.primaryHex)
 fun getSecondaryColor(option: ThemeColorOption): Color = Color(option.secondaryHex)
 
