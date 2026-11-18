@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "Account": {
+      "title": "Account",
+      "description": "Financial account such as Credit Card, Debit Card, Cash, or MFS",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Google UID" },
+        "name": { "type": "string", "description": "Account display name" },
+        "type": { "type": "string", "enum": ["BANK", "CREDIT_CARD", "DEBIT_CARD", "CASH", "MFS", "OTHER"] },
+        "institution": { "type": "string" },
+        "balance": { "type": "number" },
+        "openingBalance": { "type": "number" },
+        "accountNumberLast4": { "type": "string" },
+        "colorHex": { "type": "string" },
+        "iconName": { "type": "string" },
+        "isHidden": { "type": "boolean" },
+        "sortOrder": { "type": "integer" },
+        "creditLimit": { "type": "number" },
+        "billingDate": { "type": "string" },
+        "paymentDueDate": { "type": "string" },
+        "minPayment": { "type": "number" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "type", "balance", "createdAt", "updatedAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial transaction record (Income, Expense, Transfer)",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Google UID" },
+        "type": { "type": "string", "enum": ["EXPENSE", "INCOME", "TRANSFER", "LEND", "BORROW", "CC_PAYMENT"] },
+        "amount": { "type": "number" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "subcategory": { "type": "string" },
+        "accountId": { "type": "string" },
+        "toAccountId": { "type": "string" },
+        "timestamp": { "type": "integer" },
+        "notes": { "type": "string" },
+        "isRecurring": { "type": "boolean" },
+        "payeeOrPayer": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "amount", "title", "accountId", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/accounts/{accountId}": {
+      "schema": { "$ref": "#/entities/Account" },
+      "description": "User accounts collection"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "User transactions collection"
+    }
+  }
+}

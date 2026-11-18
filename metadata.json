@@ -1,0 +1,8 @@
+{
+  "name": "Hishab Pati",
+  "description": "Personal finance, expense, budget, debt, and multi-wallet tracker with Bengali and English support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

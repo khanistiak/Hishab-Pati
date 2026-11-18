@@ -1,0 +1,81 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidAccount(data) {
+      return data.keys().hasAll(['userId', 'name', 'type', 'balance', 'createdAt', 'updatedAt'])
+        && data.userId is string && data.userId == request.auth.uid
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.type in ['BANK', 'CREDIT_CARD', 'DEBIT_CARD', 'CASH', 'MFS', 'OTHER']
+        && data.balance is number
+        && (!('institution' in data) || (data.institution is string && data.institution.size() <= 100))
+        && (!('openingBalance' in data) || data.openingBalance is number)
+        && (!('accountNumberLast4' in data) || (data.accountNumberLast4 is string && data.accountNumberLast4.size() <= 10))
+        && (!('colorHex' in data) || (data.colorHex is string && data.colorHex.size() <= 20))
+        && (!('iconName' in data) || (data.iconName is string && data.iconName.size() <= 50))
+        && (!('isHidden' in data) || data.isHidden is bool)
+        && (!('sortOrder' in data) || data.sortOrder is int)
+        && (!('creditLimit' in data) || data.creditLimit is number)
+        && (!('billingDate' in data) || (data.billingDate is string && data.billingDate.size() <= 30))
+        && (!('paymentDueDate' in data) || (data.paymentDueDate is string && data.paymentDueDate.size() <= 30))
+        && (!('minPayment' in data) || data.minPayment is number)
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['userId', 'type', 'amount', 'title', 'accountId', 'createdAt', 'updatedAt'])
+        && data.userId is string && data.userId == request.auth.uid
+        && data.type in ['EXPENSE', 'INCOME', 'TRANSFER', 'LEND', 'BORROW', 'CC_PAYMENT']
+        && data.amount is number
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && data.accountId is string && data.accountId.size() > 0 && data.accountId.size() <= 100
+        && (!('category' in data) || (data.category is string && data.category.size() <= 100))
+        && (!('subcategory' in data) || (data.subcategory is string && data.subcategory.size() <= 100))
+        && (!('toAccountId' in data) || data.toAccountId == null || (data.toAccountId is string && data.toAccountId.size() <= 100))
+        && (!('timestamp' in data) || data.timestamp is int || data.timestamp is number)
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && (!('isRecurring' in data) || data.isRecurring is bool)
+        && (!('payeeOrPayer' in data) || (data.payeeOrPayer is string && data.payeeOrPayer.size() <= 100))
+        && data.createdAt is timestamp && data.createdAt <= request.time
+        && data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /accounts/{accountId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidAccount(request.resource.data);
+        allow update: if isOwner(userId)
+          && isValidAccount(request.resource.data)
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /transactions/{transactionId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidTransaction(request.resource.data);
+        allow update: if isOwner(userId)
+          && isValidTransaction(request.resource.data)
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /backups/{backupId} {
+        allow read, write, delete: if isOwner(userId);
+      }
+    }
+  }
+}
