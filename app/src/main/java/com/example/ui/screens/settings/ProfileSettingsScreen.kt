@@ -1793,6 +1793,24 @@ fun AboutScreen(
                             textAlign = TextAlign.Center
                         )
 
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                        ) {
+                            Text(
+                                text = if (isBangla) "সংস্করণ ${BuildConfig.VERSION_NAME}" else "Version ${BuildConfig.VERSION_NAME}",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                ),
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                                    .testTag("about_app_version")
+                            )
+                        }
+
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Text(

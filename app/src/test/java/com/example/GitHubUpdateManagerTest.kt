@@ -111,4 +111,15 @@ class GitHubUpdateManagerTest {
         assertNull(GitHubUpdateManager.parseLatestRelease(""))
         assertNull(GitHubUpdateManager.parseLatestRelease("{ invalid json"))
     }
+
+    @Test
+    fun appVersion_isUpdatedTo212_andDefaultComparatorUsesBuildConfig() {
+        assertEquals("2.1.2", BuildConfig.VERSION_NAME)
+        assertEquals(212, BuildConfig.VERSION_CODE)
+        assertFalse(GitHubUpdateManager.isNewerVersion("v2.1.2"))
+        assertFalse(GitHubUpdateManager.isNewerVersion("2.1.1"))
+        assertFalse(GitHubUpdateManager.isNewerVersion("v1.0.0"))
+        assertTrue(GitHubUpdateManager.isNewerVersion("v2.1.3"))
+        assertTrue(GitHubUpdateManager.isNewerVersion("v2.2.0"))
+    }
 }
