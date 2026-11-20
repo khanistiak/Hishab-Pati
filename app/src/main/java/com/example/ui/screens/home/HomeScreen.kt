@@ -82,6 +82,7 @@ import com.example.ui.util.reorderableDragHandle
 import com.example.ui.util.SixDotDragHandle
 import com.example.ui.util.dragDropItem
 import com.example.ui.util.dragHandle
+import com.example.ui.navigation.walletCardSharedBounds
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Mic
@@ -302,6 +303,7 @@ fun HomeScreen(
                     accounts = accounts,
                     isBalanceVisible = isBalanceVisible,
                     currencySymbol = currencySymbol,
+                    language = lang,
                     onAccountClick = { acc -> viewModel.openAccountDetail(acc.id) }
                 )
             }
@@ -770,642 +772,11 @@ private fun HomeSummaryCard(
 }
 
 @Composable
-private fun StackedAccountCards(
-    accounts: List<AccountEntity>,
-    isBalanceVisible: Boolean,
-    currencySymbol: String,
-    isBangla: Boolean = false,
-    onAccountClick: (AccountEntity) -> Unit,
-    onAllAccountsClick: () -> Unit
-) {
-    val visibleAccounts = accounts.filter { !it.isHidden }
-    if (visibleAccounts.isEmpty()) {
-        TranslucentCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
-            cornerRadius = 26.dp
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AccountBalance,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = if (isBangla) "কোনো অ্যাকাউন্ট নেই" else "No accounts yet",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = if (isBangla) "লেনদেন শুরু করতে একটি অ্যাকাউন্ট যোগ করুন" else "Add your Bank, MFS, or Cash account to get started",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    ),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                androidx.compose.material3.Button(
-                    onClick = onAllAccountsClick,
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Text(text = if (isBangla) "অ্যাকাউন্ট যোগ করুন" else "Add Account")
-                }
-            }
-        }
-        return
-    }
-
-    var topIndex by remember { mutableIntStateOf(0) }
-    val coroutineScope = rememberCoroutineScope()
-    val dragOffsetX = remember { Animatable(0f) }
-    var isDragging by remember { mutableStateOf(false) }
-
-    val n = visibleAccounts.size
-    val activeIndex = ((topIndex % n) + n) % n
-
-    TranslucentCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp),
-        cornerRadius = 26.dp
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp)
-        ) {
-            // Container Header: "+X more" and "All accounts >"
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val remainingCount = (n - 1).coerceAtLeast(0)
-                val remainingText = if (remainingCount > 0) {
-                    if (isBangla) "+${CurrencyFormatter.convertToBanglaDigits(remainingCount.toString())} আরও" else "+$remainingCount more"
-                } else {
-                    if (isBangla) "১টি অ্যাকাউন্ট" else "1 account"
-                }
-                Text(
-                    text = remainingText,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                        fontSize = 13.5.sp
-                    )
-                )
-                Row(
-                    modifier = Modifier.clickable { onAllAccountsClick() },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text(
-                        text = if (isBangla) "সকল অ্যাকাউন্ট" else "All accounts",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    )
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(11.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Stack Container with Genuine Layering & Butter-Smooth Bidirectional Animation
-            val peekStep = 40.dp
-            val cardHeight = 188.dp
-            val totalStackHeight = when {
-                n >= 3 -> cardHeight + peekStep * 2
-                n == 2 -> cardHeight + peekStep
-                else -> cardHeight
-            }
-
-            val dragOffset = dragOffsetX.value
-            val dragProgress = (kotlin.math.abs(dragOffset) / 220f).coerceIn(0f, 1f)
-
-            val frontBaseY = when {
-                n >= 3 -> peekStep * 2
-                n == 2 -> peekStep
-                else -> 0.dp
-            }
-            val midBaseY = if (n >= 3) peekStep else 0.dp
-            val backBaseY = 0.dp
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(totalStackHeight)
-            ) {
-                // If 3 or more accounts: Render backmost card (index activeIndex + 2)
-                if (n >= 3) {
-                    val backIdx = (activeIndex + 2) % n
-                    val backAcc = visibleAccounts[backIdx]
-
-                    val dynamicBackY = if (dragOffset < 0) {
-                        backBaseY + (midBaseY - backBaseY) * dragProgress
-                    } else {
-                        backBaseY
-                    }
-                    val dynamicBackScale = if (dragOffset < 0) {
-                        0.94f + (0.97f - 0.94f) * dragProgress
-                    } else {
-                        0.94f
-                    }
-
-                    StackedWalletCard(
-                        account = backAcc,
-                        currencySymbol = currencySymbol,
-                        isBalanceVisible = isBalanceVisible,
-                        isBangla = isBangla,
-                        isFrontCard = false,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(cardHeight)
-                            .offset(y = dynamicBackY)
-                            .graphicsLayer {
-                                scaleX = dynamicBackScale
-                                scaleY = dynamicBackScale
-                            }
-                            .zIndex(1f)
-                            .clickable {
-                                coroutineScope.launch {
-                                    topIndex = backIdx
-                                }
-                            }
-                    )
-                }
-
-                // If 2 or more accounts: Render middle card (index activeIndex + 1)
-                if (n >= 2) {
-                    val midIdx = (activeIndex + 1) % n
-                    val midAcc = visibleAccounts[midIdx]
-
-                    val dynamicMidY = if (dragOffset < 0) {
-                        midBaseY + (frontBaseY - midBaseY) * dragProgress
-                    } else {
-                        midBaseY - ((midBaseY - backBaseY) * dragProgress * 0.5f)
-                    }
-                    val dynamicMidScale = if (dragOffset < 0) {
-                        0.97f + (1.0f - 0.97f) * dragProgress
-                    } else {
-                        0.97f - (0.03f * dragProgress)
-                    }
-
-                    StackedWalletCard(
-                        account = midAcc,
-                        currencySymbol = currencySymbol,
-                        isBalanceVisible = isBalanceVisible,
-                        isBangla = isBangla,
-                        isFrontCard = (dragOffset < 0 && dragProgress > 0.6f),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(cardHeight)
-                            .offset(y = dynamicMidY)
-                            .graphicsLayer {
-                                scaleX = dynamicMidScale
-                                scaleY = dynamicMidScale
-                            }
-                            .zIndex(2f)
-                            .clickable {
-                                coroutineScope.launch {
-                                    topIndex = midIdx
-                                }
-                            }
-                    )
-                }
-
-                // Active Front Card (interactive & swipeable)
-                val activeAcc = visibleAccounts[activeIndex]
-                val frontDynamicY = if (dragOffset > 0) {
-                    frontBaseY - ((frontBaseY - midBaseY) * dragProgress * 0.4f)
-                } else {
-                    frontBaseY
-                }
-                val frontDynamicScale = if (dragOffset > 0) {
-                    1.0f - (0.03f * dragProgress)
-                } else {
-                    1.0f
-                }
-
-                StackedWalletCard(
-                    account = activeAcc,
-                    currencySymbol = currencySymbol,
-                    isBalanceVisible = isBalanceVisible,
-                    isBangla = isBangla,
-                    isFrontCard = (dragOffset <= 0 || dragProgress < 0.6f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(cardHeight)
-                        .offset(y = frontDynamicY)
-                        .offset {
-                            IntOffset(if (dragOffset < 0) dragOffsetX.value.roundToInt() else 0, 0)
-                        }
-                        .graphicsLayer {
-                            scaleX = frontDynamicScale
-                            scaleY = frontDynamicScale
-                            if (dragOffset < 0) {
-                                rotationZ = (dragOffsetX.value / 35f).coerceIn(-12f, 0f)
-                                alpha = (1f - (dragProgress * 0.15f)).coerceIn(0.7f, 1f)
-                            }
-                        }
-                        .zIndex(3f)
-                        .pointerInput(n, activeIndex) {
-                            if (n > 1) {
-                                detectHorizontalDragGestures(
-                                    onDragStart = { isDragging = true },
-                                    onDragEnd = {
-                                        isDragging = false
-                                        coroutineScope.launch {
-                                            if (dragOffsetX.value < -70f) {
-                                                // Swipe Left: animate current card off-screen left, advance to next card
-                                                dragOffsetX.animateTo(-500f, tween(180, easing = FastOutSlowInEasing))
-                                                topIndex = (topIndex + 1) % n
-                                                dragOffsetX.snapTo(0f)
-                                            } else if (dragOffsetX.value > 70f) {
-                                                // Swipe Right: animate previous card smoothly into position, move to previous card
-                                                dragOffsetX.animateTo(220f, tween(180, easing = FastOutSlowInEasing))
-                                                topIndex = if (topIndex - 1 < 0) n - 1 else topIndex - 1
-                                                dragOffsetX.snapTo(0f)
-                                            } else {
-                                                // Spring back smoothly into resting position
-                                                dragOffsetX.animateTo(
-                                                    0f,
-                                                    spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
-                                                )
-                                            }
-                                        }
-                                    },
-                                    onDragCancel = {
-                                        isDragging = false
-                                        coroutineScope.launch {
-                                            dragOffsetX.animateTo(0f, spring(dampingRatio = 0.82f))
-                                        }
-                                    },
-                                    onHorizontalDrag = { change, dragAmount ->
-                                        change.consume()
-                                        coroutineScope.launch {
-                                            dragOffsetX.snapTo(dragOffsetX.value + dragAmount)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        .clickable {
-                            if (kotlin.math.abs(dragOffsetX.value) < 10f) {
-                                onAccountClick(activeAcc)
-                            }
-                        }
-                )
-
-                // When dragging right: previous card slides in smoothly from the left over the deck
-                if (dragOffset > 0 && n > 1) {
-                    val prevIdx = if (activeIndex - 1 < 0) n - 1 else activeIndex - 1
-                    val prevAcc = visibleAccounts[prevIdx]
-                    val prevX = (-360f * (1f - dragProgress)).dp
-                    val prevRotation = (-8f * (1f - dragProgress))
-
-                    StackedWalletCard(
-                        account = prevAcc,
-                        currencySymbol = currencySymbol,
-                        isBalanceVisible = isBalanceVisible,
-                        isBangla = isBangla,
-                        isFrontCard = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(cardHeight)
-                            .offset(y = frontBaseY)
-                            .offset(x = prevX)
-                            .graphicsLayer {
-                                rotationZ = prevRotation
-                            }
-                            .zIndex(4f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Resolves account card color matching account creation and detail screens.
- * Uses saved colorHex, or falls back to official brand colors (bKash #E2136E, Nagad #F26522, etc.).
- */
-private fun resolveAccountCardColor(account: AccountEntity): Color {
-    val hex = account.colorHex.trim()
-    if (hex.isNotBlank() && hex != "#000000" && hex != "0") {
-        try {
-            return Color(android.graphics.Color.parseColor(hex))
-        } catch (_: Exception) {}
-    }
-    return if (account.type == AccountType.MFS) {
-        val prov = (account.institution.ifBlank { account.name }).lowercase()
-        when {
-            prov.contains("bkash") -> Color(0xFFE2136E)
-            prov.contains("nagad") -> Color(0xFFF26522)
-            prov.contains("rocket") -> Color(0xFF8C3494)
-            prov.contains("upay") -> Color(0xFF005BAC)
-            prov.contains("tap") -> Color(0xFF0084C7)
-            prov.contains("cellfin") -> Color(0xFF008848)
-            else -> Color(0xFF00897B)
-        }
-    } else when (account.type) {
-        AccountType.CREDIT_CARD -> Color(0xFF1E293B)
-        AccountType.BANK -> Color(0xFF2563EB)
-        AccountType.CASH -> Color(0xFF059669)
-        else -> Color(0xFF4F46E5)
-    }
-}
-
-@Composable
-private fun StackedWalletCard(
-    account: AccountEntity,
-    currencySymbol: String,
-    isBalanceVisible: Boolean,
-    isBangla: Boolean,
-    isFrontCard: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val cardColor = resolveAccountCardColor(account)
-
-    val network = remember(account.notes) {
-        account.notes.split("|").firstOrNull { it.startsWith("Network:") }?.removePrefix("Network:")?.trim()
-    }
-    val subtype = remember(account.notes) {
-        account.notes.split("|").firstOrNull { it.startsWith("Subtype:") }?.removePrefix("Subtype:")?.trim()
-    }
-    val isCredit = account.type == AccountType.CREDIT_CARD
-    val displayAmount = if (isCredit) {
-        if (account.balance < 0) kotlin.math.abs(account.balance) else account.balance
-    } else {
-        account.balance
-    }
-
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        color = cardColor,
-        shadowElevation = if (isFrontCard) 4.dp else 2.dp,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(24.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            cardColor,
-                            cardColor.copy(alpha = 0.88f),
-                            Color(0xFF0F172A).copy(alpha = 0.42f)
-                        )
-                    )
-                )
-                .padding(horizontal = 18.dp, vertical = 12.dp)
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Top row:
-                // Background cards: Icon + Name (left) and Balance (right)
-                // Front card: Icon + Name + Subtitle (left), EMV Chip + Contactless / Cash (right).
-                // Duplicate balance on top is HIDDEN on the front card.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f, fill = false)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.White.copy(alpha = 0.22f),
-                            modifier = Modifier.size(if (isFrontCard) 36.dp else 28.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = when (account.type) {
-                                        AccountType.CREDIT_CARD -> Icons.Default.CreditCard
-                                        AccountType.BANK -> Icons.Default.AccountBalance
-                                        AccountType.CASH -> Icons.Default.Payments
-                                        AccountType.MFS -> Icons.Default.PhoneAndroid
-                                        else -> Icons.Default.CreditCard
-                                    },
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(if (isFrontCard) 18.dp else 15.dp)
-                                )
-                            }
-                        }
-
-                        Column {
-                            Text(
-                                text = account.name,
-                                style = MaterialTheme.typography.titleSmall.copy(
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = if (isFrontCard) 14.5.sp else 13.5.sp
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (isFrontCard) {
-                                val subtitleText = when (account.type) {
-                                    AccountType.CREDIT_CARD -> if (!network.isNullOrBlank()) "$network Credit Card" else account.institution.ifBlank { "Credit Card" }
-                                    AccountType.BANK -> subtype?.ifBlank { null } ?: (if (!network.isNullOrBlank()) "$network Debit Card" else account.institution.ifBlank { "Debit Card" })
-                                    AccountType.CASH -> "Cash"
-                                    AccountType.MFS -> account.institution.ifBlank { "MFS Wallet" }
-                                    else -> account.type.displayName
-                                }
-                                Text(
-                                    text = subtitleText,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        fontSize = 11.sp
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-
-                    if (isFrontCard) {
-                        when (account.type) {
-                            AccountType.BANK, AccountType.CREDIT_CARD -> {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Contactless,
-                                        contentDescription = "Contactless",
-                                        tint = Color.White.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    EmvChip(width = 30.dp, height = 21.dp)
-                                }
-                            }
-                            AccountType.CASH -> {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color.White.copy(alpha = 0.20f),
-                                    modifier = Modifier.size(30.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.Payments,
-                                            contentDescription = "Cash",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
-                            else -> {}
-                        }
-                    } else {
-                        // Background Card: Legible balance on the right of top tab
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = if (isBalanceVisible) CurrencyFormatter.format(displayAmount, currencySymbol) else "••••••",
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    color = Color.White.copy(alpha = 0.95f),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.5.sp
-                                )
-                            )
-                            if (account.type == AccountType.BANK || account.type == AccountType.CREDIT_CARD) {
-                                Icon(
-                                    imageVector = Icons.Default.Contactless,
-                                    contentDescription = "Contactless",
-                                    tint = Color.White.copy(alpha = 0.85f),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Middle: Prominent balance display on the left (Front Card)
-                Column(modifier = Modifier.padding(top = 4.dp)) {
-                    Text(
-                        text = if (isCredit) {
-                            if (isBangla) "বকেয়া (আউটস্ট্যান্ডিং)" else "OUTSTANDING"
-                        } else {
-                            if (isBangla) "ব্যালেন্স" else "BALANCE"
-                        },
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = Color.White.copy(alpha = 0.75f),
-                            fontSize = 10.sp,
-                            letterSpacing = 1.2.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = if (isBalanceVisible) CurrencyFormatter.format(displayAmount, currencySymbol) else "••••••••",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            color = Color.White,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 24.sp
-                        )
-                    )
-                }
-
-                // Bottom row: Institution / Note (Left) and Network / Provider Branding + Masked Number (Right)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val bottomSubtitle = when (account.type) {
-                        AccountType.CREDIT_CARD -> account.institution.ifBlank { "Credit Card" }
-                        AccountType.BANK -> account.institution.ifBlank { subtype ?: "Debit Card" }
-                        AccountType.CASH -> "Cash"
-                        AccountType.MFS -> account.type.displayName
-                        else -> account.type.displayName
-                    }
-                    Text(
-                        text = bottomSubtitle,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (account.type == AccountType.MFS) {
-                            val providerName = account.institution.ifBlank { account.name }
-                            MfsProviderLogo(provider = providerName)
-                        } else if (account.type == AccountType.BANK || account.type == AccountType.CREDIT_CARD) {
-                            if (!network.isNullOrBlank()) {
-                                CardNetworkLogo(network = network, modifier = Modifier.height(18.dp))
-                            }
-                        }
-
-                        if (account.accountNumberLast4.isNotBlank()) {
-                            val masked = if (isBangla) CurrencyFormatter.convertToBanglaDigits(account.accountNumberLast4) else account.accountNumberLast4
-                            Text(
-                                text = "•••• $masked",
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    letterSpacing = 1.2.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 12.sp
-                                )
-                            )
-                        } else if (account.type == AccountType.CASH) {
-                            Text(
-                                text = currencySymbol,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    fontWeight = FontWeight.Bold
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-@Composable
 private fun AccountCardsCarousel(
     accounts: List<AccountEntity>,
     isBalanceVisible: Boolean,
     currencySymbol: String,
+    language: com.example.data.model.AppLanguage,
     onAccountClick: (AccountEntity) -> Unit
 ) {
     if (accounts.isEmpty()) return
@@ -1415,178 +786,22 @@ private fun AccountCardsCarousel(
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         items(accounts.filter { !it.isHidden }) { acc ->
-            val cardColor = resolveAccountCardColor(acc)
-
-            Surface(
+            com.example.ui.screens.accounts.HishabPatiAccountCard(
+                account = acc,
+                currencySymbol = currencySymbol,
+                isBalanceVisible = isBalanceVisible,
+                language = language,
+                cornerRadius = 22.dp,
+                shadowElevation = 5.dp,
+                onClick = { onAccountClick(acc) },
                 modifier = Modifier
-                    .width(280.dp)
-                    .height(160.dp),
-                shape = RoundedCornerShape(24.dp),
-                color = cardColor,
-                shadowElevation = 4.dp,
-                onClick = { onAccountClick(acc) }
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(cardColor, cardColor.copy(alpha = 0.82f))
-                            )
-                        )
-                        .padding(18.dp)
-                ) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f, fill = false)
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color.White.copy(alpha = 0.22f),
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = when (acc.type) {
-                                                AccountType.CREDIT_CARD -> Icons.Default.CreditCard
-                                                AccountType.BANK -> Icons.Default.AccountBalance
-                                                AccountType.CASH -> Icons.Default.Payments
-                                                AccountType.MFS -> Icons.Default.PhoneAndroid
-                                                else -> Icons.Default.CreditCard
-                                            },
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(19.dp)
-                                        )
-                                    }
-                                }
-                                Column {
-                                    Text(
-                                        text = acc.name,
-                                        style = MaterialTheme.typography.titleSmall.copy(
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold
-                                        ),
-                                        maxLines = 1
-                                    )
-                                    if (acc.institution.isNotBlank()) {
-                                        Text(
-                                            text = acc.institution,
-                                            style = MaterialTheme.typography.bodySmall.copy(
-                                                color = Color.White.copy(alpha = 0.78f),
-                                                fontSize = 11.sp
-                                            ),
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                            }
-
-                            val isCard = acc.type == AccountType.BANK || acc.type == AccountType.CREDIT_CARD
-                            if (isCard) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Contactless,
-                                        contentDescription = "Contactless",
-                                        tint = Color.White.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    com.example.ui.screens.accounts.EmvChip(
-                                        modifier = Modifier.size(24.dp, 17.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.weight(1f))
-
-                        val isCredit = acc.type == AccountType.CREDIT_CARD
-                        val displayAmount = if (isCredit) {
-                            if (acc.balance < 0) kotlin.math.abs(acc.balance) else acc.balance
-                        } else {
-                            acc.balance
-                        }
-
-                        Text(
-                            text = if (isCredit) "OUTSTANDING" else "BALANCE",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 10.sp,
-                                letterSpacing = 1.2.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-
-                        Text(
-                            text = if (isBalanceVisible) CurrencyFormatter.format(displayAmount, currencySymbol) else "••••••",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 22.sp
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        val isCardType = acc.type == AccountType.BANK || acc.type == AccountType.CREDIT_CARD
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = acc.type.displayName,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    fontSize = 11.sp
-                                )
-                            )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (acc.type == AccountType.MFS) {
-                                    val providerName = acc.institution.ifBlank { acc.name }
-                                    com.example.ui.screens.accounts.MfsProviderLogo(
-                                        provider = providerName
-                                    )
-                                } else if (acc.accountNumberLast4.isNotBlank()) {
-                                    Text(
-                                        text = "•••• ${acc.accountNumberLast4}",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = Color.White.copy(alpha = 0.85f),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                }
-                                if (isCardType) {
-                                    val cardNetwork = if (acc.notes.contains("Network:")) {
-                                        acc.notes.substringAfter("Network:").substringBefore("\n").trim()
-                                    } else ""
-                                    if (cardNetwork.isNotBlank()) {
-                                        com.example.ui.screens.accounts.CardNetworkLogo(
-                                            network = cardNetwork,
-                                            modifier = Modifier.height(20.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+                    .width(290.dp)
+                    .height(176.dp)
+                    .walletCardSharedBounds(
+                        accountId = acc.id,
+                        cornerRadius = 22.dp
+                    )
+            )
         }
     }
 }
@@ -1834,63 +1049,155 @@ internal fun CustomizeHomeBottomSheet(
                 )
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // TOP OF HOME Options (Balance card vs Card stack)
+                // TOP OF HOME Options (Card carousel vs Card stack)
+                val sheetLanguage = if (isBangla) {
+                    com.example.data.model.AppLanguage.BANGLA
+                } else {
+                    com.example.data.model.AppLanguage.ENGLISH
+                }
+                val isDarkSheet = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                val previewCanvasColor = if (isDarkSheet) {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                } else {
+                    Color(0xFFF8FAFC)
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Option 1: Balance card
-                    val isBalanceSelected = current.cardStyle == HomeCardStyle.CAROUSEL
+                    // Option 1: Card carousel (horizontal scrolling account cards)
+                    val isCarouselSelected = current.cardStyle == HomeCardStyle.CAROUSEL
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = MaterialTheme.colorScheme.surface,
                         border = androidx.compose.foundation.BorderStroke(
-                            width = if (isBalanceSelected) 2.dp else 1.dp,
-                            color = if (isBalanceSelected) Color(0xFF4F46E5) else Color.LightGray.copy(alpha = 0.35f)
+                            width = if (isCarouselSelected) 2.dp else 1.dp,
+                            color = if (isCarouselSelected) Color(0xFF4F46E5) else Color.LightGray.copy(alpha = 0.35f)
                         ),
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
                                 onUpdate(current.copy(cardStyle = HomeCardStyle.CAROUSEL))
                             }
+                            .testTag("customize_home_card_carousel")
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            // Mini illustration
+                            // Mini illustration: horizontal side-by-side wallet cards with peeking second card
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(86.dp)
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFFF8FAFC)),
-                                contentAlignment = Alignment.Center
+                                    .background(previewCanvasColor)
                             ) {
-                                // Miniature Balance card
-                                Box(
+                                Row(
                                     modifier = Modifier
-                                        .size(width = 96.dp, height = 50.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0xFF5A45FF))
-                                        .padding(horizontal = 10.dp, vertical = 12.dp)
+                                        .align(Alignment.CenterStart)
+                                        .padding(start = 14.dp)
+                                        .offset(y = (-3).dp),
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    // Primary left card
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 86.dp, height = 50.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    listOf(Color(0xFF5A45FF), Color(0xFF4F46E5))
+                                                )
+                                            )
+                                            .padding(horizontal = 9.dp, vertical = 9.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(46.dp)
+                                                    .height(5.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White)
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(28.dp)
+                                                    .height(3.5.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White.copy(alpha = 0.72f))
+                                            )
+                                        }
+                                        // Miniature gold chip
                                         Box(
                                             modifier = Modifier
-                                                .width(54.dp)
-                                                .height(6.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.White)
+                                                .align(Alignment.BottomStart)
+                                                .size(width = 10.dp, height = 6.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(Color(0xFFF59E0B))
                                         )
-                                        Box(
-                                            modifier = Modifier
-                                                .width(36.dp)
-                                                .height(4.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.White.copy(alpha = 0.75f))
-                                        )
+                                    }
+
+                                    // Peeking second wallet card on the right
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 48.dp, height = 46.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    listOf(Color(0xFF0D9488), Color(0xFF2563EB))
+                                                )
+                                            )
+                                            .padding(horizontal = 7.dp, vertical = 9.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(22.dp)
+                                                    .height(4.5.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White.copy(alpha = 0.9f))
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(14.dp)
+                                                    .height(3.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White.copy(alpha = 0.65f))
+                                            )
+                                        }
                                     }
                                 }
 
-                                if (isBalanceSelected) {
+                                // Subtle horizontal carousel pager dots
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 7.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(10.dp)
+                                            .height(3.5.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF4F46E5))
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(3.5.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF94A3B8).copy(alpha = 0.55f))
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(3.5.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF94A3B8).copy(alpha = 0.35f))
+                                    )
+                                }
+
+                                if (isCarouselSelected) {
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
@@ -1912,25 +1219,31 @@ internal fun CustomizeHomeBottomSheet(
 
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = if (isBangla) "ব্যালেন্স কার্ড" else "Balance card",
+                                text = AppStrings.t("home_style_card_carousel", sheetLanguage),
                                 style = MaterialTheme.typography.titleSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.5.sp,
                                     color = MaterialTheme.colorScheme.onSurface
-                                )
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isBangla) "মোট ও চলতি মাস" else "Your total and this month",
+                                text = AppStrings.t("home_style_card_carousel_subtitle", sheetLanguage),
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                                    fontSize = 11.5.sp
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 15.sp
                                 ),
-                                maxLines = 1
+                                minLines = 2,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
 
-                    // Option 2: Card stack
+                    // Option 2: Card stack (layered vertical wallet stack)
                     val isStackSelected = current.cardStyle == HomeCardStyle.STACK
                     Surface(
                         shape = RoundedCornerShape(20.dp),
@@ -1944,15 +1257,16 @@ internal fun CustomizeHomeBottomSheet(
                             .clickable {
                                 onUpdate(current.copy(cardStyle = HomeCardStyle.STACK))
                             }
+                            .testTag("customize_home_card_stack")
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            // Mini illustration with 3 overlapping cards
+                            // Mini illustration with 3 overlapping vertical cards
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(86.dp)
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFFF8FAFC)),
+                                    .background(previewCanvasColor),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Box(
@@ -2020,20 +1334,26 @@ internal fun CustomizeHomeBottomSheet(
 
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = if (isBangla) "কার্ড স্ট্যাক" else "Card stack",
+                                text = AppStrings.t("home_style_card_stack", sheetLanguage),
                                 style = MaterialTheme.typography.titleSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.5.sp,
                                     color = MaterialTheme.colorScheme.onSurface
-                                )
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isBangla) "প্রতিটি অ্যাকাউন্ট একটি কার্ড" else "Each account as a card",
+                                text = AppStrings.t("home_style_card_stack_subtitle", sheetLanguage),
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                                    fontSize = 11.5.sp
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 15.sp
                                 ),
-                                maxLines = 1
+                                minLines = 2,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }

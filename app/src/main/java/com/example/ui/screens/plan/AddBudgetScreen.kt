@@ -183,6 +183,9 @@ private val STABLE_PREVIEW_ICONS = listOf(
 fun AddBudgetScreen(
     viewModel: MainViewModel,
     initialBudget: BudgetEntity? = null,
+    defaultIsOverall: Boolean = false,
+    defaultCategory: String? = null,
+    defaultMonthKey: String? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -200,8 +203,10 @@ fun AddBudgetScreen(
     val (initialYear, initialMonth) = remember(transactions, budgets) {
         com.example.data.backup.FinancialIntegrityValidator.resolveReferenceYearMonth(transactions, budgets)
     }
-    val currentMonthKey = remember(initialYear, initialMonth) {
-        String.format(Locale.US, "%04d-%02d", initialYear, initialMonth + 1)
+    val currentMonthKey = remember(initialYear, initialMonth, initialBudget, defaultMonthKey) {
+        initialBudget?.monthYear?.takeIf { it.matches(Regex("\\d{4}-\\d{2}")) }
+            ?: defaultMonthKey?.takeIf { it.matches(Regex("\\d{4}-\\d{2}")) }
+            ?: String.format(Locale.US, "%04d-%02d", initialYear, initialMonth + 1)
     }
 
     // Expense categories
@@ -211,7 +216,10 @@ fun AddBudgetScreen(
 
     // Form state initialized from initialBudget if editing
     var budgetName by remember {
-        mutableStateOf(initialBudget?.name ?: initialBudget?.categoryName ?: "")
+        mutableStateOf(
+            initialBudget?.name ?: initialBudget?.categoryName
+                ?: if (defaultIsOverall) "Overall Budget" else (defaultCategory ?: "")
+        )
     }
 
     var limitStr by remember {
@@ -223,13 +231,13 @@ fun AddBudgetScreen(
     }
 
     var isOverall by remember {
-        mutableStateOf(initialBudget?.isOverall ?: false)
+        mutableStateOf(initialBudget?.isOverall ?: defaultIsOverall)
     }
 
     var selectedCategory by remember {
         mutableStateOf(
-            if (initialBudget?.isOverall == true) "Overall"
-            else initialBudget?.categoryName ?: expenseCategories.firstOrNull()?.name ?: "Daily Essentials"
+            if (initialBudget?.isOverall == true || (initialBudget == null && defaultIsOverall)) "Overall"
+            else initialBudget?.categoryName ?: defaultCategory ?: expenseCategories.firstOrNull()?.name ?: "Daily Essentials"
         )
     }
 

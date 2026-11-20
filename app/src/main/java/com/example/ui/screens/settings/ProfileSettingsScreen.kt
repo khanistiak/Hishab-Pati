@@ -99,6 +99,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import java.util.Calendar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -978,41 +980,19 @@ fun SettingsScreen(
 
                     SettingsRowDivider(isDark = isDark)
 
-                    val lastCheckedLabel = remember(lastUpdateCheckTimestamp, isBangla) {
+                    val updateRowSubtitle = remember(lastUpdateCheckTimestamp, isBangla) {
+                        val verText = "v${BuildConfig.VERSION_NAME}"
                         if (lastUpdateCheckTimestamp <= 0L) {
-                            if (isBangla) "এখনো যাচাই করা হয়নি" else "Never checked"
+                            verText
                         } else {
-                            val fmt = SimpleDateFormat("MMM d, h:mm a", Locale.ENGLISH)
-                            val formatted = fmt.format(Date(lastUpdateCheckTimestamp))
-                            if (isBangla) "সর্বশেষ যাচাই: $formatted" else "Last checked: $formatted"
-                        }
-                    }
-                    val updateRowSubtitle = when (val uState = updateState) {
-                        is UpdateState.Checking -> if (isBangla) "আপডেট খোঁজা হচ্ছে..." else "Checking for updates..."
-                        is UpdateState.UpToDate -> if (isBangla) {
-                            "v${BuildConfig.VERSION_NAME} · আপনি সর্বশেষ সংস্করণ ব্যবহার করছেন · $lastCheckedLabel"
-                        } else {
-                            "v${BuildConfig.VERSION_NAME} · You're on the latest version · $lastCheckedLabel"
-                        }
-                        is UpdateState.Available -> if (isBangla) {
-                            "v${BuildConfig.VERSION_NAME} → v${uState.releaseInfo.versionName} উপলব্ধ"
-                        } else {
-                            "v${BuildConfig.VERSION_NAME} · Update v${uState.releaseInfo.versionName} available"
-                        }
-                        is UpdateState.Downloading -> if (isBangla) {
-                            "আপডেট ডাউনলোড হচ্ছে..."
-                        } else {
-                            "Downloading update..."
-                        }
-                        is UpdateState.ReadyToInstall -> if (isBangla) {
-                            "ইনস্টলের জন্য প্রস্তুত"
-                        } else {
-                            "Ready to install"
-                        }
-                        else -> if (isBangla) {
-                            "বর্তমান সংস্করণ v${BuildConfig.VERSION_NAME} · $lastCheckedLabel"
-                        } else {
-                            "Current v${BuildConfig.VERSION_NAME} · $lastCheckedLabel"
+                            val nowCal = Calendar.getInstance()
+                            val chkCal = Calendar.getInstance().apply { timeInMillis = lastUpdateCheckTimestamp }
+                            val isSameDay = nowCal.get(Calendar.YEAR) == chkCal.get(Calendar.YEAR) &&
+                                nowCal.get(Calendar.DAY_OF_YEAR) == chkCal.get(Calendar.DAY_OF_YEAR)
+                            val pattern = if (isSameDay) "h:mm a" else "MMM d, h:mm a"
+                            val formattedTime = SimpleDateFormat(pattern, Locale.ENGLISH).format(Date(lastUpdateCheckTimestamp))
+                            val checkedPrefix = AppStrings.t("checked_prefix", language)
+                            "$verText • $checkedPrefix $formattedTime"
                         }
                     }
 
@@ -1030,7 +1010,7 @@ fun SettingsScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(40.dp)
                                 .background(
                                     color = Color(0xFF0EA5E9).copy(alpha = 0.14f),
                                     shape = RoundedCornerShape(12.dp)
@@ -1047,35 +1027,93 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (isBangla) "আপডেট যাচাই করুন" else "Check for Updates",
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontWeight = FontWeight.SemiBold,
+                                text = AppStrings.t("check_for_updates", language),
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = MaterialTheme.colorScheme.onSurface
-                                )
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = updateRowSubtitle,
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 12.sp
-                                )
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        if (updateState is UpdateState.Checking) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                                contentDescription = if (isBangla) "আপডেট যাচাই" else "Check for Updates",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.size(14.dp)
-                            )
+
+                        // Trailing Status Badge Pill (before the > chevron)
+                        when (val uState = updateState) {
+                            is UpdateState.Checking -> {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isDark) Color(0xFF0C4A6E).copy(alpha = 0.65f) else Color(0xFFE0F2FE)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(12.dp),
+                                            strokeWidth = 1.8.dp,
+                                            color = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = AppStrings.t("checking_short", language),
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                            is UpdateState.Available -> {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isDark) Color(0xFF1E3A8A).copy(alpha = 0.75f) else Color(0xFFDBEAFE)
+                                ) {
+                                    Text(
+                                        text = "${AppStrings.t("update_pill_prefix", language)} • v${uState.releaseInfo.versionName}",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)
+                                        ),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            else -> {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isDark) Color(0xFF064E3B).copy(alpha = 0.65f) else Color(0xFFDCFCE7)
+                                ) {
+                                    Text(
+                                        text = AppStrings.t("up_to_date", language),
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isDark) Color(0xFF4ADE80) else Color(0xFF16A34A)
+                                        ),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
                         }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = AppStrings.t("check_for_updates", language),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(14.dp)
+                        )
                     }
                 }
             }

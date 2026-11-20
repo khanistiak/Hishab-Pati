@@ -1,5 +1,6 @@
 package com.example.ui.screens.plan
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,20 +16,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -59,8 +66,18 @@ import com.example.ui.theme.IncomeGreen
 import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
 import com.example.ui.util.FinancialReportAnalytics
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
+private data class IncomePeriodOption(
+    val key: String,
+    val label: String
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IncomeTrackerScreen(
     viewModel: MainViewModel,
@@ -69,16 +86,42 @@ fun IncomeTrackerScreen(
 ) {
     val settings by viewModel.settings.collectAsState()
     val language = settings?.language ?: AppLanguage.ENGLISH
+    val isBn = language == AppLanguage.BANGLA
     val currencySymbol = settings?.currencySymbol ?: "৳"
     val transactions by viewModel.transactions.collectAsState()
 
-    var selectedPeriod by remember { mutableStateOf("6M") } // "3M", "6M", "1Y"
+    var selectedPeriod by remember { mutableStateOf("6M") } // "3M", "6M", "1Y", "Last Year", "Custom"
+    var customStartMs by remember { mutableStateOf<Long?>(null) }
+    var customEndMs by remember { mutableStateOf<Long?>(null) }
+    var showDateRangePicker by remember { mutableStateOf(false) }
 
-    val summary = remember(transactions, selectedPeriod) {
+    val periodOptions = remember(language) {
+        listOf(
+            IncomePeriodOption("3M", if (isBn) "৩ মাস" else "3M"),
+            IncomePeriodOption("6M", if (isBn) "৬ মাস" else "6M"),
+            IncomePeriodOption("1Y", if (isBn) "১ বছর" else "1Y"),
+            IncomePeriodOption("Last Year", AppStrings.t("last_year", language)),
+            IncomePeriodOption("Custom", AppStrings.t("custom", language))
+        )
+    }
+
+    val summary = remember(transactions, selectedPeriod, customStartMs, customEndMs) {
         FinancialReportAnalytics.computeIncomeTracker(
             transactions = transactions,
-            period = selectedPeriod
+            period = selectedPeriod,
+            customStartMs = customStartMs,
+            customEndMs = customEndMs
         )
+    }
+
+    val customRangeLabel = remember(customStartMs, customEndMs, language) {
+        val start = customStartMs
+        val end = customEndMs
+        if (start != null && end != null) {
+            formatIncomeCustomRangeLabel(start, end)
+        } else {
+            null
+        }
     }
 
     val listState = viewModel.rememberScreenLazyListState(
@@ -90,6 +133,57 @@ fun IncomeTrackerScreen(
         extraTopGap = 8.dp,
         bottomNavClearance = 30.dp
     )
+
+    if (showDateRangePicker) {
+        val initialStartUtc = customStartMs?.let { localMillisToUtcMidnight(it) }
+        val initialEndUtc = customEndMs?.let { localMillisToUtcMidnight(it) }
+        val dateRangePickerState = rememberDateRangePickerState(
+            initialSelectedStartDateMillis = initialStartUtc,
+            initialSelectedEndDateMillis = initialEndUtc
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDateRangePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val sUtc = dateRangePickerState.selectedStartDateMillis
+                        val eUtc = dateRangePickerState.selectedEndDateMillis ?: sUtc
+                        if (sUtc != null && eUtc != null) {
+                            val minUtc = minOf(sUtc, eUtc)
+                            val maxUtc = maxOf(sUtc, eUtc)
+                            customStartMs = utcMidnightToLocalStartOfDay(minUtc)
+                            customEndMs = utcMidnightToLocalEndOfDay(maxUtc)
+                            selectedPeriod = "Custom"
+                        }
+                        showDateRangePicker = false
+                    },
+                    enabled = dateRangePickerState.selectedStartDateMillis != null
+                ) {
+                    Text(AppStrings.t("done", language), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDateRangePicker = false }) {
+                    Text(AppStrings.t("cancel", language))
+                }
+            }
+        ) {
+            DateRangePicker(
+                state = dateRangePickerState,
+                title = {
+                    Text(
+                        text = AppStrings.t("select_date_range", language),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 24.dp, end = 12.dp, top = 16.dp)
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(440.dp)
+            )
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
@@ -109,39 +203,104 @@ fun IncomeTrackerScreen(
                 bottom = scrollLayout.contentPadding.calculateBottomPadding()
             )
         ) {
-            // Period Filter Chips (3M, 6M, 1Y)
-            item {
-                Row(
-                    modifier = Modifier.padding(bottom = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("3M", "6M", "1Y").forEach { period ->
-                        val isSelected = selectedPeriod == period
+            // Horizontally Scrollable Period Filter Row (3M, 6M, 1Y, Last Year, Custom)
+            item(key = "income_period_filters") {
+                Column(modifier = Modifier.padding(bottom = 14.dp)) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("income_period_filter_row")
+                    ) {
+                        items(periodOptions, key = { it.key }) { option ->
+                            val isSelected = selectedPeriod == option.key
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isSelected) {
+                                    Color(0xFF1E293B)
+                                } else {
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                                },
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) {
+                                        Color.Transparent
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                    }
+                                ),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .clickable {
+                                        if (option.key == "Custom") {
+                                            showDateRangePicker = true
+                                        } else {
+                                            selectedPeriod = option.key
+                                        }
+                                    }
+                                    .testTag("income_period_${option.key.lowercase(Locale.US).replace(' ', '_')}")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (option.key == "Custom") {
+                                        Icon(
+                                            imageVector = Icons.Default.DateRange,
+                                            contentDescription = null,
+                                            tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                    }
+                                    Text(
+                                        text = option.label,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Compact selected date range badge when Custom is active
+                    if (selectedPeriod == "Custom" && customRangeLabel != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isSelected) Color(0xFF1E293B) else MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                            ),
+                            shape = CircleShape,
+                            color = Color(0xFF047857).copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, Color(0xFF047857).copy(alpha = 0.3f)),
                             modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .clickable { selectedPeriod = period }
+                                .clip(CircleShape)
+                                .clickable { showDateRangePicker = true }
+                                .testTag("income_custom_range_badge")
                         ) {
-                            Text(
-                                text = period,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = null,
+                                    tint = Color(0xFF047857),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = customRangeLabel,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF047857)
+                                )
+                            }
                         }
                     }
                 }
             }
 
             // Total Income Card
-            item {
+            item(key = "total_income_card") {
                 TranslucentCard(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -160,7 +319,7 @@ fun IncomeTrackerScreen(
                             text = CurrencyFormatter.format(summary.totalIncome, currencySymbol, language = language),
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color(0xFF047857) // Deep Emerald
+                            color = Color(0xFF047857)
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -185,14 +344,15 @@ fun IncomeTrackerScreen(
                                 )
                             }
 
-                            // Delta Badge (Real calculated comparison)
                             val delta = summary.deltaPct
                             if (delta != null) {
                                 val isPositive = delta >= 0
+                                val pctText = String.format(Locale.US, "%.1f", kotlin.math.abs(delta))
+                                val localizedPct = if (isBn) CurrencyFormatter.convertToBanglaDigits(pctText) else pctText
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
                                     color = if (isPositive) Color(0xFFDCFCE7) else Color(0xFFFFE4E6),
-                                    border = androidx.compose.foundation.BorderStroke(
+                                    border = BorderStroke(
                                         1.dp,
                                         if (isPositive) Color(0xFF86EFAC) else Color(0xFFFDA4AF)
                                     )
@@ -202,8 +362,7 @@ fun IncomeTrackerScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = if (isPositive) "▲ ${String.format(Locale.US, "%.1f", delta)}%"
-                                            else "▼ ${String.format(Locale.US, "%.1f", kotlin.math.abs(delta))}%",
+                                            text = if (isPositive) "▲ $localizedPct%" else "▼ $localizedPct%",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (isPositive) Color(0xFF15803D) else Color(0xFFE11D48)
@@ -216,7 +375,7 @@ fun IncomeTrackerScreen(
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                 ) {
                                     Text(
-                                        text = "0.0%",
+                                        text = if (isBn) "০.০%" else "0.0%",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
@@ -230,7 +389,7 @@ fun IncomeTrackerScreen(
             }
 
             // Monthly Income Trend Section
-            item {
+            item(key = "income_trend_section") {
                 Spacer(modifier = Modifier.height(20.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -243,7 +402,7 @@ fun IncomeTrackerScreen(
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = if (language == AppLanguage.BANGLA) "মাসিক আয়ের গতিপ্রকৃতি" else "Monthly income trend",
+                        text = AppStrings.t("monthly_income_trend", language),
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
@@ -252,7 +411,6 @@ fun IncomeTrackerScreen(
                 }
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Area Chart Card
                 TranslucentCard(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -263,7 +421,7 @@ fun IncomeTrackerScreen(
                             .fillMaxWidth()
                             .padding(18.dp)
                     ) {
-                        if (summary.hasTrendData) {
+                        if (summary.hasTrendData && summary.trendPoints.isNotEmpty()) {
                             val months = summary.trendMonths
                             val normalizedPoints = summary.trendPoints
 
@@ -274,7 +432,7 @@ fun IncomeTrackerScreen(
                             ) {
                                 Canvas(modifier = Modifier.fillMaxSize()) {
                                     val w = size.width
-                                    val h = size.height - 30f // reserve bottom for labels
+                                    val h = size.height - 30f
 
                                     val stepX = if (normalizedPoints.size > 1) w / (normalizedPoints.size - 1) else w
                                     val points = normalizedPoints.mapIndexed { idx, normY ->
@@ -283,7 +441,6 @@ fun IncomeTrackerScreen(
                                         Offset(x, y)
                                     }
 
-                                    // Filled gradient path
                                     val fillPath = Path().apply {
                                         moveTo(points.first().x, points.first().y)
                                         for (i in 1 until points.size) {
@@ -304,7 +461,6 @@ fun IncomeTrackerScreen(
                                         )
                                     )
 
-                                    // Stroke line
                                     val linePath = Path().apply {
                                         moveTo(points.first().x, points.first().y)
                                         for (i in 1 until points.size) {
@@ -318,7 +474,6 @@ fun IncomeTrackerScreen(
                                         style = Stroke(width = 2.5f, cap = StrokeCap.Round)
                                     )
 
-                                    // Draw point dots
                                     points.forEach { pt ->
                                         drawCircle(
                                             color = Color.White,
@@ -334,21 +489,30 @@ fun IncomeTrackerScreen(
                                 }
                             }
 
-                            // Month label row
+                            // Month / Bucket label row (thinned cleanly when > 7 points so labels never collide)
+                            val displayedLabels = remember(months) {
+                                if (months.size <= 7) {
+                                    months
+                                } else {
+                                    val step = (months.size / 6).coerceAtLeast(2)
+                                    months.filterIndexed { index, _ ->
+                                        index == 0 || index == months.lastIndex || index % step == 0
+                                    }
+                                }
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                months.forEach { m ->
+                                displayedLabels.forEach { m ->
                                     Text(
                                         text = m,
-                                        fontSize = 11.5.sp,
+                                        fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
                             }
                         } else {
-                            // Clean empty state for trend
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -356,14 +520,18 @@ fun IncomeTrackerScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = if (language == AppLanguage.BANGLA) "কোনো আয়ের তথ্য পাওয়া যায়নি" else "No income data for the selected period",
+                                    text = if (isBn) "কোনো আয়ের তথ্য পাওয়া যায়নি" else "No income data for the selected period",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = if (language == AppLanguage.BANGLA) "আয় যুক্ত করলে এখানে মাসিক গতিপ্রকৃতি দেখা যাবে" else "Logged income will display monthly trajectories and trend lines here.",
+                                    text = if (isBn) {
+                                        "আয় যুক্ত করলে এখানে মাসিক গতিপ্রকৃতি দেখা যাবে"
+                                    } else {
+                                        "Logged income will display monthly trajectories and trend lines here."
+                                    },
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                     textAlign = TextAlign.Center
@@ -375,7 +543,7 @@ fun IncomeTrackerScreen(
             }
 
             // Income Streams Section
-            item {
+            item(key = "income_streams_header") {
                 Spacer(modifier = Modifier.height(20.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -399,7 +567,7 @@ fun IncomeTrackerScreen(
             }
 
             if (summary.incomeStreams.isEmpty()) {
-                item {
+                item(key = "income_streams_empty") {
                     TranslucentCard(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -419,14 +587,18 @@ fun IncomeTrackerScreen(
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = if (language == AppLanguage.BANGLA) "কোনো আয়ের উৎস পাওয়া যায়নি" else "No income streams recorded yet",
+                                text = if (isBn) "কোনো আয়ের উৎস পাওয়া যায়নি" else "No income streams recorded yet",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = if (language == AppLanguage.BANGLA) "নির্বাচিত সময়সীমার মধ্যে আয়ের লেনদেন যোগ করুন" else "Log income transactions to track multiple sources, regularity, and share.",
+                                text = if (isBn) {
+                                    "নির্বাচিত সময়সীমার মধ্যে আয়ের লেনদেন যোগ করুন"
+                                } else {
+                                    "Log income transactions to track multiple sources, regularity, and share."
+                                },
                                 fontSize = 12.5.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                 textAlign = TextAlign.Center
@@ -435,7 +607,7 @@ fun IncomeTrackerScreen(
                     }
                 }
             } else {
-                items(summary.incomeStreams) { stream ->
+                items(summary.incomeStreams, key = { it.title }) { stream ->
                     TranslucentCard(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -454,12 +626,18 @@ fun IncomeTrackerScreen(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
 
+                                val localizedBadge = when (stream.typeBadge) {
+                                    "Monthly" -> if (isBn) "মাসিক" else "Monthly"
+                                    "Regular" -> if (isBn) "নিয়মিত" else "Regular"
+                                    "One-time" -> if (isBn) "এককালীন" else "One-time"
+                                    else -> stream.typeBadge
+                                }
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                 ) {
                                     Text(
-                                        text = stream.typeBadge,
+                                        text = localizedBadge,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
@@ -482,8 +660,13 @@ fun IncomeTrackerScreen(
                                     color = IncomeGreen
                                 )
 
+                                val countStr = if (isBn) {
+                                    CurrencyFormatter.convertToBanglaDigits(stream.paymentCount.toString())
+                                } else {
+                                    stream.paymentCount.toString()
+                                }
                                 Text(
-                                    text = "${stream.paymentCount} payments",
+                                    text = "$countStr ${AppStrings.t("payments_count", language)}",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
@@ -491,14 +674,13 @@ fun IncomeTrackerScreen(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Consistency bar
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "Consistency",
+                                    text = AppStrings.t("consistency", language),
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
                                 )
@@ -512,8 +694,13 @@ fun IncomeTrackerScreen(
                                     color = if (stream.consistencyPct > 50) Color(0xFF10B981) else Color(0xFFF59E0B),
                                     trackColor = MaterialTheme.colorScheme.surfaceVariant
                                 )
+                                val pctStr = if (isBn) {
+                                    CurrencyFormatter.convertToBanglaDigits(stream.consistencyPct.toString())
+                                } else {
+                                    stream.consistencyPct.toString()
+                                }
                                 Text(
-                                    text = "${stream.consistencyPct}%",
+                                    text = "$pctStr%",
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
@@ -522,18 +709,20 @@ fun IncomeTrackerScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Bottom row: Share and Last received
+                            val shareFormatted = String.format(Locale.US, "%.1f", stream.sharePct).let {
+                                if (isBn) CurrencyFormatter.convertToBanglaDigits(it) else it
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "Share: ${String.format(Locale.US, "%.1f", stream.sharePct)}%",
+                                    text = "${AppStrings.t("share", language)}: $shareFormatted%",
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                                 )
                                 Text(
-                                    text = "Last: ${stream.lastReceivedDate}",
+                                    text = "${AppStrings.t("last", language)}: ${stream.lastReceivedDate}",
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                                 )
@@ -543,7 +732,7 @@ fun IncomeTrackerScreen(
                 }
             }
 
-            item {
+            item(key = "income_tracker_bottom_spacer") {
                 Spacer(modifier = Modifier.height(30.dp))
             }
         }
@@ -567,7 +756,7 @@ fun IncomeTrackerScreen(
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = AppStrings.t("back", language),
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(22.dp)
                         )
@@ -586,4 +775,67 @@ fun IncomeTrackerScreen(
             }
         }
     }
+}
+
+private fun localMillisToUtcMidnight(localMillis: Long): Long {
+    val localCal = Calendar.getInstance().apply { timeInMillis = localMillis }
+    val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+        clear()
+        set(
+            localCal.get(Calendar.YEAR),
+            localCal.get(Calendar.MONTH),
+            localCal.get(Calendar.DAY_OF_MONTH),
+            0,
+            0,
+            0
+        )
+    }
+    return utcCal.timeInMillis
+}
+
+private fun utcMidnightToLocalStartOfDay(utcMillis: Long): Long {
+    val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = utcMillis }
+    val localCal = Calendar.getInstance().apply {
+        clear()
+        set(
+            utcCal.get(Calendar.YEAR),
+            utcCal.get(Calendar.MONTH),
+            utcCal.get(Calendar.DAY_OF_MONTH),
+            0,
+            0,
+            0
+        )
+        set(Calendar.MILLISECOND, 0)
+    }
+    return localCal.timeInMillis
+}
+
+private fun utcMidnightToLocalEndOfDay(utcMillis: Long): Long {
+    val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = utcMillis }
+    val localCal = Calendar.getInstance().apply {
+        clear()
+        set(
+            utcCal.get(Calendar.YEAR),
+            utcCal.get(Calendar.MONTH),
+            utcCal.get(Calendar.DAY_OF_MONTH),
+            23,
+            59,
+            59
+        )
+        set(Calendar.MILLISECOND, 999)
+    }
+    return localCal.timeInMillis
+}
+
+private fun formatIncomeCustomRangeLabel(startMs: Long, endMs: Long): String {
+    val sCal = Calendar.getInstance().apply { timeInMillis = startMs }
+    val eCal = Calendar.getInstance().apply { timeInMillis = endMs }
+    val sameYear = sCal.get(Calendar.YEAR) == eCal.get(Calendar.YEAR)
+    val startFmt = if (sameYear) {
+        SimpleDateFormat("MMM d", Locale.US)
+    } else {
+        SimpleDateFormat("MMM d, yyyy", Locale.US)
+    }
+    val endFmt = SimpleDateFormat("MMM d, yyyy", Locale.US)
+    return "${startFmt.format(Date(startMs))} – ${endFmt.format(Date(endMs))}"
 }

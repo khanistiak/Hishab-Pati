@@ -498,222 +498,39 @@ fun EditAccountScreen(
                     .testTag("edit_account_lazy_column"),
                 contentPadding = glassLayout.contentPadding
             ) {
-                // 1. Live Metallic Card Preview (matching video layout)
+                // 1. Live Bespoke Category Card Preview
                 item {
+                    val liveCardModel = AccountCardVisualModel(
+                        name = name,
+                        institution = institution,
+                        type = selectedType,
+                        balance = previewAmount,
+                        baseColor = previewColor,
+                        last4 = previewLast4,
+                        network = cardNetwork,
+                        subtype = bankSubtype,
+                        location = cashLocation,
+                        tier = mfsTier,
+                        billingDate = billingDateText
+                    )
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 20.dp, vertical = 8.dp)
                     ) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        color = Color.Transparent,
-                        shadowElevation = 0.dp
-                    ) {
-                        Box(
+                        HishabPatiAccountCard(
+                            model = liveCardModel,
+                            currencySymbol = currencySymbol,
+                            language = settings?.language ?: com.example.data.model.AppLanguage.ENGLISH,
+                            cornerRadius = 22.dp,
+                            shadowElevation = 6.dp,
                             modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(
-                                            previewColor,
-                                            previewColor.copy(alpha = 0.88f),
-                                            Color(0xFF0F172A).copy(alpha = 0.55f)
-                                        )
-                                    )
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = Color.White.copy(alpha = 0.15f),
-                                    shape = RoundedCornerShape(24.dp)
-                                )
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(20.dp),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                // Top row: Icon + Name / Institution + Chip / Badge
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color.White.copy(alpha = 0.22f),
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = when (selectedType) {
-                                                        AccountType.CREDIT_CARD -> Icons.Default.CreditCard
-                                                        AccountType.BANK -> Icons.Default.AccountBalance
-                                                        AccountType.CASH -> Icons.Default.Payments
-                                                        AccountType.MFS -> Icons.Default.PhoneAndroid
-                                                        else -> Icons.Default.CreditCard
-                                                    },
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(19.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Column {
-                                            Text(
-                                                text = name.ifBlank {
-                                                    when (selectedType) {
-                                                        AccountType.CREDIT_CARD -> "Credit Card"
-                                                        AccountType.BANK -> "Debit Card"
-                                                        AccountType.CASH -> "Cash Wallet"
-                                                        AccountType.MFS -> if (institution.isNotBlank()) "$institution Account" else "MFS Wallet"
-                                                        else -> "Account"
-                                                    }
-                                                },
-                                                style = MaterialTheme.typography.titleSmall.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White
-                                                ),
-                                                maxLines = 1
-                                            )
-                                            Text(
-                                                text = previewSubline,
-                                                style = MaterialTheme.typography.bodySmall.copy(
-                                                    color = Color.White.copy(alpha = 0.8f),
-                                                    fontSize = 11.sp
-                                                ),
-                                                maxLines = 1
-                                            )
-                                        }
-                                    }
-
-                                    // Top right: Realistic Chip on Debit/Credit only, or Cash icon
-                                    // (MFS provider logo is moved to bottom-right per user requirement)
-                                    when (selectedType) {
-                                        AccountType.BANK, AccountType.CREDIT_CARD -> {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Contactless,
-                                                    contentDescription = "Contactless",
-                                                    tint = Color.White.copy(alpha = 0.85f),
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                                EmvChip(width = 34.dp, height = 24.dp)
-                                            }
-                                        }
-                                        AccountType.CASH -> {
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = Color.White.copy(alpha = 0.20f),
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Payments,
-                                                        contentDescription = "Cash",
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        else -> {}
-                                    }
-                                }
-
-                                // Middle: OUTSTANDING or BALANCE label + large amount
-                                Column {
-                                    Text(
-                                        text = if (selectedType == AccountType.CREDIT_CARD) "OUTSTANDING" else "BALANCE",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            color = Color.White.copy(alpha = 0.75f),
-                                            fontSize = 10.sp,
-                                            letterSpacing = 1.2.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = CurrencyFormatter.format(previewAmount, currencySymbol),
-                                        style = MaterialTheme.typography.headlineMedium.copy(
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = Color.White,
-                                            fontSize = 26.sp
-                                        )
-                                    )
-                                }
-
-                                // Bottom row: Network logo / subtype / tier and masked digits
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = when (selectedType) {
-                                            AccountType.CREDIT_CARD -> if (billingDateText.isNotBlank()) "Cycle: $billingDateText" else "Credit Card"
-                                            AccountType.BANK -> bankSubtype.ifBlank { "Debit Card" }
-                                            AccountType.CASH -> cashLocation.ifBlank { "Cash on Hand" }
-                                            AccountType.MFS -> mfsTier
-                                            else -> "BDT"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontWeight = FontWeight.Medium,
-                                            color = Color.White.copy(alpha = 0.85f)
-                                        )
-                                    )
-
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        if (selectedType == AccountType.BANK || selectedType == AccountType.CREDIT_CARD) {
-                                            CardNetworkLogo(network = cardNetwork)
-                                        }
-
-                                        if (selectedType == AccountType.MFS) {
-                                            val mfsProv = institution.ifBlank { "bKash" }
-                                            MfsProviderLogo(
-                                                provider = mfsProv
-                                            )
-                                        } else if (previewLast4.isNotBlank()) {
-                                            Text(
-                                                text = "•••• $previewLast4",
-                                                style = MaterialTheme.typography.bodyMedium.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White.copy(alpha = 0.9f),
-                                                    letterSpacing = 1.sp
-                                                )
-                                            )
-                                        } else if (selectedType == AccountType.CASH) {
-                                            Text(
-                                                text = currencySymbol,
-                                                style = MaterialTheme.typography.bodyMedium.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White.copy(alpha = 0.9f)
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                                .fillMaxWidth()
+                                .height(186.dp)
+                                .testTag("edit_account_live_preview_card")
+                        )
                     }
                 }
-            }
 
             // 3. Category Selector Tabs: [Debit Card] [Credit Card] [Cash] [MFS]
             item {

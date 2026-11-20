@@ -283,4 +283,95 @@ class FinancialReportAnalyticsTest {
         assertEquals(10000.0, groceriesComp.previousMonthAmount, 0.001)
         assertEquals(20.0, groceriesComp.percentageChange, 0.001)
     }
+
+    @Test
+    fun `computeIncomeTracker handles Last Year, Custom ranges, and AppStrings has localized keys`() {
+        val refCal = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 18, 12, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val prevYearFeb = Calendar.getInstance().apply {
+            set(2025, Calendar.FEBRUARY, 10, 12, 0, 0)
+        }.timeInMillis
+        val prevYearAug = Calendar.getInstance().apply {
+            set(2025, Calendar.AUGUST, 15, 12, 0, 0)
+        }.timeInMillis
+        val twoYearsAgoMay = Calendar.getInstance().apply {
+            set(2024, Calendar.MAY, 15, 12, 0, 0)
+        }.timeInMillis
+        val customStart = Calendar.getInstance().apply {
+            set(2026, Calendar.OCTOBER, 1, 0, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val customEnd = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 18, 23, 59, 59)
+            set(Calendar.MILLISECOND, 999)
+        }.timeInMillis
+        val oct12 = Calendar.getInstance().apply {
+            set(2026, Calendar.OCTOBER, 12, 10, 0, 0)
+        }.timeInMillis
+        val nov5 = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 5, 10, 0, 0)
+        }.timeInMillis
+
+        val txs = listOf(
+            TransactionEntity(
+                id = "y24", title = "Bonus", amount = 12000.0, type = TransactionType.INCOME,
+                category = "Bonus", accountId = "a1", timestamp = twoYearsAgoMay
+            ),
+            TransactionEntity(
+                id = "y25_1", title = "Salary", amount = 18000.0, type = TransactionType.INCOME,
+                category = "Salary", accountId = "a1", timestamp = prevYearFeb
+            ),
+            TransactionEntity(
+                id = "y25_2", title = "Freelance", amount = 6000.0, type = TransactionType.INCOME,
+                category = "Freelance", accountId = "a1", timestamp = prevYearAug
+            ),
+            TransactionEntity(
+                id = "c1", title = "Salary", amount = 30000.0, type = TransactionType.INCOME,
+                category = "Salary", accountId = "a1", timestamp = oct12
+            ),
+            TransactionEntity(
+                id = "c2", title = "Dividend", amount = 10000.0, type = TransactionType.INCOME,
+                category = "Investment", accountId = "a1", timestamp = nov5
+            )
+        )
+
+        // 1. Last Year (2025): 18000 + 6000 = 24000 -> 2000/mo, 12 months, +100% vs 12000 in 2024
+        val lastYearSummary = FinancialReportAnalytics.computeIncomeTracker(
+            transactions = txs,
+            period = "Last Year",
+            referenceTimeMs = refCal.timeInMillis
+        )
+        assertEquals(24000.0, lastYearSummary.totalIncome, 0.001)
+        assertEquals(2000.0, lastYearSummary.avgMonthly, 0.001)
+        assertEquals(12, lastYearSummary.monthsCount)
+        assertEquals(100.0, lastYearSummary.deltaPct ?: 0.0, 0.001)
+        assertEquals(2, lastYearSummary.incomeStreams.size)
+        assertTrue(lastYearSummary.hasTrendData)
+
+        // 2. Custom range (Oct 1 - Nov 18, 2026): 30000 + 10000 = 40000 across 49 days
+        val customSummary = FinancialReportAnalytics.computeIncomeTracker(
+            transactions = txs,
+            period = "Custom",
+            referenceTimeMs = refCal.timeInMillis,
+            customStartMs = customStart,
+            customEndMs = customEnd
+        )
+        assertEquals(40000.0, customSummary.totalIncome, 0.001)
+        val expectedCustomAvg = 40000.0 / (49.0 / 30.4375)
+        assertEquals(expectedCustomAvg, customSummary.avgMonthly, 1.0)
+        assertEquals(2, customSummary.monthsCount)
+        assertEquals(listOf("Oct", "Nov"), customSummary.trendMonths)
+        assertEquals(2, customSummary.incomeStreams.size)
+        assertTrue(customSummary.hasTrendData)
+
+        // 3. AppStrings localized text checks (no raw snake_case keys)
+        assertEquals("Total Income", com.example.ui.util.AppStrings.t("total_income", com.example.data.model.AppLanguage.ENGLISH))
+        assertEquals("Monthly Average", com.example.ui.util.AppStrings.t("avg_monthly", com.example.data.model.AppLanguage.ENGLISH))
+        assertEquals("Income Streams", com.example.ui.util.AppStrings.t("income_streams", com.example.data.model.AppLanguage.ENGLISH))
+        assertEquals("মোট আয়", com.example.ui.util.AppStrings.t("total_income", com.example.data.model.AppLanguage.BANGLA))
+        assertEquals("মাসিক গড়", com.example.ui.util.AppStrings.t("avg_monthly", com.example.data.model.AppLanguage.BANGLA))
+        assertEquals("আয়ের উৎসসমূহ", com.example.ui.util.AppStrings.t("income_streams", com.example.data.model.AppLanguage.BANGLA))
+    }
 }

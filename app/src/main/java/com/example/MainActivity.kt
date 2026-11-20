@@ -4,16 +4,29 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import com.example.ui.navigation.LocalNavAnimatedVisibilityScope
+import com.example.ui.navigation.LocalSharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,7 +83,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.material3.ripple
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -101,6 +117,7 @@ import com.example.ui.MainTab
 import com.example.ui.MainViewModel
 import com.example.ui.SubScreen
 import com.example.ui.navigation.rememberScreenLazyListState
+import com.example.ui.components.CrystalLiquidSnackbarHost
 import com.example.ui.components.VoiceTransactionDialog
 import com.example.ui.screens.accounts.AccountDetailScreen
 import com.example.ui.screens.accounts.AccountsScreen
@@ -459,8 +476,9 @@ fun MyWalletApp(viewModel: MainViewModel) {
 
     LaunchedEffect(notificationMessage) {
         notificationMessage?.let { msg ->
-            snackbarHostState.showSnackbar(msg)
             viewModel.clearNotificationMessage()
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(msg)
         }
     }
 
@@ -490,7 +508,7 @@ fun MyWalletApp(viewModel: MainViewModel) {
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            snackbarHost = { CrystalLiquidSnackbarHost(snackbarHostState) },
             bottomBar = {
                 if (showBottomBar) {
                     MyWalletBottomNavigationBar(
@@ -510,32 +528,95 @@ fun MyWalletApp(viewModel: MainViewModel) {
             Box(
                 modifier = Modifier.fillMaxSize()
             ) {
-                if (currentSubScreen == SubScreen.NONE) {
-                    val tabScopeKey = "TAB:${currentTab.name}"
-                    key(tabScopeKey) {
-                        navSaveableStateHolder.SaveableStateProvider(tabScopeKey) {
-                            when (currentTab) {
-                                MainTab.HOME -> HomeScreen(
-                                    viewModel = viewModel
-                                )
-                                MainTab.ACTIVITY -> ActivityScreen(
-                                    viewModel = viewModel
-                                )
-                                MainTab.PLAN -> PlanScreen(
-                                    viewModel = viewModel
-                                )
-                                MainTab.INSIGHTS -> InsightsScreen(
-                                    viewModel = viewModel
-                                )
-                            }
-                        }
+                val reducedMotion = rememberReducedMotionEnabled()
+                val rootHostKey = remember(currentSubScreen, currentSubScreenEntry) {
+                    if (currentSubScreen == SubScreen.NONE) {
+                        "MAIN_TABS"
+                    } else {
+                        currentSubScreenEntry?.stateKey ?: "SUB:0:${currentSubScreen.name}:root"
                     }
-                } else {
-                    val subEntryKey = currentSubScreenEntry?.stateKey ?: "SUB:0:${currentSubScreen.name}:root"
-                    key(subEntryKey) {
-                        navSaveableStateHolder.SaveableStateProvider(subEntryKey) {
-                            when (currentSubScreen) {
-                                SubScreen.NONE -> Unit
+                }
+                @OptIn(ExperimentalSharedTransitionApi::class)
+                SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+                    AnimatedContent(
+                        targetState = rootHostKey,
+                        transitionSpec = {
+                            val isAccountDetailTransition =
+                                targetState.contains(SubScreen.ACCOUNT_DETAIL.name) ||
+                                    initialState.contains(SubScreen.ACCOUNT_DETAIL.name)
+                            if (reducedMotion) {
+                                fadeIn(tween(1)) togetherWith fadeOut(tween(1))
+                            } else if (isAccountDetailTransition) {
+                                (fadeIn(tween(durationMillis = 300)) togetherWith
+                                    fadeOut(tween(durationMillis = 220))) using SizeTransform(clip = false)
+                            } else {
+                                (fadeIn(tween(durationMillis = 200)) togetherWith
+                                    fadeOut(tween(durationMillis = 160))) using SizeTransform(clip = false)
+                            }
+                        },
+                        label = "root_shared_transition_host",
+                        modifier = Modifier.fillMaxSize()
+                    ) { hostKey ->
+                        CompositionLocalProvider(
+                            LocalSharedTransitionScope provides this@SharedTransitionLayout,
+                            LocalNavAnimatedVisibilityScope provides this@AnimatedContent
+                        ) {
+                            if (hostKey == "MAIN_TABS") {
+                                AnimatedContent(
+                                    targetState = currentTab,
+                                    transitionSpec = {
+                                        if (reducedMotion) {
+                                            fadeIn(tween(1)) togetherWith fadeOut(tween(1))
+                                        } else if (targetState.ordinal > initialState.ordinal) {
+                                            (slideInHorizontally(
+                                                animationSpec = tween(durationMillis = 240),
+                                                initialOffsetX = { it / 12 }
+                                            ) + fadeIn(animationSpec = tween(durationMillis = 240))) togetherWith
+                                                (slideOutHorizontally(
+                                                    animationSpec = tween(durationMillis = 180),
+                                                    targetOffsetX = { -it / 12 }
+                                                ) + fadeOut(animationSpec = tween(durationMillis = 180)))
+                                        } else {
+                                            (slideInHorizontally(
+                                                animationSpec = tween(durationMillis = 240),
+                                                initialOffsetX = { -it / 12 }
+                                            ) + fadeIn(animationSpec = tween(durationMillis = 240))) togetherWith
+                                                (slideOutHorizontally(
+                                                    animationSpec = tween(durationMillis = 180),
+                                                    targetOffsetX = { it / 12 }
+                                                ) + fadeOut(animationSpec = tween(durationMillis = 180)))
+                                        } using SizeTransform(clip = false)
+                                    },
+                                    label = "main_tab_directional_transition",
+                                    modifier = Modifier.fillMaxSize()
+                                ) { tab ->
+                                    val tabScopeKey = "TAB:${tab.name}"
+                                    navSaveableStateHolder.SaveableStateProvider(tabScopeKey) {
+                                        when (tab) {
+                                            MainTab.HOME -> HomeScreen(
+                                                viewModel = viewModel
+                                            )
+                                            MainTab.ACTIVITY -> ActivityScreen(
+                                                viewModel = viewModel
+                                            )
+                                            MainTab.PLAN -> PlanScreen(
+                                                viewModel = viewModel
+                                            )
+                                            MainTab.INSIGHTS -> InsightsScreen(
+                                                viewModel = viewModel
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                val resolvedSubScreen = remember(hostKey) {
+                                    SubScreen.entries.firstOrNull { entry ->
+                                        entry != SubScreen.NONE && hostKey.contains(":${entry.name}:")
+                                    } ?: currentSubScreen
+                                }
+                                navSaveableStateHolder.SaveableStateProvider(hostKey) {
+                                    when (resolvedSubScreen) {
+                                        SubScreen.NONE -> Unit
                 SubScreen.ACCOUNTS_MANAGEMENT -> {
                     AccountsScreen(
                         viewModel = viewModel,
@@ -609,9 +690,15 @@ fun MyWalletApp(viewModel: MainViewModel) {
                 }
                 SubScreen.ADD_BUDGET -> {
                     val budgetToEdit by viewModel.budgetToEdit.collectAsState()
+                    val defaultIsOverall by viewModel.addBudgetDefaultIsOverall.collectAsState()
+                    val defaultCategory by viewModel.addBudgetDefaultCategory.collectAsState()
+                    val defaultMonthKey by viewModel.addBudgetDefaultMonthKey.collectAsState()
                     com.example.ui.screens.plan.AddBudgetScreen(
                         viewModel = viewModel,
                         initialBudget = budgetToEdit,
+                        defaultIsOverall = defaultIsOverall,
+                        defaultCategory = defaultCategory,
+                        defaultMonthKey = defaultMonthKey,
                         onBack = { viewModel.closeSubScreen() }
                     )
                 }
@@ -709,6 +796,8 @@ fun MyWalletApp(viewModel: MainViewModel) {
                         }
                     }
                 }
+            }
+        }
 
             if (extendedSettings.useScreenLock && isDeviceSecure && !isUnlockedForSession) {
                 LaunchedEffect(hasAutoPromptedLock) {
@@ -840,55 +929,45 @@ internal fun MyWalletBottomNavigationBar(
     onTabSelected: (MainTab) -> Unit,
     onAddClick: () -> Unit
 ) {
-    val items = listOf(
-        NavItem(MainTab.HOME, AppStrings.t("nav_home", language), Icons.Default.Home, "tab_home"),
-        NavItem(MainTab.ACTIVITY, AppStrings.t("nav_activity", language), Icons.AutoMirrored.Filled.ReceiptLong, "tab_activity"),
-        NavItem(MainTab.PLAN, AppStrings.t("nav_plan", language), Icons.Default.AccountBalanceWallet, "tab_plan"),
-        NavItem(MainTab.INSIGHTS, AppStrings.t("nav_insights", language), Icons.Default.PieChart, "tab_insights")
-    )
+    val items = remember(language) {
+        listOf(
+            NavItem(MainTab.HOME, AppStrings.t("nav_home", language), Icons.Default.Home, "tab_home"),
+            NavItem(MainTab.ACTIVITY, AppStrings.t("nav_activity", language), Icons.AutoMirrored.Filled.ReceiptLong, "tab_activity"),
+            NavItem(MainTab.PLAN, AppStrings.t("nav_plan", language), Icons.Default.AccountBalanceWallet, "tab_plan"),
+            NavItem(MainTab.INSIGHTS, AppStrings.t("nav_insights", language), Icons.Default.PieChart, "tab_insights")
+        )
+    }
 
+    val primary = MaterialTheme.colorScheme.primary
     val surfaceColor = MaterialTheme.colorScheme.surface
     val isDark = surfaceColor.luminance() < 0.5f
-    val capsuleShape = RoundedCornerShape(32.dp)
     val view = LocalView.current
     val hapticsEnabled = LocalHapticsEnabled.current
     val reducedMotion = rememberReducedMotionEnabled()
 
-    // Always-frosted, clear low-opacity liquid-glass appearance:
-    // - Keeps the bottom navigation capsule and '+' button frosted at all times (even when idle at top)
-    // - Background and scrolling content remain visible through the subtle blur (9.dp)
-    // - Light surface tint (14%–24% in light mode, 18%–28% in dark mode) with a soft specular edge highlight
-    val capsuleBaseBg = if (isDark) {
-        MaterialTheme.colorScheme.background.copy(alpha = 0.18f)
+    // Frosted Crystal Liquid floating capsule (CircleShape, 0.88f translucent surface, 1.dp specular rim)
+    val capsuleTintColor = if (isDark) {
+        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.88f)
     } else {
-        surfaceColor.copy(alpha = 0.14f)
+        Color.White.copy(alpha = 0.88f)
     }
-    val capsuleOverlayBrush = if (isDark) {
-        Brush.verticalGradient(
-            listOf(
-                Color(0xFF1E293B).copy(alpha = 0.28f),
-                Color(0xFF0F172A).copy(alpha = 0.18f)
-            )
+    val capsuleOverlayBrush = Brush.verticalGradient(
+        listOf(
+            if (isDark) Color.White.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.30f),
+            if (isDark) Color.Transparent else primary.copy(alpha = 0.04f)
         )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.24f),
-                Color(0xFFE0F2FE).copy(alpha = 0.14f)
-            )
-        )
-    }
+    )
     val capsuleBorder = BorderStroke(
         width = 1.dp,
         brush = Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = if (isDark) 0.26f else 0.72f),
-                CrystalSkyCyanBright.copy(alpha = if (isDark) 0.16f else 0.22f)
+                Color.White.copy(alpha = if (isDark) 0.24f else 0.85f),
+                primary.copy(alpha = if (isDark) 0.16f else 0.18f)
             )
         )
     )
     val capsuleOuterShadowColor = Color.Black.copy(
-        alpha = if (isDark) 0.24f else 0.09f
+        alpha = if (isDark) 0.28f else 0.10f
     )
 
     Row(
@@ -899,156 +978,61 @@ internal fun MyWalletBottomNavigationBar(
             .testTag("bottom_nav_container"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Rounded liquid-crystal capsule grouping Home, Activity, Plan, and Insights
+        // Floating Crystal Liquid capsule with continuous Aura Player-style sliding pill underlay
         FrostedGlassSurface(
             modifier = Modifier
                 .weight(1f)
-                .height(64.dp)
+                .height(60.dp)
                 .crystalOuterShadow(
-                    shape = capsuleShape,
+                    shape = CircleShape,
                     color = capsuleOuterShadowColor,
-                    blurSpread = 8.dp,
-                    offsetY = 3.dp
+                    blurSpread = 10.dp,
+                    offsetY = 4.dp
                 )
                 .testTag("bottom_nav_capsule"),
-            shape = capsuleShape,
-            baseBackgroundColor = capsuleBaseBg,
+            shape = CircleShape,
+            baseBackgroundColor = capsuleTintColor,
             overlayBrush = capsuleOverlayBrush,
             restingTintBrush = capsuleOverlayBrush,
-            blurRadius = 9.dp,
+            blurRadius = 10.dp,
             glassProgressOverride = 1f,
             border = capsuleBorder
         ) {
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 6.dp, vertical = 5.dp)
+                    .padding(horizontal = 5.dp, vertical = 5.dp)
             ) {
                 val tabWidth = maxWidth / items.size.toFloat()
                 val selectedIndex = currentTab.ordinal
-                val targetOffsetX = tabWidth * selectedIndex.toFloat()
+                val pillSpringSpec = spring<androidx.compose.ui.unit.Dp>(
+                    dampingRatio = 0.78f,
+                    stiffness = 420f
+                )
 
                 val indicatorOffsetX by animateDpAsState(
-                    targetValue = targetOffsetX,
-                    animationSpec = if (reducedMotion) {
-                        snap()
-                    } else {
-                        spring(
-                            dampingRatio = 0.78f,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    },
-                    label = "crystal_liquid_indicator_offset"
+                    targetValue = tabWidth * selectedIndex.toFloat(),
+                    animationSpec = if (reducedMotion) snap() else pillSpringSpec,
+                    label = "aura_sliding_pill_offset"
+                )
+                val animatedPillWidth by animateDpAsState(
+                    targetValue = tabWidth,
+                    animationSpec = if (reducedMotion) snap() else pillSpringSpec,
+                    label = "aura_sliding_pill_width"
                 )
 
-                val offsetDeltaDp = (targetOffsetX - indicatorOffsetX).value
-                val travelRatio = if (tabWidth.value > 0f) {
-                    (offsetDeltaDp / tabWidth.value).coerceIn(-1.5f, 1.5f)
-                } else {
-                    0f
-                }
-                val isSliding = abs(offsetDeltaDp) > 0.5f
-
-                val stretchScaleX by animateFloatAsState(
-                    targetValue = if (!reducedMotion && isSliding) {
-                        1f + (abs(travelRatio) * 0.045f).coerceAtMost(0.085f)
-                    } else {
-                        1f
-                    },
-                    animationSpec = spring(
-                        dampingRatio = 0.68f,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    label = "crystal_liquid_stretch_x"
-                )
-                val squeezeScaleY by animateFloatAsState(
-                    targetValue = if (!reducedMotion && isSliding) {
-                        1f - (abs(travelRatio) * 0.022f).coerceAtMost(0.045f)
-                    } else {
-                        1f
-                    },
-                    animationSpec = spring(
-                        dampingRatio = 0.68f,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    label = "crystal_liquid_squeeze_y"
-                )
-                val specularShift by animateFloatAsState(
-                    targetValue = if (!reducedMotion) travelRatio else 0f,
-                    animationSpec = spring(
-                        dampingRatio = 0.74f,
-                        stiffness = Spring.StiffnessMediumLow
-                    ),
-                    label = "crystal_liquid_specular_shift"
-                )
-
-                val pillShape = RoundedCornerShape(26.dp)
-
-                // Crystal Liquid Sky Cyan / Aqua sliding capsule underlay:
-                // - Multi-stop translucent cyan/aqua gradient with crystalline top sheen
-                // - Crisp 1.dp specular rim border catching light like a raised liquid droplet
-                // - Cyan ambient glow underneath without clouding the translucent interior
-                val crystalBodyBrush = if (isDark) {
-                    Brush.verticalGradient(
-                        0.0f to Color.White.copy(alpha = 0.16f),
-                        0.36f to CrystalSkyCyanBright.copy(alpha = 0.24f),
-                        1.0f to CrystalAquaDeep.copy(alpha = 0.30f)
-                    )
-                } else {
-                    Brush.verticalGradient(
-                        0.0f to Color.White.copy(alpha = 0.44f),
-                        0.38f to CrystalSkyCyanBright.copy(alpha = 0.17f),
-                        1.0f to CrystalSkyCyan.copy(alpha = 0.22f)
-                    )
-                }
-                val crystalBorderBrush = Brush.verticalGradient(
-                    0.0f to Color.White.copy(alpha = if (isDark) 0.56f else 0.75f),
-                    0.52f to Color.White.copy(alpha = if (isDark) 0.22f else 0.32f),
-                    1.0f to CrystalSkyCyanBright.copy(alpha = 0.35f)
-                )
-                val crystalGlowColor = CrystalSkyCyan.copy(
-                    alpha = if (isDark) 0.28f else 0.22f
-                )
-
+                // Single continuous sliding pill underlay behind all 4 tabs
                 Box(
                     modifier = Modifier
                         .offset(x = indicatorOffsetX)
-                        .width(tabWidth)
+                        .width(animatedPillWidth)
                         .fillMaxHeight()
-                        .graphicsLayer {
-                            scaleX = stretchScaleX
-                            scaleY = squeezeScaleY
-                        }
-                        .crystalOuterShadow(
-                            shape = pillShape,
-                            color = crystalGlowColor,
-                            blurSpread = 7.dp,
-                            offsetY = 2.dp
-                        )
-                        .clip(pillShape)
-                        .background(crystalBodyBrush)
-                        .drawBehind {
-                            val shiftPx = size.width * 0.24f * specularShift
-                            drawRect(
-                                brush = Brush.linearGradient(
-                                    0.0f to Color.White.copy(alpha = if (isDark) 0.16f else 0.34f),
-                                    0.45f to CrystalSkyCyanBright.copy(alpha = if (isDark) 0.12f else 0.10f),
-                                    0.78f to Color.Transparent,
-                                    1.0f to CrystalSkyCyan.copy(alpha = if (isDark) 0.14f else 0.08f),
-                                    start = Offset(shiftPx, 0f),
-                                    end = Offset(size.width * 0.9f + shiftPx, size.height)
-                                )
-                            )
-                            drawRect(
-                                brush = Brush.verticalGradient(
-                                    0.0f to Color.White.copy(alpha = if (isDark) 0.18f else 0.38f),
-                                    0.38f to Color.Transparent
-                                )
-                            )
-                        }
+                        .clip(CircleShape)
+                        .background(primary.copy(alpha = 0.14f))
                         .border(
-                            BorderStroke(width = 1.dp, brush = crystalBorderBrush),
-                            shape = pillShape
+                            width = 1.dp,
+                            color = primary.copy(alpha = 0.25f),
+                            shape = CircleShape
                         )
                         .testTag("bottom_nav_selected_indicator")
                 )
@@ -1060,30 +1044,56 @@ internal fun MyWalletBottomNavigationBar(
                     items.forEach { item ->
                         val selected = currentTab == item.tab
                         val targetTint = if (selected) {
-                            if (isDark) CrystalSkyCyanLightText else CrystalSkyCyanDeep
+                            primary
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                alpha = if (isDark) 0.84f else 0.78f
-                            )
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         }
                         val contentTint by animateColorAsState(
                             targetValue = targetTint,
                             animationSpec = if (reducedMotion) snap() else tween(durationMillis = 220),
-                            label = "crystal_tab_tint_${item.tab.name}"
+                            label = "aura_tab_tint_${item.tab.name}"
                         )
+
+                        // Subtle tactile icon bounce (1.0f -> 1.08f -> 1.0f) on active selection
+                        val iconScale = remember { Animatable(1f) }
+                        var initialized by remember { mutableStateOf(false) }
+                        LaunchedEffect(selected) {
+                            if (!initialized) {
+                                initialized = true
+                                iconScale.snapTo(1f)
+                            } else if (selected && !reducedMotion) {
+                                iconScale.snapTo(1f)
+                                iconScale.animateTo(
+                                    targetValue = 1.08f,
+                                    animationSpec = spring(dampingRatio = 0.55f, stiffness = 580f)
+                                )
+                                iconScale.animateTo(
+                                    targetValue = 1.0f,
+                                    animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f)
+                                )
+                            } else {
+                                iconScale.snapTo(1f)
+                            }
+                        }
+
+                        val tabInteractionSource = remember { MutableInteractionSource() }
 
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxSize()
-                                .clip(RoundedCornerShape(26.dp))
-                                .clickable {
-                                    if (item.tab != currentTab) {
-                                        AppHaptics.performTap(view, hapticsEnabled)
-                                        onTabSelected(item.tab)
+                                .clip(CircleShape)
+                                .clickable(
+                                    interactionSource = tabInteractionSource,
+                                    indication = ripple(bounded = true, color = primary),
+                                    onClick = {
+                                        if (item.tab != currentTab) {
+                                            AppHaptics.performTap(view, hapticsEnabled)
+                                            onTabSelected(item.tab)
+                                        }
                                     }
-                                }
-                                .padding(vertical = 4.dp)
+                                )
+                                .padding(vertical = 3.dp)
                                 .testTag(item.testTag),
                             contentAlignment = Alignment.Center
                         ) {
@@ -1095,14 +1105,21 @@ internal fun MyWalletBottomNavigationBar(
                                     imageVector = item.icon,
                                     contentDescription = item.title,
                                     tint = contentTint,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier
+                                        .size(21.dp)
+                                        .graphicsLayer {
+                                            scaleX = iconScale.value
+                                            scaleY = iconScale.value
+                                        }
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
+                                Spacer(modifier = Modifier.height(1.dp))
                                 Text(
                                     text = item.title,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 11.sp,
-                                    color = contentTint
+                                    lineHeight = 13.sp,
+                                    color = contentTint,
+                                    maxLines = 1
                                 )
                             }
                         }
@@ -1113,44 +1130,48 @@ internal fun MyWalletBottomNavigationBar(
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Circular "+" action positioned beside the capsule, aligned to the same 64.dp height
-        // and kept consistently frosted with a translucent liquid-glass tint
-        val addButtonGlassBrush = Brush.linearGradient(
-            listOf(
-                Color(0xFF6366F1).copy(alpha = if (isDark) 0.68f else 0.72f),
-                Color(0xFF7C3AED).copy(alpha = if (isDark) 0.70f else 0.74f),
-                Color(0xFF4F46E5).copy(alpha = if (isDark) 0.74f else 0.78f)
-            )
+        // Circular 56.dp "+" quick-add FAB with theme-primary fill and tactile 0.92f press-scale spring
+        val fabInteractionSource = remember { MutableInteractionSource() }
+        val isFabPressed by fabInteractionSource.collectIsPressedAsState()
+        val fabScale by animateFloatAsState(
+            targetValue = if (isFabPressed && !reducedMotion) 0.92f else 1f,
+            animationSpec = spring(
+                dampingRatio = 0.65f,
+                stiffness = 500f
+            ),
+            label = "quick_add_fab_press_scale"
         )
-        val addButtonBorder = BorderStroke(
-            width = 1.2.dp,
-            color = Color.White.copy(alpha = if (isDark) 0.34f else 0.56f)
+        val fabBorder = BorderStroke(
+            width = 1.dp,
+            color = Color.White.copy(alpha = if (isDark) 0.28f else 0.56f)
         )
 
-        FrostedGlassSurface(
+        Surface(
+            shape = CircleShape,
+            color = primary,
+            border = fabBorder,
             modifier = Modifier
-                .size(64.dp)
+                .size(56.dp)
+                .graphicsLayer {
+                    scaleX = fabScale
+                    scaleY = fabScale
+                }
                 .crystalOuterShadow(
                     shape = CircleShape,
-                    color = Color(0xFF4F46E5).copy(alpha = 0.24f),
-                    blurSpread = 8.dp,
-                    offsetY = 3.dp
+                    color = primary.copy(alpha = if (isDark) 0.34f else 0.28f),
+                    blurSpread = 10.dp,
+                    offsetY = 4.dp
                 )
                 .clip(CircleShape)
                 .clickable(
+                    interactionSource = fabInteractionSource,
+                    indication = ripple(bounded = true, color = Color.White),
                     onClick = {
                         AppHaptics.performTap(view, hapticsEnabled)
                         onAddClick()
                     }
                 )
-                .testTag("floating_add_transaction_button"),
-            shape = CircleShape,
-            baseBackgroundColor = Color.Transparent,
-            overlayBrush = addButtonGlassBrush,
-            restingTintBrush = addButtonGlassBrush,
-            blurRadius = 9.dp,
-            glassProgressOverride = 1f,
-            border = addButtonBorder
+                .testTag("floating_add_transaction_button")
         ) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -1159,8 +1180,8 @@ internal fun MyWalletBottomNavigationBar(
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = "Add Transaction",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(26.dp)
                 )
             }
         }

@@ -10,6 +10,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.BuildConfig
 import com.example.data.backup.AutoBackupFrequency
 import com.example.data.backup.AutoBackupScheduler
 import com.example.data.backup.BackupDiagnosticError
@@ -53,6 +54,9 @@ import com.example.ui.navigation.SubScreenNavEntry
 import com.example.ui.screens.insights.InsightsTabMode
 import com.example.ui.screens.notifications.NotificationDestinationType
 import com.example.ui.screens.notifications.generateRealNotifications
+import com.example.ui.screens.plan.CurrencyRateRepository
+import com.example.ui.util.AppStrings
+import com.example.ui.util.CurrencyFormatter
 import com.example.voice.ParsedVoiceTransaction
 import com.example.voice.VoiceTransactionParser
 import com.google.firebase.Firebase
@@ -66,6 +70,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -73,6 +78,17 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+
+data class CurrencyConverterUiState(
+    val fromCode: String = "BDT",
+    val toCode: String = "USD",
+    val amountInput: String = "1000",
+    val ratesPerUsd: Map<String, Double> = emptyMap(),
+    val customOverrides: Map<String, Double> = emptyMap(),
+    val lastUpdatedMillis: Long = 0L,
+    val isRefreshing: Boolean = false,
+    val isOfflineFallback: Boolean = false
+)
 
 enum class MainTab {
     HOME,
@@ -745,18 +761,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openAddTransactionForAccount(accId: String) {
         clearTransactionDraft()
         transactionToEdit.value = null
+        newTransactionInitialType.value = TransactionType.EXPENSE
+        preselectedAccountIdForNewTx.value = accId
+        openSubScreen(SubScreen.ADD_EDIT_TRANSACTION)
+    }
+
+    fun openTransferFromAccount(accId: String? = null) {
+        clearTransactionDraft()
+        transactionToEdit.value = null
+        newTransactionInitialType.value = TransactionType.TRANSFER
         preselectedAccountIdForNewTx.value = accId
         openSubScreen(SubScreen.ADD_EDIT_TRANSACTION)
     }
 
     val budgetToEdit = MutableStateFlow<BudgetEntity?>(null)
+    val addBudgetDefaultIsOverall = MutableStateFlow(false)
+    val addBudgetDefaultCategory = MutableStateFlow<String?>(null)
+    val addBudgetDefaultMonthKey = MutableStateFlow<String?>(null)
 
     fun openBudgetDashboard() {
         openSubScreen(SubScreen.BUDGET_DASHBOARD)
     }
 
-    fun openAddBudget(budget: BudgetEntity? = null) {
+    fun openAddBudget(
+        budget: BudgetEntity? = null,
+        defaultIsOverall: Boolean = false,
+        defaultCategory: String? = null,
+        defaultMonthKey: String? = null
+    ) {
         budgetToEdit.value = budget
+        addBudgetDefaultIsOverall.value = defaultIsOverall
+        addBudgetDefaultCategory.value = defaultCategory
+        addBudgetDefaultMonthKey.value = defaultMonthKey
         openSubScreen(SubScreen.ADD_BUDGET)
     }
 
@@ -782,6 +818,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openCurrencyConverter() {
         openSubScreen(SubScreen.CURRENCY_CONVERTER)
+        ensureCurrencyRatesFresh()
     }
 
     fun openMonthlyRecap() {
@@ -895,12 +932,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             SubScreen.ADD_BUDGET -> {
                 if (!remainingScreens.contains(SubScreen.ADD_BUDGET)) {
                     budgetToEdit.value = null
+                    addBudgetDefaultIsOverall.value = false
+                    addBudgetDefaultCategory.value = null
+                    addBudgetDefaultMonthKey.value = null
                 }
             }
             SubScreen.ADD_EDIT_TRANSACTION -> {
                 if (!remainingScreens.contains(SubScreen.ADD_EDIT_TRANSACTION)) {
                     transactionToEdit.value = null
                     preselectedAccountIdForNewTx.value = null
+                    newTransactionInitialType.value = TransactionType.EXPENSE
                     clearTransactionDraft()
                 }
             }
@@ -1706,13 +1747,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is UpdateState.UpToDate -> {
                     isUpdateDialogVisible.value = false
                     userNotificationMessage.value = if (isBangla) {
-                        "আপনি সর্বশেষ সংস্করণ ব্যবহার করছেন"
+                        "আপটুডেট • v${BuildConfig.VERSION_NAME}"
                     } else {
-                        "You're on the latest version"
+                        "Up to date • v${BuildConfig.VERSION_NAME}"
                     }
                 }
                 is UpdateState.Error -> {
-                    isUpdateDialogVisible.value = true
+                    isUpdateDialogVisible.value = false
+                    updateManager.resetToIdle()
+                    userNotificationMessage.value = if (isBangla) {
+                        "আপডেট যাচাই করা যায়নি"
+                    } else {
+                        "Couldn't check for updates"
+                    }
                 }
                 else -> Unit
             }
@@ -1776,5 +1823,120 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (updateState.value is UpdateState.Error) {
             updateManager.resetToIdle()
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Currency Converter (Live open.er-api.com + Offline Cache + Custom Rates)
+    // -------------------------------------------------------------------------
+    private val currencyRateRepository by lazy {
+        CurrencyRateRepository(getApplication())
+    }
+
+    private val _currencyConverterState by lazy {
+        MutableStateFlow(
+            CurrencyConverterUiState(
+                fromCode = "BDT",
+                toCode = "USD",
+                amountInput = "1000",
+                ratesPerUsd = currencyRateRepository.loadCachedRatesPerUsd(),
+                customOverrides = currencyRateRepository.loadCustomOverrides(),
+                lastUpdatedMillis = currencyRateRepository.getLastUpdatedMillis(),
+                isRefreshing = false,
+                isOfflineFallback = false
+            )
+        )
+    }
+
+    val currencyConverterState: StateFlow<CurrencyConverterUiState>
+        get() = _currencyConverterState.asStateFlow()
+
+    private var currencyRefreshJob: Job? = null
+
+    fun ensureCurrencyRatesFresh() {
+        if (currencyRateRepository.shouldAutoRefresh() && !_currencyConverterState.value.isRefreshing) {
+            refreshCurrencyRates(showToast = false)
+        }
+    }
+
+    fun refreshCurrencyRates(showToast: Boolean = true) {
+        if (currencyRefreshJob?.isActive == true) return
+        currencyRefreshJob = viewModelScope.launch {
+            _currencyConverterState.update { it.copy(isRefreshing = true) }
+            val result = currencyRateRepository.fetchLiveRates()
+            _currencyConverterState.update { current ->
+                current.copy(
+                    ratesPerUsd = result.ratesPerUsd,
+                    lastUpdatedMillis = result.lastUpdatedMillis,
+                    isRefreshing = false,
+                    isOfflineFallback = !result.isLiveSuccess
+                )
+            }
+            if (showToast) {
+                val lang = settings.value?.language ?: AppLanguage.ENGLISH
+                userNotificationMessage.value = if (result.isLiveSuccess) {
+                    AppStrings.t("exchange_rates_updated", lang)
+                } else {
+                    AppStrings.t("offline_cached_rates", lang)
+                }
+            }
+        }
+    }
+
+    fun setCurrencyAmount(rawInput: String) {
+        val english = CurrencyFormatter.convertToEnglishDigits(rawInput)
+        val filtered = buildString {
+            var seenDot = false
+            for (ch in english) {
+                when {
+                    ch in '0'..'9' -> append(ch)
+                    ch == '.' && !seenDot -> {
+                        seenDot = true
+                        append(ch)
+                    }
+                }
+            }
+        }.take(14)
+        _currencyConverterState.update { it.copy(amountInput = filtered) }
+    }
+
+    fun setFromCurrency(code: String) {
+        _currencyConverterState.update { current ->
+            if (code == current.toCode) {
+                current.copy(fromCode = code, toCode = current.fromCode)
+            } else {
+                current.copy(fromCode = code)
+            }
+        }
+    }
+
+    fun setToCurrency(code: String) {
+        _currencyConverterState.update { current ->
+            if (code == current.fromCode) {
+                current.copy(toCode = code, fromCode = current.toCode)
+            } else {
+                current.copy(toCode = code)
+            }
+        }
+    }
+
+    fun swapCurrencies() {
+        _currencyConverterState.update { current ->
+            current.copy(fromCode = current.toCode, toCode = current.fromCode)
+        }
+    }
+
+    fun saveCustomExchangeRate(fromCode: String, toCode: String, rate: Double) {
+        if (fromCode == toCode || rate <= 0.0) return
+        val updated = currencyRateRepository.saveCustomOverride(fromCode, toCode, rate)
+        _currencyConverterState.update { it.copy(customOverrides = updated) }
+        val lang = settings.value?.language ?: AppLanguage.ENGLISH
+        userNotificationMessage.value = AppStrings.t("custom_rate_saved", lang)
+    }
+
+    fun resetCustomExchangeRate(fromCode: String, toCode: String) {
+        val updated = currencyRateRepository.clearCustomOverride(fromCode, toCode)
+        _currencyConverterState.update { it.copy(customOverrides = updated) }
+        val lang = settings.value?.language ?: AppLanguage.ENGLISH
+        userNotificationMessage.value = AppStrings.t("reverted_to_live_rate", lang)
     }
 }

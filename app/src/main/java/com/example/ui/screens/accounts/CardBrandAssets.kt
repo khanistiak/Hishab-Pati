@@ -213,48 +213,69 @@ fun filterMfsProviders(
     return combined.filter { it.name.contains(trimmed, ignoreCase = true) }
 }
 
+enum class EmvChipStyle {
+    GOLD,
+    SILVER_GOLD
+}
+
 /**
  * Realistic Metallic EMV Smart Chip for Debit and Credit cards only.
- * Includes brushed gold metallic gradient, micro-beveled outline,
- * and authentic etched circuit contact cutouts.
+ * Includes brushed gold (Credit) or brushed silver-gold (Bank/Debit) metallic gradient,
+ * micro-beveled outline, and authentic etched circuit contact cutouts.
  */
 @Composable
 fun EmvChip(
     modifier: Modifier = Modifier,
     width: Dp = 34.dp,
-    height: Dp = 24.dp
+    height: Dp = 24.dp,
+    style: EmvChipStyle = EmvChipStyle.GOLD,
+    cornerRadius: Dp = 5.dp
 ) {
     Canvas(
         modifier = modifier
             .size(width = width, height = height)
     ) {
-        val corner = 4.dp.toPx()
+        val corner = cornerRadius.toPx()
 
-        // 1. Brushed gold metallic gradient base
-        val goldBrush = Brush.linearGradient(
-            colors = listOf(
-                Color(0xFFFFEEA0),
-                Color(0xFFE5B745),
-                Color(0xFFBA8618),
-                Color(0xFFF7DE88),
-                Color(0xFFCE9622)
-            ),
-            start = Offset(0f, 0f),
-            end = Offset(size.width, size.height)
-        )
+        // 1. Brushed metallic gradient base
+        val chipBrush = when (style) {
+            EmvChipStyle.GOLD -> Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFFFFEEA0),
+                    Color(0xFFE5B745),
+                    Color(0xFFBA8618),
+                    Color(0xFFF7DE88),
+                    Color(0xFFCE9622)
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(size.width, size.height)
+            )
+            EmvChipStyle.SILVER_GOLD -> Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFFF8FAFC),
+                    Color(0xFFE3DEC8),
+                    Color(0xFFB5B09A),
+                    Color(0xFFEDF0F5),
+                    Color(0xFF9CA3AF)
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(size.width, size.height)
+            )
+        }
 
         drawRoundRect(
-            brush = goldBrush,
+            brush = chipBrush,
             size = size,
             cornerRadius = CornerRadius(corner, corner)
         )
 
         // 2. Beveled outer border
+        val borderMidColor = if (style == EmvChipStyle.GOLD) Color(0xFF8D6208) else Color(0xFF64748B)
         val borderBrush = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.8f),
-                Color(0xFF8D6208),
-                Color.White.copy(alpha = 0.4f)
+                Color.White.copy(alpha = 0.82f),
+                borderMidColor,
+                Color.White.copy(alpha = 0.42f)
             ),
             start = Offset(0f, 0f),
             end = Offset(size.width, size.height)
@@ -264,12 +285,16 @@ fun EmvChip(
             brush = borderBrush,
             size = size,
             cornerRadius = CornerRadius(corner, corner),
-            style = Stroke(width = 1.dp.toPx())
+            style = Stroke(width = 0.9.dp.toPx())
         )
 
         // 3. Etched micro-circuit grooves (ISO 7816 contact layout)
-        val etchColor = Color(0xFF6B4B04).copy(alpha = 0.85f)
-        val etchStroke = 0.85.dp.toPx()
+        val etchColor = if (style == EmvChipStyle.GOLD) {
+            Color(0xFF6B4B04).copy(alpha = 0.85f)
+        } else {
+            Color(0xFF334155).copy(alpha = 0.72f)
+        }
+        val etchStroke = (size.height * 0.038f).coerceAtLeast(0.6.dp.toPx())
 
         val padLeft = size.width * 0.28f
         val padRight = size.width * 0.72f

@@ -2,6 +2,10 @@ package com.example.ui.screens.accounts
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,14 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.zIndex
-import com.example.ui.components.FrostedGlassSurface
-import com.example.ui.components.recordFrostedBackdrop
-import com.example.ui.components.rememberScrollAwareGlassLayout
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -34,9 +30,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Contactless
 import androidx.compose.material.icons.filled.CreditCard
@@ -46,6 +39,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,7 +54,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -75,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -83,14 +77,22 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.AccountEntity
 import com.example.data.local.entity.TransactionEntity
 import com.example.data.model.AccountType
+import com.example.data.model.AppLanguage
 import com.example.data.model.TransactionType
 import com.example.ui.MainViewModel
 import com.example.ui.SubScreen
 import com.example.ui.components.CategoryIcon
+import com.example.ui.components.ScrollAwareFixedHeader
 import com.example.ui.components.TranslucentCard
+import com.example.ui.components.recordFrostedBackdrop
+import com.example.ui.components.rememberReducedMotionEnabled
+import com.example.ui.components.rememberScrollAwareGlassLayout
+import com.example.ui.navigation.LocalNavAnimatedVisibilityScope
+import com.example.ui.navigation.walletCardSharedBounds
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.TransferBlue
+import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
 import com.example.ui.util.DateFormatter
 import java.util.Locale
@@ -129,7 +131,9 @@ fun AccountDetailScreen(
     val selectedAccountId by viewModel.selectedAccountId.collectAsState()
     val settings by viewModel.settings.collectAsState()
 
+    val context = LocalContext.current
     val currencySymbol = settings?.currencySymbol ?: "৳"
+    val language = settings?.language ?: AppLanguage.ENGLISH
     val account = accounts.firstOrNull { it.id == selectedAccountId } ?: accounts.firstOrNull()
 
     var selectedFilter by remember { mutableStateOf(AccountTxFilter.ALL) }
@@ -271,30 +275,27 @@ fun AccountDetailScreen(
     )
     val scrollLayout = rememberScrollAwareGlassLayout(
         listState = listState,
-        defaultHeaderHeight = 264.dp,
-        extraTopGap = 8.dp,
+        defaultHeaderHeight = 66.dp,
+        extraTopGap = 6.dp,
         bottomNavClearance = 32.dp
     )
 
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val isDarkHeader = surfaceColor.luminance() < 0.5f
-    val headerBaseBg = if (isDarkHeader) {
-        MaterialTheme.colorScheme.background.copy(alpha = 0.22f)
+    val navAnimatedScope = LocalNavAnimatedVisibilityScope.current
+    val reducedMotion = rememberReducedMotionEnabled()
+    val detailEnterModifier = if (navAnimatedScope != null && !reducedMotion) {
+        with(navAnimatedScope) {
+            Modifier.animateEnterExit(
+                enter = fadeIn(tween(durationMillis = 280, delayMillis = 60)) +
+                    slideInVertically(tween(durationMillis = 300)) { it / 16 },
+                exit = fadeOut(tween(durationMillis = 150))
+            )
+        }
     } else {
-        surfaceColor.copy(alpha = 0.16f)
+        Modifier
     }
-    val headerOverlayBrush = if (isDarkHeader) {
-        Brush.verticalGradient(
-            0.0f to Color(0xFF0F172A).copy(alpha = 0.36f),
-            0.95f to Color(0xFF1E293B).copy(alpha = 0.28f),
-            1.0f to Color(0xFF1E293B).copy(alpha = 0.10f)
-        )
-    } else {
-        Brush.verticalGradient(
-            0.0f to Color.White.copy(alpha = 0.32f),
-            0.95f to Color.White.copy(alpha = 0.22f),
-            1.0f to Color.White.copy(alpha = 0.08f)
-        )
+
+    val flowStats = remember(account, accountTxs) {
+        computeAccountFlowStats(account = account, accountTxs = accountTxs)
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -310,6 +311,37 @@ fun AccountDetailScreen(
                 .testTag("account_detail_lazy_column"),
             contentPadding = scrollLayout.contentPadding
         ) {
+            // 1. Shared-Element Hero Account Card
+            item(key = "account_hero_card") {
+                HeroAccountCardContent(
+                    account = account,
+                    isCreditCard = isCreditCard,
+                    cardColor = cardColor,
+                    outstandingAmount = outstandingAmount,
+                    currencySymbol = currencySymbol,
+                    language = language,
+                    modifier = Modifier.walletCardSharedBounds(
+                        accountId = account.id,
+                        cornerRadius = 22.dp
+                    )
+                )
+            }
+
+            // 2. Quick-Action Pills (14.dp below hero card)
+            item(key = "account_quick_actions") {
+                Column(modifier = detailEnterModifier.fillMaxWidth()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AccountQuickActionBar(
+                        isCreditCard = isCreditCard,
+                        language = language,
+                        onAddClick = { viewModel.openAddTransactionForAccount(account.id) },
+                        onTransferClick = { viewModel.openTransferFromAccount(account.id) },
+                        onPayBillClick = { showPayBillDialog = true },
+                        onStatementClick = { showBillingCycleDialog = true }
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+            }
 
         // ==========================================
         // 3. CREDIT CARD SPECIFIC RICH DASHBOARD
@@ -777,62 +809,7 @@ fun AccountDetailScreen(
                 }
             }
 
-            // E. Action Buttons: Pay bill & View billing cycle (Matching video buttons)
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Big Primary Pay Bill button
-                    Button(
-                        onClick = { showPayBillDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = Color.White
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CreditCard,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Pay bill · ${CurrencyFormatter.format(outstandingAmount, currencySymbol)}",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    // Secondary View Billing Cycle button
-                    OutlinedButton(
-                        onClick = { showBillingCycleDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "View billing cycle",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                    }
-                }
-            }
+            // E. Credit Card Quick Action Note (Pay bill & Statement pills reside directly under hero card)
 
             // F. 3 Summary Stat Pills for Credit Card (Paid, Expenses, Due)
             item {
@@ -922,160 +899,123 @@ fun AccountDetailScreen(
                 }
             }
 
-            // G. Filter Chips for Credit Card: [All] [Expenses] [Payments]
+            // G. Filter Chips for Credit Card: [All] [Expenses] [Payments] + Entries Period Totals Row
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val ccFilters = listOf(
-                        AccountTxFilter.ALL to "All",
-                        AccountTxFilter.EXPENSES to "Expenses",
-                        AccountTxFilter.TRANSFERS to "Payments"
-                    )
-                    ccFilters.forEach { (filter, label) ->
-                        val isSelected = selectedFilter == filter
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { selectedFilter = filter },
-                            label = {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = Color.White,
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                labelColor = MaterialTheme.colorScheme.onSurface
-                            ),
-                            shape = RoundedCornerShape(20.dp),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                            )
+                Column(modifier = detailEnterModifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val ccFilters = listOf(
+                            AccountTxFilter.ALL to AppStrings.t("all_filter", language),
+                            AccountTxFilter.EXPENSES to AppStrings.t("expenses", language),
+                            AccountTxFilter.TRANSFERS to AppStrings.t("payments_filter", language)
                         )
+                        ccFilters.forEach { (filter, label) ->
+                            val isSelected = selectedFilter == filter
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedFilter = filter },
+                                label = {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = Color.White,
+                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                    labelColor = MaterialTheme.colorScheme.onSurface
+                                ),
+                                shape = RoundedCornerShape(20.dp),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
+                                    borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                )
+                            )
+                        }
                     }
+
+                    AccountEntriesSummaryRow(
+                        filteredTxs = filteredTxs,
+                        accountId = account.id,
+                        currencySymbol = currencySymbol,
+                        language = language
+                    )
                 }
             }
         } else {
             // ==========================================
-            // DEBIT CARD, CASH, MFS STANDARD STATS
+            // DEBIT CARD, CASH, MFS: MONTHLY FLOW & 90-DAY SPARKLINE CARD
+            // (NO Balance Check Banner)
             // ==========================================
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    TranslucentCard(
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("account_detail_summary_income"),
-                        cornerRadius = 16.dp
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowUpward,
-                                contentDescription = "Income",
-                                tint = IncomeGreen,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = CurrencyFormatter.format(totalIncome, currencySymbol),
-                                style = MaterialTheme.typography.titleSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = IncomeGreen,
-                                    fontSize = 15.sp
-                                ),
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    TranslucentCard(
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("account_detail_summary_expenses"),
-                        cornerRadius = 16.dp
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowDownward,
-                                contentDescription = "Expenses",
-                                tint = ExpenseRed,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = CurrencyFormatter.format(totalExpense, currencySymbol),
-                                style = MaterialTheme.typography.titleSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = ExpenseRed,
-                                    fontSize = 15.sp
-                                ),
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
+            item(key = "account_monthly_flow_sparkline") {
+                AccountMonthlyFlowSparklineCard(
+                    stats = flowStats,
+                    currencySymbol = currencySymbol,
+                    language = language,
+                    accentColor = cardColor,
+                    modifier = detailEnterModifier
+                )
             }
 
-            // Filter Chips for standard accounts
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    AccountTxFilter.values().forEach { filter ->
-                        val isSelected = selectedFilter == filter
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { selectedFilter = filter },
-                            label = {
-                                Text(
-                                    text = filter.label,
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = Color.White,
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                labelColor = MaterialTheme.colorScheme.onSurface
-                            ),
-                            shape = RoundedCornerShape(20.dp),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
+            // Filter Chips + Entries Summary Row for standard accounts
+            item(key = "account_standard_filters") {
+                Column(modifier = detailEnterModifier.fillMaxWidth()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AccountTxFilter.values().forEach { filter ->
+                            val isSelected = selectedFilter == filter
+                            val chipLabel = when (filter) {
+                                AccountTxFilter.ALL -> AppStrings.t("all_filter", language)
+                                AccountTxFilter.INCOME -> AppStrings.t("income", language)
+                                AccountTxFilter.EXPENSES -> AppStrings.t("expenses", language)
+                                AccountTxFilter.TRANSFERS -> AppStrings.t("transfers", language)
+                            }
+                            FilterChip(
                                 selected = isSelected,
-                                borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                onClick = { selectedFilter = filter },
+                                label = {
+                                    Text(
+                                        text = chipLabel,
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = Color.White,
+                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                    labelColor = MaterialTheme.colorScheme.onSurface
+                                ),
+                                shape = RoundedCornerShape(20.dp),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
+                                    borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                )
                             )
-                        )
+                        }
                     }
+
+                    AccountEntriesSummaryRow(
+                        filteredTxs = filteredTxs,
+                        accountId = account.id,
+                        currencySymbol = currencySymbol,
+                        language = language
+                    )
                 }
             }
         }
@@ -1108,14 +1048,14 @@ fun AccountDetailScreen(
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "No transactions found",
+                            text = AppStrings.t("no_transactions_found", language),
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                             )
                         )
                         Text(
-                            text = "Tap + to add a transaction to this account",
+                            text = AppStrings.t("tap_plus_to_add_tx", language),
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
                             )
@@ -1127,7 +1067,7 @@ fun AccountDetailScreen(
             groupedTxs.forEach { (dateHeader, txsInDate) ->
                 item {
                     Text(
-                        text = dateHeader,
+                        text = DateFormatter.localizeText(dateHeader, language),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
@@ -1172,118 +1112,91 @@ fun AccountDetailScreen(
         }
     }
 
-        // Fixed Pinned Frosted-Glass Header + Hero Card (Matches Home/Plan tabs frosted transition)
-        FrostedGlassSurface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .zIndex(2f)
-                .onSizeChanged { scrollLayout.headerHeightPxState.intValue = it.height }
-                .testTag("account_detail_pinned_header"),
-            baseBackgroundColor = headerBaseBg,
-            overlayBrush = headerOverlayBrush,
-            blurRadius = 8.dp,
-            glassProgressOverride = scrollLayout.targetGlassProgress,
-            featherBottomEdge = true
+        // Fixed Pinned Frosted Top Action Bar (< Back, Title, +, ✎)
+        ScrollAwareFixedHeader(
+            layoutState = scrollLayout,
+            testTag = "account_detail_pinned_header"
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. Top Action Bar (< Back, Title, +, ✎)
-                Row(
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 2.dp,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .size(44.dp)
+                        .testTag("account_detail_back_button"),
+                    onClick = onBack
                 ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = account.name,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 18.sp
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 12.dp),
+                    maxLines = 1
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Quick add transaction for this account (+)
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surface,
                         shadowElevation = 2.dp,
                         modifier = Modifier
-                            .size(42.dp)
-                            .testTag("account_detail_back_button"),
-                        onClick = onBack
+                            .size(44.dp)
+                            .testTag("account_detail_add_tx_button"),
+                        onClick = { viewModel.openAddTransactionForAccount(account.id) }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(20.dp)
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Add Transaction to Account",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
 
-                    Text(
-                        text = account.name,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            fontSize = 18.sp
-                        ),
+                    // Edit Account Button (✎)
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 2.dp,
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 12.dp),
-                        maxLines = 1
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // Quick add transaction for this account (+)
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 2.dp,
-                            modifier = Modifier
-                                .size(42.dp)
-                                .testTag("account_detail_add_tx_button"),
-                            onClick = { viewModel.openAddTransactionForAccount(account.id) }
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Add Transaction to Account",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-
-                        // Edit Account Button (✎)
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 2.dp,
-                            modifier = Modifier
-                                .size(42.dp)
-                                .testTag("account_detail_edit_account_button"),
-                            onClick = { onEditAccount(account) }
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Edit Account",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(19.dp)
-                                )
-                            }
+                            .size(44.dp)
+                            .testTag("account_detail_edit_account_button"),
+                        onClick = { onEditAccount(account) }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit Account",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(19.dp)
+                            )
                         }
                     }
                 }
-
-                // 2. Hero Account Card
-                HeroAccountCardContent(
-                    account = account,
-                    isCreditCard = isCreditCard,
-                    cardColor = cardColor,
-                    outstandingAmount = outstandingAmount,
-                    currencySymbol = currencySymbol
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
             }
         }
     }
@@ -1452,6 +1365,29 @@ fun AccountDetailScreen(
                 Button(onClick = { showBillingCycleDialog = false }, shape = RoundedCornerShape(12.dp)) {
                     Text("Done")
                 }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        shareCreditCardStatement(
+                            context = context,
+                            account = account,
+                            cycle = selectedCycle,
+                            accountTxs = accountTxs,
+                            currencySymbol = currencySymbol,
+                            language = language
+                        )
+                    },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Share,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(AppStrings.t("share_statement", language))
+                }
             }
         )
     }
@@ -1464,203 +1400,30 @@ private fun HeroAccountCardContent(
     cardColor: Color,
     outstandingAmount: Double,
     currencySymbol: String,
+    language: AppLanguage,
     modifier: Modifier = Modifier
 ) {
+    val model = remember(account, cardColor, isCreditCard, outstandingAmount) {
+        account.toCardVisualModel().copy(
+            baseColor = cardColor,
+            balance = if (isCreditCard) outstandingAmount else account.balance
+        )
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 6.dp)
     ) {
-        Surface(
+        HishabPatiAccountCard(
+            model = model,
+            currencySymbol = currencySymbol,
+            language = language,
+            cornerRadius = 22.dp,
+            shadowElevation = 6.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(180.dp),
-            shape = RoundedCornerShape(26.dp),
-            color = cardColor,
-            shadowElevation = 6.dp
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                cardColor,
-                                cardColor.copy(alpha = 0.88f),
-                                Color(0xFF0F172A).copy(alpha = 0.42f)
-                            )
-                        )
-                    )
-                    .padding(20.dp)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // Top Row: Institution + EMV chip & contactless icon
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = Color.White.copy(alpha = 0.22f),
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = when (account.type) {
-                                            AccountType.CREDIT_CARD -> Icons.Default.CreditCard
-                                            AccountType.BANK -> Icons.Default.AccountBalance
-                                            AccountType.CASH -> Icons.Default.Payments
-                                            AccountType.MFS -> Icons.Default.PhoneAndroid
-                                            else -> Icons.Default.CreditCard
-                                        },
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(19.dp)
-                                    )
-                                }
-                            }
-
-                            Column {
-                                Text(
-                                    text = account.name,
-                                    style = MaterialTheme.typography.titleSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    ),
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = if (account.institution.isNotBlank()) account.institution else account.type.displayName,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        fontSize = 11.sp
-                                    ),
-                                    maxLines = 1
-                                )
-                            }
-                        }
-
-                        when (account.type) {
-                            AccountType.BANK, AccountType.CREDIT_CARD -> {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Contactless,
-                                        contentDescription = "Contactless",
-                                        tint = Color.White.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    EmvChip(width = 34.dp, height = 24.dp)
-                                }
-                            }
-                            AccountType.CASH -> {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color.White.copy(alpha = 0.20f),
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.Payments,
-                                            contentDescription = "Cash",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
-                            else -> {}
-                        }
-                    }
-
-                    // Middle: OUTSTANDING or BALANCE label + large amount
-                    Column {
-                        Text(
-                            text = if (isCreditCard) "OUTSTANDING" else "BALANCE",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 10.sp,
-                                letterSpacing = 1.2.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = CurrencyFormatter.format(if (isCreditCard) outstandingAmount else account.balance, currencySymbol),
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                                fontSize = 26.sp
-                            )
-                        )
-                    }
-
-                    // Bottom Row: Account Details / Network and Masked Number
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val network = account.notes.split("|").firstOrNull { it.startsWith("Network:") }?.removePrefix("Network:")
-                        val subtype = account.notes.split("|").firstOrNull { it.startsWith("Subtype:") }?.removePrefix("Subtype:")
-                        Text(
-                            text = when (account.type) {
-                                AccountType.CREDIT_CARD -> network ?: "Credit Card"
-                                AccountType.BANK -> subtype ?: (network ?: "Debit Card")
-                                AccountType.CASH -> "Cash"
-                                AccountType.MFS -> "MFS"
-                                else -> account.type.displayName
-                            },
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontWeight = FontWeight.Medium,
-                                color = Color.White.copy(alpha = 0.85f)
-                            )
-                        )
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (account.type == AccountType.BANK || account.type == AccountType.CREDIT_CARD) {
-                                CardNetworkLogo(network = network)
-                            }
-
-                            if (account.type == AccountType.MFS) {
-                                val mfsProv = account.institution.ifBlank { account.name }
-                                MfsProviderLogo(provider = mfsProv)
-                            } else if (account.accountNumberLast4.isNotBlank()) {
-                                Text(
-                                    text = "•••• ${account.accountNumberLast4}",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White.copy(alpha = 0.9f),
-                                        letterSpacing = 1.sp
-                                    )
-                                )
-                            } else if (account.type == AccountType.CASH) {
-                                Text(
-                                    text = currencySymbol,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White.copy(alpha = 0.9f)
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+                .height(186.dp)
+        )
     }
 }
 

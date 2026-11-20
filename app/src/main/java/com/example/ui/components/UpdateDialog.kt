@@ -294,27 +294,27 @@ private fun AvailableContent(
         Spacer(modifier = Modifier.height(14.dp))
 
         Text(
-            text = if (isBangla) "নতুন যা যুক্ত হয়েছে" else "What's New",
+            text = if (isBangla) "নতুন যা থাকছে" else "Release Highlights",
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(6.dp))
 
         val notesContainerColor = if (isDark) {
-            Color.White.copy(alpha = 0.05f)
+            primary.copy(alpha = 0.10f)
         } else {
-            Color.Black.copy(alpha = 0.035f)
+            primary.copy(alpha = 0.05f)
         }
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = notesContainerColor,
             border = BorderStroke(
                 1.dp,
-                if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+                if (isDark) primary.copy(alpha = 0.22f) else primary.copy(alpha = 0.14f)
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 64.dp, max = 200.dp)
+                .heightIn(min = 64.dp, max = 190.dp)
         ) {
             Text(
                 text = releaseInfo.releaseNotes.ifBlank {
@@ -331,64 +331,64 @@ private fun AvailableContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .verticalScroll(notesScroll)
-                    .padding(12.dp)
+                    .padding(14.dp)
             )
         }
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Button(
+            onClick = onUpdateNow,
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(containerColor = primary),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("update_now_button")
         ) {
-            OutlinedButton(
-                onClick = onDismiss,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp)
-                    .testTag("update_later_button")
-            ) {
-                Text(
-                    text = if (isBangla) "পরে" else "Later",
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Button(
-                onClick = onUpdateNow,
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = primary),
-                modifier = Modifier
-                    .weight(1.35f)
-                    .height(48.dp)
-                    .testTag("update_now_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CloudDownload,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (isBangla) "এখনই আপডেট" else "Update Now",
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+            Icon(
+                imageVector = Icons.Default.CloudDownload,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (isBangla) "আপডেট ডাউনলোড করুন" else "Download Update",
+                fontWeight = FontWeight.Bold
+            )
         }
 
         Spacer(modifier = Modifier.height(6.dp))
-        Box(
+
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(
+                onClick = onDismiss,
+                shape = CircleShape,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("update_later_button")
+            ) {
+                Text(
+                    text = if (isBangla) "এখন নয়" else "Not Now",
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(
                 onClick = onSkipVersion,
-                modifier = Modifier.testTag("update_skip_version_button")
+                shape = CircleShape,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("update_skip_version_button")
             ) {
                 Text(
                     text = if (isBangla) "এই সংস্করণ এড়িয়ে যান" else "Skip this version",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                 )
             }
         }
