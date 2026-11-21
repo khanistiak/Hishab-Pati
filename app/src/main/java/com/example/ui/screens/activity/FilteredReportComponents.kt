@@ -5,6 +5,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -512,23 +513,26 @@ private fun InteractiveBalanceChart(
                     }
                 }
 
-                // Fill gradient
+                // Royal Indigo-to-Electric Violet fill gradient
                 drawPath(
                     path = fillPath,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            lineColor.copy(alpha = 0.22f),
-                            lineColor.copy(alpha = 0.02f)
+                            Color(0xFF4F46E5).copy(alpha = 0.24f),
+                            Color(0xFF7C3AED).copy(alpha = 0.08f),
+                            Color.Transparent
                         ),
                         startY = 0f,
                         endY = h
                     )
                 )
 
-                // Line Stroke
+                // Royal Indigo-to-Electric Violet Line Stroke
                 drawPath(
                     path = path,
-                    color = lineColor,
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(Color(0xFF4F46E5), Color(0xFF7C3AED))
+                    ),
                     style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
                 )
 
@@ -683,7 +687,9 @@ fun FilteredCategoryBreakdownCard(
                 shares = categoryShares,
                 selectedCategory = inspectedCategory,
                 onSelectCategory = { cat ->
-                    inspectedCategory = cat
+                    val next = if (inspectedCategory?.equals(cat, ignoreCase = true) == true) null else cat
+                    inspectedCategory = next
+                    onSelectCategory(next)
                 },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -740,17 +746,31 @@ fun FilteredCategoryBreakdownCard(
                 // "All Categories" pill
                 item {
                     val isAllSelected = inspectedCategory == null
-                    Surface(
-                        onClick = { inspectedCategory = null },
-                        shape = RoundedCornerShape(22.dp),
-                        color = if (isAllSelected) Color(0xFF232D3F) else Color.White,
-                        border = if (isAllSelected) null else BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                        shadowElevation = 0.dp,
-                        tonalElevation = 0.dp,
+                    val isDarkSurface = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                    val chipUnselectedBg = if (isDarkSurface) Color(0xFF1E293B).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.85f)
+                    val chipUnselectedBorder = if (isDarkSurface) Color.White.copy(alpha = 0.14f) else Color(0xFFE2E8F0)
+                    Box(
                         modifier = Modifier
                             .height(44.dp)
                             .clip(RoundedCornerShape(22.dp))
-                            .testTag("filter_all_categories_chip")
+                            .background(
+                                brush = if (isAllSelected) {
+                                    Brush.linearGradient(listOf(Color(0xFF4F46E5), Color(0xFF7C3AED)))
+                                } else {
+                                    Brush.linearGradient(listOf(chipUnselectedBg, chipUnselectedBg))
+                                }
+                            )
+                            .then(
+                                if (!isAllSelected) {
+                                    Modifier.border(1.dp, chipUnselectedBorder, RoundedCornerShape(22.dp))
+                                } else Modifier
+                            )
+                            .clickable {
+                                inspectedCategory = null
+                                onSelectCategory(null)
+                            }
+                            .testTag("filter_all_categories_chip"),
+                        contentAlignment = Alignment.Center
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 14.dp),
@@ -760,14 +780,14 @@ fun FilteredCategoryBreakdownCard(
                             Icon(
                                 imageVector = Icons.Default.Category,
                                 contentDescription = if (isBn) "সকল ক্যাটাগরি" else "All Categories",
-                                tint = if (isAllSelected) Color.White else Color(0xFF1E293B),
+                                tint = if (isAllSelected) Color.White else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
                                 text = if (isBn) "সকল ক্যাটাগরি" else "All Categories",
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = if (isAllSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                    color = if (isAllSelected) Color.White else Color(0xFF1E293B),
+                                    color = if (isAllSelected) Color.White else MaterialTheme.colorScheme.onSurface,
                                     fontSize = 13.sp
                                 )
                             )
@@ -778,13 +798,16 @@ fun FilteredCategoryBreakdownCard(
                 // Circular Category Badges
                 items(categoryShares, key = { it.categoryName }) { share ->
                     val isSelected = inspectedCategory?.equals(share.categoryName, ignoreCase = true) == true
+                    val isDarkSurface = MaterialTheme.colorScheme.background.luminance() < 0.5f
                     Surface(
                         onClick = {
-                            inspectedCategory = if (isSelected) null else share.categoryName
+                            val next = if (isSelected) null else share.categoryName
+                            inspectedCategory = next
+                            onSelectCategory(next)
                         },
                         shape = CircleShape,
-                        color = if (isSelected) share.color else Color.White,
-                        border = if (isSelected) null else BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        color = if (isSelected) share.color else if (isDarkSurface) Color(0xFF1E293B).copy(alpha = 0.72f) else Color.White,
+                        border = if (isSelected) null else BorderStroke(1.dp, if (isDarkSurface) Color.White.copy(alpha = 0.14f) else Color(0xFFE2E8F0)),
                         shadowElevation = 0.dp,
                         tonalElevation = 0.dp,
                         modifier = Modifier
@@ -1885,16 +1908,24 @@ fun FilteredReportContent(
 
     val effectiveReportTotal = reportTotalAmount ?: remember(filteredList, selectedFilter) {
         when (selectedFilter) {
-            ActivityFilterType.EXPENSES -> filteredList.filter { it.type == TransactionType.EXPENSE || it.type == TransactionType.LEND }.sumOf { it.amount }
-            ActivityFilterType.INCOME -> filteredList.filter { it.type == TransactionType.INCOME || it.type == TransactionType.BORROW }.sumOf { it.amount }
-            ActivityFilterType.TRANSFERS -> filteredList.filter { it.type == TransactionType.TRANSFER || it.type == TransactionType.CC_PAYMENT }.sumOf { it.amount }
+            ActivityFilterType.EXPENSES -> filteredList.filter {
+                it.type == TransactionType.EXPENSE && !it.category.equals("Transfer", ignoreCase = true)
+            }.sumOf { it.amount }
+            ActivityFilterType.INCOME -> filteredList.filter {
+                it.type == TransactionType.INCOME && !it.category.equals("Transfer", ignoreCase = true)
+            }.sumOf { it.amount }
+            ActivityFilterType.TRANSFERS -> filteredList.filter {
+                it.type == TransactionType.TRANSFER || it.type == TransactionType.CC_PAYMENT
+            }.sumOf { it.amount }
             ActivityFilterType.ALL -> {
                 var sum = 0.0
                 filteredList.forEach { tx ->
-                    when (tx.type) {
-                        TransactionType.INCOME, TransactionType.BORROW -> sum += tx.amount
-                        TransactionType.EXPENSE, TransactionType.LEND -> sum -= tx.amount
-                        else -> {}
+                    if (!tx.category.equals("Transfer", ignoreCase = true)) {
+                        when (tx.type) {
+                            TransactionType.INCOME -> sum += tx.amount
+                            TransactionType.EXPENSE -> sum -= tx.amount
+                            else -> {}
+                        }
                     }
                 }
                 sum
@@ -2130,8 +2161,12 @@ fun FilteredReportContent(
             }
         } else {
             groupedByDate.forEach { (dateHeader, txsInDate) ->
-                val dayExpenses = txsInDate.filter { it.type == TransactionType.EXPENSE || it.type == TransactionType.LEND }.sumOf { it.amount }
-                val dayIncome = txsInDate.filter { it.type == TransactionType.INCOME || it.type == TransactionType.BORROW }.sumOf { it.amount }
+                val dayExpenses = txsInDate.filter {
+                    it.type == TransactionType.EXPENSE && !it.category.equals("Transfer", ignoreCase = true)
+                }.sumOf { it.amount }
+                val dayIncome = txsInDate.filter {
+                    it.type == TransactionType.INCOME && !it.category.equals("Transfer", ignoreCase = true)
+                }.sumOf { it.amount }
 
                 item(key = "date_header_$dateHeader") {
                     Row(
@@ -2377,7 +2412,7 @@ fun FilteredReportContent(
                     }
                 }
 
-                // Date Range Pill (Dark Slate capsule with Calendar icon, date range, and expand/collapse toggle) - compact 34dp height
+                // Date Range Pill (Royal Indigo-to-Electric Violet capsule with Calendar icon & expand toggle)
                 item {
                     val dateText = formatDateRangePill(
                         customLabel = customDateRangeLabel,
@@ -2386,21 +2421,23 @@ fun FilteredReportContent(
                         endTime = endTime,
                         language = language
                     )
-                    Surface(
-                        onClick = { isDatePresetsExpanded = !isDatePresetsExpanded },
-                        shape = RoundedCornerShape(17.dp),
-                        color = Color(0xFF4A5568),
-                        shadowElevation = 0.dp,
-                        tonalElevation = 0.dp,
+                    Box(
                         modifier = Modifier
                             .height(34.dp)
                             .clip(RoundedCornerShape(17.dp))
-                            .testTag("report_date_range_chip")
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF4F46E5), Color(0xFF7C3AED))
+                                )
+                            )
+                            .clickable { isDatePresetsExpanded = !isDatePresetsExpanded }
+                            .testTag("report_date_range_chip"),
+                        contentAlignment = Alignment.Center
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.padding(horizontal = 11.dp)
+                            modifier = Modifier.padding(horizontal = 12.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CalendarMonth,

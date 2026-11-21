@@ -295,10 +295,12 @@ fun AddDebtScreen(
                             } else ""
 
                             val newDebt = if (debtToEdit != null) {
+                                val newRemaining = (amt - debtToEdit!!.paidAmount).coerceAtLeast(0.0)
                                 debtToEdit!!.copy(
                                     personName = name,
-                                    amount = (amt - debtToEdit!!.paidAmount).coerceAtLeast(0.0),
+                                    amount = newRemaining,
                                     totalAmount = amt,
+                                    isSettled = amt > 0.0 && newRemaining <= 0.001,
                                     type = debtType,
                                     reason = reason,
                                     colorHex = activeColorHex,

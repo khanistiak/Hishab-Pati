@@ -27,7 +27,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -112,8 +115,9 @@ fun HishabPatiAccountCard(
     isBalanceVisible: Boolean = true,
     language: AppLanguage = AppLanguage.ENGLISH,
     cornerRadius: Dp = 22.dp,
-    shadowElevation: Dp = 6.dp,
+    shadowElevation: Dp = 8.dp,
     peekingHeaderOnly: Boolean = false,
+    hideContent: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
     val isBangla = language == AppLanguage.BANGLA
@@ -128,12 +132,7 @@ fun HishabPatiAccountCard(
     }
 
     val cardShape = RoundedCornerShape(cornerRadius)
-    val borderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color.White.copy(alpha = 0.28f),
-            Color.White.copy(alpha = 0.08f)
-        )
-    )
+    val specularRimBrush = remember { build3DSpecularRimBrush() }
 
     val displayName = model.name.ifBlank {
         when (model.type) {
@@ -165,7 +164,14 @@ fun HishabPatiAccountCard(
         else model.last4
     }
 
-    val shadowColor = model.baseColor.copy(alpha = 0.28f)
+    val shadowColor = model.baseColor.copy(alpha = 0.34f)
+    val baseGradientBrush = remember(gradientColors) {
+        Brush.linearGradient(
+            colors = gradientColors,
+            start = Offset(0f, 0f),
+            end = Offset(920f, 640f)
+        )
+    }
     val containerModifier = modifier
         .shadow(
             elevation = shadowElevation,
@@ -174,132 +180,161 @@ fun HishabPatiAccountCard(
             spotColor = shadowColor
         )
         .clip(cardShape)
-        .background(Brush.linearGradient(gradientColors))
-        .border(BorderStroke(1.dp, borderBrush), cardShape)
+        .background(baseGradientBrush)
         .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
 
     Box(modifier = containerModifier) {
-        // 1. Category-specific bespoke Canvas surface pattern
+        // 1. Clean static category-specific bespoke artwork (Guilloché / Silk / Origami / Organic)
         AccountCardPatternCanvas(
             type = model.type,
             isMini = false,
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. Subtle top-left specular glass sheen
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.16f),
-                            Color.Transparent,
-                            Color.Transparent
-                        ),
-                        start = Offset(0f, 0f),
-                        end = Offset(520f, 360f)
-                    )
-                )
+        // 2. Realistic 3D studio top-left catch-light glow + bottom-right ambient vignette
+        Card3DLightingOverlay(
+            modifier = Modifier.fillMaxSize()
         )
 
-        // 3. Card Typography & Hardware Content
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    start = 18.dp,
-                    end = 18.dp,
-                    top = if (peekingHeaderOnly) 7.dp else 16.dp,
-                    bottom = 16.dp
-                ),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // TOP ROW
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        // 3. Card Typography & Hardware Content (omitted entirely on slim depth strips)
+        if (!hideContent) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = if (peekingHeaderOnly) 0.dp else 16.dp,
+                        bottom = 16.dp
+                    ),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
+                // TOP ROW
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(if (peekingHeaderOnly) 8.dp else 10.dp),
-                    modifier = Modifier.weight(1f, fill = false)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (peekingHeaderOnly) {
+                                Modifier
+                                    .height(26.dp)
+                                    .padding(vertical = 4.dp)
+                            } else {
+                                Modifier
+                            }
+                        ),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color.White.copy(alpha = 0.20f),
-                        modifier = Modifier.size(if (peekingHeaderOnly) 24.dp else 34.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = when (model.type) {
-                                    AccountType.CREDIT_CARD -> Icons.Default.CreditCard
-                                    AccountType.BANK -> Icons.Default.AccountBalance
-                                    AccountType.CASH -> Icons.Default.Payments
-                                    AccountType.MFS -> Icons.Default.PhoneAndroid
-                                    AccountType.OTHER -> Icons.Default.AccountBalance
-                                },
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(if (peekingHeaderOnly) 13.5.dp else 18.dp)
-                            )
-                        }
-                    }
-
-                    Column {
-                        Text(
-                            text = displayName,
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (peekingHeaderOnly) 13.sp else 14.5.sp
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (!peekingHeaderOnly) {
-                            Text(
-                                text = topSubtitle,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = Color.White.copy(alpha = 0.78f),
-                                    fontSize = 10.sp,
-                                    letterSpacing = if (hasHardwareChip) 0.7.sp else 0.1.sp,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-
-                if (peekingHeaderOnly) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(start = 8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(if (peekingHeaderOnly) 7.dp else 10.dp),
+                        modifier = Modifier.weight(1f, fill = false)
                     ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.22f),
+                            modifier = Modifier.size(if (peekingHeaderOnly) 18.dp else 34.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = when (model.type) {
+                                        AccountType.CREDIT_CARD -> Icons.Default.CreditCard
+                                        AccountType.BANK -> Icons.Default.AccountBalance
+                                        AccountType.CASH -> Icons.Default.Payments
+                                        AccountType.MFS -> Icons.Default.PhoneAndroid
+                                        AccountType.OTHER -> Icons.Default.AccountBalance
+                                    },
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(if (peekingHeaderOnly) 11.dp else 18.dp)
+                                )
+                            }
+                        }
+
+                        if (peekingHeaderOnly) {
+                            val peekingLast4 = remember(model.last4, isBangla) {
+                                val raw = model.last4.trim()
+                                if (raw.isBlank()) "" else {
+                                    val digits = if (raw.length > 4) raw.takeLast(4) else raw
+                                    if (isBangla) CurrencyFormatter.convertToBanglaDigits(digits) else digits
+                                }
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
+                                Text(
+                                    text = displayName,
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        lineHeight = 15.sp
+                                    ),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                if (peekingLast4.isNotBlank()) {
+                                    Text(
+                                        text = "••$peekingLast4",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = Color.White.copy(alpha = 0.72f),
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 11.sp,
+                                            lineHeight = 14.sp,
+                                            fontFeatureSettings = "tnum"
+                                        ),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        } else {
+                            Column {
+                                Text(
+                                    text = displayName,
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.5.sp,
+                                        lineHeight = 18.sp
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = topSubtitle,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = Color.White.copy(alpha = 0.78f),
+                                        fontSize = 10.sp,
+                                        letterSpacing = if (hasHardwareChip) 0.7.sp else 0.1.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    if (peekingHeaderOnly) {
                         Text(
                             text = formattedBalance,
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                color = Color.White.copy(alpha = 0.96f),
+                                color = Color.White,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
+                                lineHeight = 15.sp,
                                 fontFeatureSettings = "tnum"
                             ),
-                            maxLines = 1
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(start = 10.dp)
                         )
-                        if (hasHardwareChip) {
-                            Icon(
-                                imageVector = Icons.Default.Contactless,
-                                contentDescription = "Contactless",
-                                tint = Color.White.copy(alpha = 0.84f),
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                    }
-                } else {
+                    } else {
                     when {
                         hasHardwareChip -> {
                             Row(
@@ -314,7 +349,7 @@ fun HishabPatiAccountCard(
                                 )
                                 EmvChip(
                                     width = 34.dp,
-                                    height = 24.dp,
+                                    height = 25.dp,
                                     style = if (isCredit) EmvChipStyle.GOLD else EmvChipStyle.SILVER_GOLD,
                                     cornerRadius = 5.dp
                                 )
@@ -374,7 +409,7 @@ fun HishabPatiAccountCard(
                 }
             }
 
-            // MIDDLE ROW: Micro-label + Large Tabular Balance
+            // MIDDLE ROW: Micro-label + Enlarged Executive Tabular Balance (32.sp)
             Column(modifier = Modifier.padding(top = 2.dp)) {
                 Text(
                     text = if (isCredit) {
@@ -389,17 +424,27 @@ fun HishabPatiAccountCard(
                         fontWeight = FontWeight.Bold
                     )
                 )
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+                var cardBalanceFontSizeSp by remember(formattedBalance) { mutableFloatStateOf(32f) }
                 Text(
                     text = formattedBalance,
                     style = MaterialTheme.typography.headlineMedium.copy(
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 24.sp,
+                        fontSize = cardBalanceFontSizeSp.sp,
+                        lineHeight = (cardBalanceFontSizeSp + 4f).sp,
+                        letterSpacing = (-0.6).sp,
                         fontFeatureSettings = "tnum"
                     ),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    onTextLayout = { result ->
+                        if (result.didOverflowWidth && cardBalanceFontSizeSp > 20f) {
+                            cardBalanceFontSizeSp = (cardBalanceFontSizeSp - 2f).coerceAtLeast(20f)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
@@ -457,14 +502,14 @@ fun HishabPatiAccountCard(
                             if (model.network.isNotBlank()) {
                                 CardNetworkLogo(
                                     network = model.network,
-                                    modifier = Modifier.height(18.dp)
+                                    modifier = Modifier.height(16.dp)
                                 )
                             } else {
                                 Icon(
                                     imageVector = Icons.Default.CreditCard,
                                     contentDescription = "Credit Card",
                                     tint = Color.White.copy(alpha = 0.86f),
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -478,7 +523,7 @@ fun HishabPatiAccountCard(
                             if (model.network.isNotBlank()) {
                                 CardNetworkLogo(
                                     network = model.network,
-                                    modifier = Modifier.height(18.dp)
+                                    modifier = Modifier.height(16.dp)
                                 )
                             }
                         }
@@ -498,9 +543,21 @@ fun HishabPatiAccountCard(
                             )
                         }
                     }
+                    }
                 }
             }
         }
+
+        // 4. Crisp 1.dp 3D top-left white specular perimeter rim on top of lighting layers
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .border(
+                    width = 1.dp,
+                    brush = specularRimBrush,
+                    shape = cardShape
+                )
+        )
     }
 }
 
@@ -515,8 +572,9 @@ fun HishabPatiAccountCard(
     isBalanceVisible: Boolean = true,
     language: AppLanguage = AppLanguage.ENGLISH,
     cornerRadius: Dp = 22.dp,
-    shadowElevation: Dp = 6.dp,
+    shadowElevation: Dp = 8.dp,
     peekingHeaderOnly: Boolean = false,
+    hideContent: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
     val model = remember(account) { account.toCardVisualModel() }
@@ -529,6 +587,7 @@ fun HishabPatiAccountCard(
         cornerRadius = cornerRadius,
         shadowElevation = shadowElevation,
         peekingHeaderOnly = peekingHeaderOnly,
+        hideContent = hideContent,
         onClick = onClick
     )
 }
@@ -554,40 +613,35 @@ fun HishabPatiMiniAccountCard(
 
     val cardShape = RoundedCornerShape(8.dp)
     val showChip = account.type == AccountType.CREDIT_CARD || account.type == AccountType.BANK
+    val miniRimBrush = remember { build3DSpecularRimBrush() }
 
     Box(
         modifier = modifier
             .size(width = 54.dp, height = 36.dp)
+            .shadow(
+                elevation = 3.dp,
+                shape = cardShape,
+                ambientColor = baseColor.copy(alpha = 0.24f),
+                spotColor = baseColor.copy(alpha = 0.30f)
+            )
             .clip(cardShape)
             .background(Brush.linearGradient(colors = gradientColors))
             .border(
-                width = 0.6.dp,
-                color = Color.White.copy(alpha = if (account.type == AccountType.CREDIT_CARD) 0.24f else 0.28f),
+                width = 0.85.dp,
+                brush = miniRimBrush,
                 shape = cardShape
             )
     ) {
-        // Category-matched miniature Canvas pattern
+        // Clean static category-matched miniature Canvas pattern
         AccountCardPatternCanvas(
             type = account.type,
             isMini = true,
             modifier = Modifier.fillMaxSize()
         )
 
-        // Subtle diagonal glass specular sheen
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.18f),
-                            Color.Transparent,
-                            Color.Transparent
-                        ),
-                        start = Offset(0f, 0f),
-                        end = Offset(120f, 90f)
-                    )
-                )
+        // Realistic 3D top-left studio light catch & subtle bottom-right shadow
+        Card3DLightingOverlay(
+            modifier = Modifier.fillMaxSize()
         )
 
         when {

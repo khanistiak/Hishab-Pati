@@ -55,6 +55,8 @@ import com.example.ui.screens.insights.InsightsTabMode
 import com.example.ui.screens.notifications.NotificationDestinationType
 import com.example.ui.screens.notifications.generateRealNotifications
 import com.example.ui.screens.plan.CurrencyRateRepository
+import com.example.ui.screens.plan.calculateDebtRemaining
+import com.example.ui.screens.plan.isDebtAdditionTransaction
 import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
 import com.example.voice.ParsedVoiceTransaction
@@ -125,8 +127,19 @@ enum class SubScreen {
     NOTIFICATION_MANAGER,
     USER_PROFILE,
     BACKUP_RESTORE,
-    ABOUT
+    ABOUT,
+    FILTERED_REPORTS
 }
+
+data class FilteredReportArgs(
+    val category: String? = null,
+    val subcategory: String? = null,
+    val dateRange: Pair<Long, Long>? = null,
+    val dateRangeLabel: String? = null,
+    val filterType: ActivityFilterType = ActivityFilterType.EXPENSES,
+    val accountId: String? = null,
+    val searchQuery: String = ""
+)
 
 enum class InsightsPeriod(val label: String, val bnLabel: String) {
     DAILY("Daily", "দৈনিক"),
@@ -159,8 +172,15 @@ data class NetWorthSummary(
 )
 
 enum class HomeCardStyle {
+    BALANCE_CARD,
     STACK,
-    CAROUSEL
+    CAROUSEL;
+
+    fun next(): HomeCardStyle = when (this) {
+        BALANCE_CARD -> STACK
+        STACK -> CAROUSEL
+        CAROUSEL -> BALANCE_CARD
+    }
 }
 
 enum class BalanceCardStyle {
@@ -221,7 +241,8 @@ data class TransactionDraftState(
     val optimisticSubcategories: List<SubcategoryEntity> = emptyList(),
     val newlyCreatedCategoryName: String? = null,
     val voiceOrReceiptNotice: String? = null,
-    val isReceiptNotice: Boolean = false
+    val isReceiptNotice: Boolean = false,
+    val excludeFromBudgets: Boolean = false
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -309,18 +330,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val insightsCustomStartDate = MutableStateFlow<Long?>(null)
     val insightsCustomEndDate = MutableStateFlow<Long?>(null)
     val insightsSelectedCategory = MutableStateFlow<String?>(null)
+    val filteredReportArgs = MutableStateFlow<FilteredReportArgs?>(null)
+
+    fun openFilteredReports(
+        category: String? = null,
+        subcategory: String? = null,
+        dateRange: Pair<Long, Long>? = null,
+        dateRangeLabel: String? = null,
+        filterType: ActivityFilterType = ActivityFilterType.EXPENSES,
+        accountId: String? = null,
+        searchQuery: String = ""
+    ) {
+        filteredReportArgs.value = FilteredReportArgs(
+            category = category,
+            subcategory = subcategory,
+            dateRange = dateRange,
+            dateRangeLabel = dateRangeLabel,
+            filterType = filterType,
+            accountId = accountId,
+            searchQuery = searchQuery
+        )
+        openSubScreen(SubScreen.FILTERED_REPORTS)
+    }
 
     fun navigateToActivityWithFilter(
         category: String? = null,
         subcategory: String? = null,
         query: String? = null,
         dateRange: Pair<Long, Long>? = null,
-        dateRangeLabel: String? = null
+        dateRangeLabel: String? = null,
+        filterType: ActivityFilterType? = null,
+        clearAccountFilter: Boolean = false
     ) {
         activitySelectedCategory.value = category
         activitySearchQuery.value = query ?: subcategory ?: ""
         activityCustomDateRange.value = dateRange
         activityDateRangeLabel.value = dateRangeLabel
+        if (filterType != null) {
+            activityFilter.value = filterType
+        }
+        if (clearAccountFilter) {
+            activitySelectedAccount.value = null
+        }
         openSubScreen(SubScreen.NONE)
         _currentTab.value = MainTab.ACTIVITY
     }
@@ -569,6 +620,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             SubScreen.DEBT_DETAILS -> selectedDebt.value?.id ?: "default"
             SubScreen.ADD_DEBT -> debtToEdit.value?.id ?: "new_${debtFilterType.value.name}"
             SubScreen.ADD_DEBT_TRANSACTION -> "${selectedDebtForTransaction.value?.id ?: "default"}_${debtTransactionType.value}"
+            SubScreen.FILTERED_REPORTS -> "${filteredReportArgs.value?.category ?: "all"}_${filteredReportArgs.value?.filterType?.name ?: "EXPENSES"}"
             else -> "root"
         }
     }
@@ -850,14 +902,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         account: AccountEntity?,
         notes: String = "",
         tags: String = "",
-        customTitle: String = ""
+        customTitle: String = "",
+        timestamp: Long = System.currentTimeMillis()
     ) {
-        when (type.uppercase(Locale.ENGLISH)) {
-            "INTEREST" -> addDebtInterest(debt.id, amount)
-            "INCREASE", "BORROW_MORE", "LEND_MORE" -> borrowOrLendMore(debt.id, amount)
-            else -> recordDebtPayment(debt.id, amount, notes)
+        if (amount <= 0.0) {
+            return
         }
-        closeSubScreen()
+        val normalizedType = type.trim().uppercase(Locale.ENGLISH).replace(" ", "_")
+        when (normalizedType) {
+            "INTEREST", "ADD_INTEREST" -> {
+                addDebtInterest(
+                    debtId = debt.id,
+                    interestAmount = amount,
+                    customTitle = customTitle,
+                    notes = notes,
+                    timestamp = timestamp
+                )
+            }
+            "INCREASE", "BORROW_MORE", "LEND_MORE", "BORROWED_MORE", "LENT_MORE" -> {
+                borrowOrLendMore(
+                    debtId = debt.id,
+                    additionalAmount = amount,
+                    account = account,
+                    notes = notes,
+                    customTitle = customTitle,
+                    timestamp = timestamp
+                )
+            }
+            else -> {
+                recordDebtPayment(
+                    debtId = debt.id,
+                    paymentAmount = amount,
+                    note = notes,
+                    account = account,
+                    customTitle = customTitle,
+                    timestamp = timestamp
+                )
+            }
+        }
+        closeSubScreen(SubScreen.ADD_DEBT_TRANSACTION)
     }
 
     fun toggleThemeModeQuick() {
@@ -870,8 +953,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         setThemeMode(next)
     }
 
-    fun closeSubScreen() {
+    fun closeSubScreen(expectedScreen: SubScreen? = null) {
         val closing = _currentSubScreen.value
+        if (expectedScreen != null && closing != expectedScreen) {
+            return
+        }
         val closingEntry = _currentSubScreenEntry.value
         if (closingEntry != null) {
             scrollStateStore.clearScopePrefix(closingEntry.stateKey)
@@ -943,6 +1029,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     preselectedAccountIdForNewTx.value = null
                     newTransactionInitialType.value = TransactionType.EXPENSE
                     clearTransactionDraft()
+                }
+            }
+            SubScreen.FILTERED_REPORTS -> {
+                if (!remainingScreens.contains(SubScreen.FILTERED_REPORTS)) {
+                    filteredReportArgs.value = null
                 }
             }
             else -> {}
@@ -1065,6 +1156,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun extractDebtIdFromNotes(notes: String?): String? {
+        if (notes.isNullOrBlank()) return null
+        val match = Regex("\\[Debt:([^\\]]+)\\]").find(notes)
+        return match?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
+    }
+
     fun saveTransaction(
         id: String? = null,
         type: TransactionType,
@@ -1075,26 +1172,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         accountId: String,
         toAccountId: String? = null,
         timestamp: Long = System.currentTimeMillis(),
-        notes: String? = null
+        notes: String? = null,
+        debtId: String? = null,
+        excludeFromBudgets: Boolean = false
     ) {
         viewModelScope.launch {
-            val existing = if (id != null) transactions.value.firstOrNull { it.id == id } else null
+            val existing = if (id != null) {
+                transactions.value.firstOrNull { it.id == id } ?: repository.getTransactionById(id)
+            } else {
+                null
+            }
+            val resolvedDebtId = existing?.debtId?.takeIf { it.isNotBlank() }
+                ?: debtId?.takeIf { it.isNotBlank() }
+                ?: extractDebtIdFromNotes(existing?.notes)
+                ?: extractDebtIdFromNotes(notes)
+
+            val isSynthesizedInitialDebtTx = existing == null &&
+                !resolvedDebtId.isNullOrBlank() &&
+                id?.startsWith("init_") == true
+
+            val resolvedId = when {
+                isSynthesizedInitialDebtTx -> "tx_debt_init_${resolvedDebtId}"
+                id != null -> id
+                else -> "tx_${UUID.randomUUID().toString().take(8)}"
+            }
+
+            val resolvedSubcategory = when {
+                isSynthesizedInitialDebtTx -> "Initial Debt"
+                else -> (subcategory ?: "").trim()
+            }
+
+            val parentDebt = resolvedDebtId?.let { dId ->
+                repository.getDebtById(dId) ?: debts.value.firstOrNull { it.id == dId }
+            }
+
             val tx = TransactionEntity(
-                id = id ?: "tx_${UUID.randomUUID().toString().take(8)}",
+                id = resolvedId,
                 type = type,
                 amount = amount,
-                title = title,
-                category = category,
-                subcategory = subcategory ?: "",
+                title = title.trim(),
+                category = category.trim(),
+                subcategory = resolvedSubcategory,
                 accountId = accountId,
                 toAccountId = toAccountId,
                 timestamp = timestamp,
-                notes = notes ?: ""
+                notes = notes ?: "",
+                payeeOrPayer = existing?.payeeOrPayer?.ifBlank { parentDebt?.personName ?: "" }
+                    ?: parentDebt?.personName
+                    ?: "",
+                debtId = resolvedDebtId,
+                excludeFromBudgets = excludeFromBudgets
             )
+
             if (existing != null) {
                 repository.updateTransaction(existing, tx)
+                if (!resolvedDebtId.isNullOrBlank()) {
+                    syncDebtAfterTransactionUpdated(resolvedDebtId, existing, tx)
+                }
+            } else if (isSynthesizedInitialDebtTx && resolvedDebtId != null) {
+                repository.insertTransaction(tx)
+                performRecalculateDebt(resolvedDebtId)
             } else {
                 repository.insertTransaction(tx)
+                if (!resolvedDebtId.isNullOrBlank()) {
+                    performRecalculateDebt(resolvedDebtId)
+                }
             }
             clearTransactionDraft()
         }
@@ -1102,7 +1244,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteTransaction(id: String) {
         viewModelScope.launch {
+            val existing = transactions.value.firstOrNull { it.id == id }
+                ?: repository.getTransactionById(id)
             repository.deleteTransaction(id)
+            val linkedDebtId = existing?.debtId
+            if (!linkedDebtId.isNullOrBlank()) {
+                syncDebtAfterTransactionDeleted(linkedDebtId, existing)
+            }
         }
     }
 
@@ -1395,7 +1543,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun performRecalculateDebt(debtId: String): DebtEntity? {
-        return repository.getDebtById(debtId)
+        val debt = repository.getDebtById(debtId) ?: return null
+        val txs = repository.getTransactionsForDebt(debtId)
+        if (txs.isEmpty()) return debt
+        val isPayable = debt.type == DebtType.BORROWED
+        val hasInit = txs.any {
+            it.subcategory.equals("Initial Debt", ignoreCase = true) ||
+                it.id == "tx_debt_init_${debt.id}"
+        }
+        if (!hasInit) return debt
+        val additions = txs.filter { isDebtAdditionTransaction(it, isPayable) }.sumOf { it.amount }
+        val payments = txs.filter { !isDebtAdditionTransaction(it, isPayable) }.sumOf { it.amount }
+        val newPaid = payments.coerceAtMost(additions)
+        val newRemaining = (additions - newPaid).coerceAtLeast(0.0)
+        val newSettled = additions > 0.0 && newRemaining <= 0.001
+        val reconciled = debt.copy(
+            totalAmount = additions,
+            paidAmount = newPaid,
+            amount = newRemaining,
+            isSettled = newSettled
+        )
+        if (reconciled != debt) {
+            repository.updateDebt(reconciled)
+            if (selectedDebt.value?.id == debtId) {
+                selectedDebt.value = reconciled
+            }
+        }
+        return reconciled
     }
 
     fun recalculateDebt(debtId: String) {
@@ -1422,7 +1596,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateDebt(debt: DebtEntity) {
         viewModelScope.launch {
-            repository.updateDebt(debt)
+            val normalizedTotal = if (debt.totalAmount > 0.0) debt.totalAmount else (debt.amount + debt.paidAmount)
+            val newRemaining = (normalizedTotal - debt.paidAmount).coerceAtLeast(0.0)
+            val normalizedDebt = debt.copy(
+                totalAmount = normalizedTotal,
+                amount = newRemaining,
+                isSettled = normalizedTotal > 0.0 && newRemaining <= 0.001
+            )
+            repository.updateDebt(normalizedDebt)
+            if (selectedDebt.value?.id == normalizedDebt.id) {
+                selectedDebt.value = normalizedDebt
+            }
         }
     }
 
@@ -1434,10 +1618,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun markDebtAsPaid(debtId: String) {
         viewModelScope.launch {
-            val existing = debts.value.firstOrNull { it.id == debtId } ?: return@launch
+            val existing = repository.getDebtById(debtId)
+                ?: debts.value.firstOrNull { it.id == debtId }
+                ?: return@launch
+            val baseTotal = if (existing.totalAmount > 0.0) existing.totalAmount else (existing.amount + existing.paidAmount)
             val updated = existing.copy(
                 amount = 0.0,
-                paidAmount = existing.totalAmount,
+                totalAmount = baseTotal,
+                paidAmount = baseTotal,
                 isSettled = true
             )
             repository.updateDebt(updated)
@@ -1447,14 +1635,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun recordDebtPayment(debtId: String, paymentAmount: Double, note: String = "") {
+    fun recordDebtPayment(
+        debtId: String,
+        paymentAmount: Double,
+        note: String = "",
+        account: AccountEntity? = null,
+        customTitle: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ) {
+        if (paymentAmount <= 0.0) return
         viewModelScope.launch {
-            val existing = debts.value.firstOrNull { it.id == debtId } ?: return@launch
-            val newPaid = (existing.paidAmount + paymentAmount).coerceAtMost(existing.totalAmount)
-            val newRemaining = (existing.totalAmount - newPaid).coerceAtLeast(0.0)
-            val isSettled = newRemaining <= 0.0
+            val existing = repository.getDebtById(debtId)
+                ?: debts.value.firstOrNull { it.id == debtId }
+                ?: return@launch
+            val baseTotal = if (existing.totalAmount > 0.0) existing.totalAmount else (existing.amount + existing.paidAmount)
+            val newPaid = (existing.paidAmount + paymentAmount).coerceAtMost(baseTotal)
+            val newRemaining = (baseTotal - newPaid).coerceAtLeast(0.0)
+            val isSettled = baseTotal > 0.0 && newRemaining <= 0.001
             val updated = existing.copy(
                 amount = newRemaining,
+                totalAmount = baseTotal,
                 paidAmount = newPaid,
                 isSettled = isSettled
             )
@@ -1462,28 +1662,219 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (selectedDebt.value?.id == debtId) {
                 selectedDebt.value = updated
             }
+
+            val isPayable = existing.type == DebtType.BORROWED
+            val tx = TransactionEntity(
+                id = "tx_repay_${existing.id}_${UUID.randomUUID().toString().take(8)}",
+                type = if (isPayable) TransactionType.EXPENSE else TransactionType.INCOME,
+                amount = paymentAmount,
+                title = customTitle.trim().ifBlank { if (isPayable) "Debt Repayment" else "Payment Received" },
+                category = if (isPayable) "Debt Repayment" else "Debt Collection",
+                subcategory = if (isSettled) "Final Settlement" else "Installment",
+                accountId = account?.id ?: "",
+                timestamp = timestamp,
+                notes = buildString {
+                    if (note.isNotBlank()) append(note.trim()).append(" ")
+                    append("[Debt:${existing.id}]")
+                }.trim(),
+                payeeOrPayer = existing.personName,
+                debtId = existing.id
+            )
+            repository.insertTransaction(tx)
         }
     }
 
-    fun addDebtInterest(debtId: String, interestAmount: Double) {
+    fun addDebtInterest(
+        debtId: String,
+        interestAmount: Double,
+        customTitle: String = "",
+        notes: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ) {
+        if (interestAmount <= 0.0) return
         viewModelScope.launch {
-            val existing = debts.value.firstOrNull { it.id == debtId } ?: return@launch
-            val newTotal = existing.totalAmount + interestAmount
+            val existing = repository.getDebtById(debtId)
+                ?: debts.value.firstOrNull { it.id == debtId }
+                ?: return@launch
+            val baseTotal = if (existing.totalAmount > 0.0) existing.totalAmount else (existing.amount + existing.paidAmount)
+            val newTotal = baseTotal + interestAmount
             val newRemaining = (newTotal - existing.paidAmount).coerceAtLeast(0.0)
             val updated = existing.copy(
                 amount = newRemaining,
                 totalAmount = newTotal,
-                isSettled = newRemaining <= 0.0
+                isSettled = newTotal > 0.0 && newRemaining <= 0.001
             )
             repository.updateDebt(updated)
             if (selectedDebt.value?.id == debtId) {
                 selectedDebt.value = updated
             }
+
+            val isPayable = existing.type == DebtType.BORROWED
+            val tx = TransactionEntity(
+                id = "tx_debt_${existing.id}_${UUID.randomUUID().toString().take(8)}",
+                type = if (isPayable) TransactionType.BORROW else TransactionType.LEND,
+                amount = interestAmount,
+                title = customTitle.trim().ifBlank { "Interest" },
+                category = "Interest",
+                subcategory = "Interest",
+                accountId = "",
+                timestamp = timestamp,
+                notes = buildString {
+                    if (notes.isNotBlank()) append(notes.trim()).append(" ")
+                    append("[Debt:${existing.id}]")
+                }.trim(),
+                payeeOrPayer = existing.personName,
+                debtId = existing.id
+            )
+            repository.insertTransaction(tx)
         }
     }
 
-    fun borrowOrLendMore(debtId: String, additionalAmount: Double) {
-        addDebtInterest(debtId, additionalAmount)
+    fun borrowOrLendMore(
+        debtId: String,
+        additionalAmount: Double,
+        account: AccountEntity? = null,
+        notes: String = "",
+        customTitle: String = "",
+        timestamp: Long = System.currentTimeMillis()
+    ) {
+        if (additionalAmount <= 0.0) return
+        viewModelScope.launch {
+            val existing = repository.getDebtById(debtId)
+                ?: debts.value.firstOrNull { it.id == debtId }
+                ?: return@launch
+            val baseTotal = if (existing.totalAmount > 0.0) existing.totalAmount else (existing.amount + existing.paidAmount)
+            val newTotal = baseTotal + additionalAmount
+            val newRemaining = (newTotal - existing.paidAmount).coerceAtLeast(0.0)
+            val updated = existing.copy(
+                amount = newRemaining,
+                totalAmount = newTotal,
+                isSettled = newTotal > 0.0 && newRemaining <= 0.001
+            )
+            repository.updateDebt(updated)
+            if (selectedDebt.value?.id == debtId) {
+                selectedDebt.value = updated
+            }
+
+            val isPayable = existing.type == DebtType.BORROWED
+            val defaultLabel = if (isPayable) "Borrowed More" else "Lent More"
+            val tx = TransactionEntity(
+                id = "tx_debt_${existing.id}_${UUID.randomUUID().toString().take(8)}",
+                type = if (isPayable) TransactionType.BORROW else TransactionType.LEND,
+                amount = additionalAmount,
+                title = customTitle.trim().ifBlank { defaultLabel },
+                category = if (isPayable) "Debt / Borrow" else "Debt / Lend",
+                subcategory = if (isPayable) "Borrow More" else "Lend More",
+                accountId = account?.id ?: "",
+                timestamp = timestamp,
+                notes = buildString {
+                    if (notes.isNotBlank()) append(notes.trim()).append(" ")
+                    append("[Debt:${existing.id}]")
+                }.trim(),
+                payeeOrPayer = existing.personName,
+                debtId = existing.id
+            )
+            repository.insertTransaction(tx)
+        }
+    }
+
+    private suspend fun syncDebtAfterTransactionDeleted(debtId: String, deletedTx: TransactionEntity) {
+        val existing = repository.getDebtById(debtId)
+            ?: debts.value.firstOrNull { it.id == debtId }
+            ?: return
+        val isPayable = existing.type == DebtType.BORROWED
+        val isAddition = isDebtAdditionTransaction(deletedTx, isPayable)
+        val baseTotal = if (existing.totalAmount > 0.0) existing.totalAmount else (existing.amount + existing.paidAmount)
+        val updated = if (isAddition) {
+            val newTotal = (baseTotal - deletedTx.amount).coerceAtLeast(0.0)
+            val newPaid = existing.paidAmount.coerceAtMost(newTotal)
+            val newRemaining = (newTotal - newPaid).coerceAtLeast(0.0)
+            existing.copy(
+                totalAmount = newTotal,
+                paidAmount = newPaid,
+                amount = newRemaining,
+                isSettled = newTotal > 0.0 && newRemaining <= 0.001
+            )
+        } else {
+            val newPaid = (existing.paidAmount - deletedTx.amount).coerceAtLeast(0.0)
+            val newRemaining = (baseTotal - newPaid).coerceAtLeast(0.0)
+            existing.copy(
+                totalAmount = baseTotal,
+                paidAmount = newPaid,
+                amount = newRemaining,
+                isSettled = baseTotal > 0.0 && newRemaining <= 0.001
+            )
+        }
+        repository.updateDebt(updated)
+        if (selectedDebt.value?.id == debtId) {
+            selectedDebt.value = updated
+        }
+    }
+
+    private suspend fun syncDebtAfterTransactionUpdated(
+        debtId: String,
+        oldTx: TransactionEntity,
+        newTx: TransactionEntity
+    ) {
+        val existing = repository.getDebtById(debtId)
+            ?: debts.value.firstOrNull { it.id == debtId }
+            ?: return
+        val isPayable = existing.type == DebtType.BORROWED
+        val oldIsAddition = isDebtAdditionTransaction(oldTx, isPayable)
+        val newIsAddition = isDebtAdditionTransaction(newTx, isPayable)
+        val delta = newTx.amount - oldTx.amount
+        if (delta == 0.0 && oldIsAddition == newIsAddition) return
+
+        val baseTotal = if (existing.totalAmount > 0.0) existing.totalAmount else (existing.amount + existing.paidAmount)
+        val updated = when {
+            oldIsAddition && newIsAddition -> {
+                val newTotal = (baseTotal + delta).coerceAtLeast(0.0)
+                val newPaid = existing.paidAmount.coerceAtMost(newTotal)
+                val newRemaining = (newTotal - newPaid).coerceAtLeast(0.0)
+                existing.copy(
+                    totalAmount = newTotal,
+                    paidAmount = newPaid,
+                    amount = newRemaining,
+                    isSettled = newTotal > 0.0 && newRemaining <= 0.001
+                )
+            }
+            !oldIsAddition && !newIsAddition -> {
+                val newPaid = (existing.paidAmount + delta).coerceIn(0.0, baseTotal)
+                val newRemaining = (baseTotal - newPaid).coerceAtLeast(0.0)
+                existing.copy(
+                    totalAmount = baseTotal,
+                    paidAmount = newPaid,
+                    amount = newRemaining,
+                    isSettled = baseTotal > 0.0 && newRemaining <= 0.001
+                )
+            }
+            oldIsAddition && !newIsAddition -> {
+                val newTotal = (baseTotal - oldTx.amount).coerceAtLeast(0.0)
+                val newPaid = (existing.paidAmount + newTx.amount).coerceIn(0.0, newTotal)
+                val newRemaining = (newTotal - newPaid).coerceAtLeast(0.0)
+                existing.copy(
+                    totalAmount = newTotal,
+                    paidAmount = newPaid,
+                    amount = newRemaining,
+                    isSettled = newTotal > 0.0 && newRemaining <= 0.001
+                )
+            }
+            else -> {
+                val newTotal = (baseTotal + newTx.amount).coerceAtLeast(0.0)
+                val newPaid = (existing.paidAmount - oldTx.amount).coerceIn(0.0, newTotal)
+                val newRemaining = (newTotal - newPaid).coerceAtLeast(0.0)
+                existing.copy(
+                    totalAmount = newTotal,
+                    paidAmount = newPaid,
+                    amount = newRemaining,
+                    isSettled = newTotal > 0.0 && newRemaining <= 0.001
+                )
+            }
+        }
+        repository.updateDebt(updated)
+        if (selectedDebt.value?.id == debtId) {
+            selectedDebt.value = updated
+        }
     }
 
     fun insertSavingsGoal(goal: SavingsGoalEntity) {
@@ -1676,12 +2067,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val assets = activeAccounts.filter { it.type != AccountType.CREDIT_CARD && it.balance > 0.0 }
             .sumOf { it.balance } +
             debtsList.filter { it.type == DebtType.LENT && !it.isSettled && it.includeInBalance }
-                .sumOf { it.amount.coerceAtLeast(0.0) }
+                .sumOf { calculateDebtRemaining(it) }
 
         val liabilities = activeAccounts.filter { it.type == AccountType.CREDIT_CARD || it.balance < 0.0 }
             .sumOf { kotlin.math.abs(it.balance) } +
             debtsList.filter { it.type == DebtType.BORROWED && !it.isSettled && it.includeInBalance }
-                .sumOf { it.amount.coerceAtLeast(0.0) }
+                .sumOf { calculateDebtRemaining(it) }
 
         return NetWorthSummary(
             netWorth = assets - liabilities,

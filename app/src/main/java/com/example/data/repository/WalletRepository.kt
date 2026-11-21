@@ -106,6 +106,10 @@ class WalletRepository(private val db: AppDatabase) {
     }
 
     // Transaction Operations
+    suspend fun getTransactionById(id: String): TransactionEntity? = withContext(Dispatchers.IO) {
+        db.transactionDao().getTransactionById(id)
+    }
+
     suspend fun insertTransaction(transaction: TransactionEntity) = withContext(Dispatchers.IO) {
         db.transactionDao().insertTransaction(transaction)
         applyBalanceEffect(transaction, isUndo = false)

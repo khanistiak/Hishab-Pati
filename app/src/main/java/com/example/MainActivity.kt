@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -123,6 +124,7 @@ import com.example.ui.screens.accounts.AccountDetailScreen
 import com.example.ui.screens.accounts.AccountsScreen
 import com.example.ui.screens.accounts.EditAccountScreen
 import com.example.ui.screens.activity.ActivityScreen
+import com.example.ui.screens.activity.FilteredReportsScreen
 import com.example.ui.screens.home.HomeScreen
 import com.example.ui.screens.insights.InsightsScreen
 import com.example.ui.screens.plan.PlanScreen
@@ -626,7 +628,7 @@ fun MyWalletApp(viewModel: MainViewModel) {
                 SubScreen.ADD_EDIT_TRANSACTION -> {
                     AddTransactionScreen(
                         viewModel = viewModel,
-                        onBack = { viewModel.closeSubScreen() }
+                        onBack = { viewModel.closeSubScreen(SubScreen.ADD_EDIT_TRANSACTION) }
                     )
                 }
                 SubScreen.SETTINGS -> {
@@ -705,19 +707,19 @@ fun MyWalletApp(viewModel: MainViewModel) {
                 SubScreen.MANAGE_DEBTS -> {
                     ManageDebtsScreen(
                         viewModel = viewModel,
-                        onBack = { viewModel.closeSubScreen() }
+                        onBack = { viewModel.closeSubScreen(SubScreen.MANAGE_DEBTS) }
                     )
                 }
                 SubScreen.DEBT_DETAILS -> {
                     DebtDetailsScreen(
                         viewModel = viewModel,
-                        onBack = { viewModel.closeSubScreen() }
+                        onBack = { viewModel.closeSubScreen(SubScreen.DEBT_DETAILS) }
                     )
                 }
                 SubScreen.ADD_DEBT -> {
                     AddDebtScreen(
                         viewModel = viewModel,
-                        onBack = { viewModel.closeSubScreen() }
+                        onBack = { viewModel.closeSubScreen(SubScreen.ADD_DEBT) }
                     )
                 }
                 SubScreen.NEW_SAVINGS_GOAL -> {
@@ -759,7 +761,7 @@ fun MyWalletApp(viewModel: MainViewModel) {
                 SubScreen.ADD_DEBT_TRANSACTION -> {
                     AddDebtTransactionScreen(
                         viewModel = viewModel,
-                        onBack = { viewModel.closeSubScreen() }
+                        onBack = { viewModel.closeSubScreen(SubScreen.ADD_DEBT_TRANSACTION) }
                     )
                 }
                 SubScreen.NOTIFICATIONS -> {
@@ -790,6 +792,12 @@ fun MyWalletApp(viewModel: MainViewModel) {
                     NotificationManagerScreen(
                         viewModel = viewModel,
                         onBack = { viewModel.closeSubScreen() }
+                    )
+                }
+                SubScreen.FILTERED_REPORTS -> {
+                    FilteredReportsScreen(
+                        viewModel = viewModel,
+                        onBack = { viewModel.closeSubScreen(SubScreen.FILTERED_REPORTS) }
                     )
                 }
                             }
@@ -1130,7 +1138,7 @@ internal fun MyWalletBottomNavigationBar(
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Circular 56.dp "+" quick-add FAB with theme-primary fill and tactile 0.92f press-scale spring
+        // Circular 56.dp "+" quick-add orb with translucent Royal Indigo-to-Violet Liquid Crystal Glass & live backdrop blur
         val fabInteractionSource = remember { MutableInteractionSource() }
         val isFabPressed by fabInteractionSource.collectIsPressedAsState()
         val fabScale by animateFloatAsState(
@@ -1141,26 +1149,44 @@ internal fun MyWalletBottomNavigationBar(
             ),
             label = "quick_add_fab_press_scale"
         )
-        val fabBorder = BorderStroke(
-            width = 1.dp,
-            color = Color.White.copy(alpha = if (isDark) 0.28f else 0.56f)
-        )
+        val fabGlassAlpha = if (isDark) 0.68f else 0.72f
+        val fabGlassTintBrush = remember(fabGlassAlpha) {
+            Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFF4F46E5).copy(alpha = fabGlassAlpha),
+                    Color(0xFF7C3AED).copy(alpha = fabGlassAlpha)
+                )
+            )
+        }
+        val fabCrystalRim = remember {
+            BorderStroke(
+                width = 1.2.dp,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.65f),
+                        Color(0xFFC4B5FD).copy(alpha = 0.30f)
+                    )
+                )
+            )
+        }
+        val fabBackdropFallback = if (isDark) {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        } else {
+            Color.White
+        }
 
-        Surface(
-            shape = CircleShape,
-            color = primary,
-            border = fabBorder,
+        FrostedGlassSurface(
             modifier = Modifier
                 .size(56.dp)
                 .graphicsLayer {
                     scaleX = fabScale
                     scaleY = fabScale
                 }
-                .crystalOuterShadow(
+                .shadow(
+                    elevation = 8.dp,
                     shape = CircleShape,
-                    color = primary.copy(alpha = if (isDark) 0.34f else 0.28f),
-                    blurSpread = 10.dp,
-                    offsetY = 4.dp
+                    ambientColor = Color(0xFF5B21B6).copy(alpha = 0.24f),
+                    spotColor = Color(0xFF5B21B6).copy(alpha = 0.32f)
                 )
                 .clip(CircleShape)
                 .clickable(
@@ -1171,16 +1197,23 @@ internal fun MyWalletBottomNavigationBar(
                         onAddClick()
                     }
                 )
-                .testTag("floating_add_transaction_button")
+                .testTag("floating_add_transaction_button"),
+            shape = CircleShape,
+            baseBackgroundColor = fabBackdropFallback,
+            overlayBrush = fabGlassTintBrush,
+            restingTintBrush = fabGlassTintBrush,
+            blurRadius = 14.dp,
+            glassProgressOverride = 1f,
+            border = fabCrystalRim
         ) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Add,
+                    imageVector = Icons.Rounded.Add,
                     contentDescription = "Add Transaction",
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    tint = Color.White,
                     modifier = Modifier.size(26.dp)
                 )
             }

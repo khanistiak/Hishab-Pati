@@ -8,8 +8,13 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -17,6 +22,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
@@ -68,6 +74,8 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.Notes
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -104,9 +112,12 @@ import com.example.ui.MainViewModel
 import com.example.ui.components.CalculatorEvaluator
 import com.example.ui.components.CalculatorKeypad
 import com.example.ui.components.CategoryIcon
+import com.example.ui.components.formatCalculatorDisplayExpression
+import com.example.ui.components.formatEvaluatedNumber
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.TransferBlue
+import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
 import com.example.ui.util.DateFormatter
 import com.example.data.model.AppLanguage
@@ -142,6 +153,8 @@ fun AddTransactionScreen(
     val subcategories by viewModel.subcategories.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
     val optimisticAccounts by viewModel.optimisticAccounts.collectAsState()
+    val budgets by viewModel.budgets.collectAsState()
+    val transactions by viewModel.transactions.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val extendedSettings by viewModel.extendedSettings.collectAsState()
     val currentSubScreen by viewModel.currentSubScreen.collectAsState()
@@ -227,10 +240,14 @@ fun AddTransactionScreen(
         )
     }
 
+    var selectedSubcategoryName by remember(txToEdit) {
+        mutableStateOf(activeDraft?.selectedSubcategoryName ?: txToEdit?.subcategory ?: "")
+    }
+
     LaunchedEffect(effectiveCategories, selectedType) {
-        if (txToEdit == null && effectiveCategories.isNotEmpty()) {
+        if (txToEdit == null && effectiveCategories.isNotEmpty() && selectedType != TransactionType.TRANSFER) {
             val matchesCurrentType = effectiveCategories.any {
-                it.name == selectedCategoryName &&
+                it.name.equals(selectedCategoryName, ignoreCase = true) &&
                     (if (selectedType == TransactionType.INCOME) it.isIncome else (!it.isIncome && !it.isTransfer))
             }
             if (!matchesCurrentType) {
@@ -238,13 +255,10 @@ fun AddTransactionScreen(
                     if (selectedType == TransactionType.INCOME) it.isIncome else (!it.isIncome && !it.isTransfer)
                 }?.let { firstCat ->
                     selectedCategoryName = firstCat.name
+                    selectedSubcategoryName = ""
                 }
             }
         }
-    }
-
-    var selectedSubcategoryName by remember(txToEdit) {
-        mutableStateOf(activeDraft?.selectedSubcategoryName ?: txToEdit?.subcategory ?: "")
     }
 
     val preselectedAccId = viewModel.preselectedAccountIdForNewTx.collectAsState().value
@@ -306,6 +320,14 @@ fun AddTransactionScreen(
         mutableStateOf(activeDraft?.notes ?: txToEdit?.notes ?: "")
     }
 
+    var excludeFromBudgets by remember(txToEdit) {
+        mutableStateOf(
+            activeDraft?.excludeFromBudgets
+                ?: (txToEdit?.excludeFromBudgets == true ||
+                    txToEdit?.notes?.contains("[EXCLUDE_BUDGET]", ignoreCase = true) == true)
+        )
+    }
+
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showCategorySheet by remember { mutableStateOf(false) }
     var showSourceWalletSheet by remember(txToEdit) {
@@ -358,7 +380,8 @@ fun AddTransactionScreen(
             optimisticSubcategories = optimisticSubcategories,
             newlyCreatedCategoryName = newlyCreatedCategoryName,
             voiceOrReceiptNotice = voiceOrReceiptNotice,
-            isReceiptNotice = isReceiptNotice
+            isReceiptNotice = isReceiptNotice,
+            excludeFromBudgets = excludeFromBudgets
         )
     }
 
@@ -381,7 +404,8 @@ fun AddTransactionScreen(
         optimisticSubcategories,
         newlyCreatedCategoryName,
         voiceOrReceiptNotice,
-        isReceiptNotice
+        isReceiptNotice,
+        excludeFromBudgets
     ) {
         viewModel.updateTransactionDraft(currentDraftSnapshot())
     }
@@ -536,7 +560,7 @@ fun AddTransactionScreen(
         currentSubScreen == SubScreen.ADJUST_BALANCE
 
     // Intercept back button to dismiss Add Account page, Add Category page, or calculator if visible
-    BackHandler {
+    BackHandler(enabled = currentSubScreen == SubScreen.ADD_EDIT_TRANSACTION || isShowingAddAccountPage) {
         when {
             isShowingAddAccountPage -> {
                 viewModel.closeSubScreen()
@@ -987,135 +1011,31 @@ fun AddTransactionScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // 2. Segmented Tabs: Income, Expense, Transfer
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Expense Tab
-                        val isExpense = selectedType == TransactionType.EXPENSE
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isExpense) MaterialTheme.colorScheme.surface else Color.Transparent,
-                            shadowElevation = if (isExpense) 2.dp else 0.dp,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(3.dp)
-                                .fillMaxHeight(),
-                            onClick = {
-                                selectedType = TransactionType.EXPENSE
+                // 2. Segmented Tabs: Expense, Income, Transfer (Single Sliding Capsule Pill)
+                TransactionTypeSegmentedTabs(
+                    selectedType = selectedType,
+                    language = language,
+                    onSelectType = { newType ->
+                        selectedType = newType
+                        when (newType) {
+                            TransactionType.EXPENSE -> {
                                 val defaultCat = categories.firstOrNull { !it.isIncome }
                                 if (defaultCat != null) {
                                     selectedCategoryName = defaultCat.name
                                     selectedSubcategoryName = ""
                                 }
                             }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowDownward,
-                                    contentDescription = null,
-                                    tint = if (isExpense) ExpenseRed else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (isBn) "ব্যয়" else "Expense",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = if (isExpense) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 13.sp,
-                                        color = if (isExpense) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                )
-                            }
-                        }
-
-                        // Income Tab
-                        val isIncome = selectedType == TransactionType.INCOME
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isIncome) MaterialTheme.colorScheme.surface else Color.Transparent,
-                            shadowElevation = if (isIncome) 2.dp else 0.dp,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(3.dp)
-                                .fillMaxHeight(),
-                            onClick = {
-                                selectedType = TransactionType.INCOME
+                            TransactionType.INCOME -> {
                                 val defaultCat = categories.firstOrNull { it.isIncome }
                                 if (defaultCat != null) {
                                     selectedCategoryName = defaultCat.name
                                     selectedSubcategoryName = ""
                                 }
                             }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowUpward,
-                                    contentDescription = null,
-                                    tint = if (isIncome) IncomeGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (isBn) "আয়" else "Income",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = if (isIncome) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 13.sp,
-                                        color = if (isIncome) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                )
-                            }
-                        }
-
-                        // Transfer Tab
-                        val isTransfer = selectedType == TransactionType.TRANSFER
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isTransfer) MaterialTheme.colorScheme.surface else Color.Transparent,
-                            shadowElevation = if (isTransfer) 2.dp else 0.dp,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(3.dp)
-                                .fillMaxHeight(),
-                            onClick = { selectedType = TransactionType.TRANSFER }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.CompareArrows,
-                                    contentDescription = null,
-                                    tint = if (isTransfer) TransferBlue else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (isBn) "স্থানান্তর" else "Transfer",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = if (isTransfer) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 13.sp,
-                                        color = if (isTransfer) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                )
-                            }
+                            else -> Unit
                         }
                     }
-                }
+                )
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -1173,14 +1093,14 @@ fun AddTransactionScreen(
 
                             Spacer(modifier = Modifier.width(8.dp))
 
-                            val rawDisplayStr = if (expression.isBlank()) "0" else expression
-                            val displayStr = if (isBn) CurrencyFormatter.convertToBanglaDigits(rawDisplayStr) else rawDisplayStr
+                            val displayStr = formatCalculatorDisplayExpression(expression, language)
                             Text(
                                 text = displayStr,
                                 style = MaterialTheme.typography.headlineMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = if (displayStr.length > 12) 20.sp else 24.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontFeatureSettings = "tnum"
                                 ),
                                 maxLines = 1
                             )
@@ -1228,173 +1148,255 @@ fun AddTransactionScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // 4. Horizontally Scrollable Wallet / Account Selector
-                if (selectedType != TransactionType.TRANSFER) {
-                    WalletRowSelector(
-                        label = if (isBn) "ওয়ালেট / অ্যাকাউন্ট" else "Wallet / Account",
-                        selectedAccountId = selectedAccountId,
-                        accounts = effectiveAccounts,
-                        currencySymbol = currencySymbol,
-                        onSelectAccount = {
-                            isCalculatorVisible = false
-                            focusManager.clearFocus()
-                            userManuallyChangedWallet = true
-                            selectedAccountId = it.id
-                        },
-                        onViewAllWallets = {
-                            isCalculatorVisible = false
-                            focusManager.clearFocus()
-                            showSourceWalletSheet = true
-                        },
-                        testTagPrefix = "tx_wallet"
-                    )
-                } else {
-                    // Transfer: Source Wallet
-                    WalletRowSelector(
-                        label = if (isBn) "উৎস ওয়ালেট" else "From Wallet",
-                        selectedAccountId = selectedAccountId,
-                        accounts = effectiveAccounts,
-                        currencySymbol = currencySymbol,
-                        onSelectAccount = {
-                            isCalculatorVisible = false
-                            focusManager.clearFocus()
-                            userManuallyChangedWallet = true
-                            selectedAccountId = it.id
-                            if (selectedToAccountId == it.id) {
-                                // Clear or pick next account for destination
-                                val other = effectiveAccounts.firstOrNull { acc -> !acc.isHidden && acc.id != it.id }
-                                if (other != null) selectedToAccountId = other.id
-                            }
-                        },
-                        onViewAllWallets = {
-                            isCalculatorVisible = false
-                            focusManager.clearFocus()
-                            showSourceWalletSheet = true
-                        },
-                        testTagPrefix = "transfer_from_wallet"
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Transfer: Destination Wallet (source wallet is excluded)
-                    WalletRowSelector(
-                        label = if (isBn) "গন্তব্য ওয়ালেট" else "To Wallet",
-                        selectedAccountId = selectedToAccountId,
-                        accounts = effectiveAccounts,
-                        currencySymbol = currencySymbol,
-                        excludedAccountId = selectedAccountId,
-                        onSelectAccount = {
-                            isCalculatorVisible = false
-                            focusManager.clearFocus()
-                            userManuallyChangedWallet = true
-                            selectedToAccountId = it.id
-                        },
-                        onViewAllWallets = {
-                            isCalculatorVisible = false
-                            focusManager.clearFocus()
-                            showDestinationWalletSheet = true
-                        },
-                        testTagPrefix = "transfer_to_wallet"
-                    )
+                // 3b. Assigned Budget Preview Row (Expense mode only)
+                AnimatedVisibility(
+                    visible = selectedType == TransactionType.EXPENSE,
+                    enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+                    exit = fadeOut(tween(140)) + shrinkVertically(tween(160))
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        AssignedBudgetPreviewCard(
+                            budgets = budgets,
+                            transactions = transactions,
+                            selectedCategoryName = selectedCategoryName,
+                            selectedSubcategoryName = selectedSubcategoryName,
+                            selectedDateTimestamp = selectedDateTimestamp,
+                            pendingAmount = liveEvaluatedAmount,
+                            excludeFromBudgets = excludeFromBudgets,
+                            editingTransactionId = txToEdit?.id,
+                            currencySymbol = currencySymbol,
+                            language = language
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 5. Category Selection Field (for Expense & Income)
-                if (selectedType != TransactionType.TRANSFER) {
+                // 4 & 5. Wallet Selector & Category Section (smoothly crossfade when toggling Transfer)
+                AnimatedContent(
+                    targetState = selectedType == TransactionType.TRANSFER,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) togetherWith
+                            fadeOut(animationSpec = tween(160, easing = FastOutSlowInEasing))
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(
+                            animationSpec = spring(
+                                dampingRatio = 0.84f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ),
+                    label = "tx_type_wallet_category_crossfade"
+                ) { isTransferMode ->
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = if (isBn) "ক্যাটাগরি" else "Category",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            ),
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-
-                        val currentCategory = effectiveCategories.firstOrNull { it.name == selectedCategoryName }
-                        Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                            shadowElevation = 1.dp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
+                        if (!isTransferMode) {
+                            WalletRowSelector(
+                                label = if (isBn) "ওয়ালেট / অ্যাকাউন্ট" else "Wallet / Account",
+                                selectedAccountId = selectedAccountId,
+                                accounts = effectiveAccounts,
+                                currencySymbol = currencySymbol,
+                                onSelectAccount = {
                                     isCalculatorVisible = false
                                     focusManager.clearFocus()
-                                    showCategorySheet = true
-                                }
-                                .testTag("category_field_selector")
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CategoryIcon(
-                                    iconName = currentCategory?.iconName ?: "category",
-                                    colorHex = currentCategory?.colorHex ?: "#6366F1",
-                                    size = 40.dp
+                                    userManuallyChangedWallet = true
+                                    selectedAccountId = it.id
+                                },
+                                onViewAllWallets = {
+                                    isCalculatorVisible = false
+                                    focusManager.clearFocus()
+                                    showSourceWalletSheet = true
+                                },
+                                testTagPrefix = "tx_wallet"
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Category Selection Field (for Expense & Income)
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = if (isBn) "ক্যাটাগরি" else "Category",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    modifier = Modifier.padding(bottom = 6.dp)
                                 )
 
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = currentCategory?.getDisplayName(language) ?: selectedCategoryName,
-                                        style = MaterialTheme.typography.titleMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    )
-
-                                    val subText = if (selectedSubcategoryName.isNotBlank()) {
-                                        if (isBn) "সাবক্যাটাগরি: $selectedSubcategoryName" else "Subcategory: $selectedSubcategoryName"
-                                    } else {
-                                        if (isBn) "সাবক্যাটাগরি নির্বাচন করুন" else "Tap to choose subcategory"
-                                    }
-
-                                    Text(
-                                        text = subText,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontSize = 12.sp,
-                                            color = if (selectedSubcategoryName.isNotBlank()) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    )
+                                val currentCategory = effectiveCategories.firstOrNull {
+                                    it.name.equals(selectedCategoryName, ignoreCase = true) &&
+                                        (if (selectedType == TransactionType.INCOME) it.isIncome else (!it.isIncome && !it.isTransfer))
+                                } ?: effectiveCategories.firstOrNull {
+                                    it.name.equals(selectedCategoryName, ignoreCase = true)
+                                }
+                                val currentCategorySubs = remember(currentCategory?.id, effectiveSubcategories) {
+                                    if (currentCategory == null) emptyList()
+                                    else effectiveSubcategories
+                                        .filter { it.categoryId == currentCategory.id }
+                                        .sortedBy { it.sortOrder }
+                                }
+                                val currentSubEntity = currentCategorySubs.firstOrNull {
+                                    it.name.equals(selectedSubcategoryName, ignoreCase = true)
                                 }
 
                                 Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                    modifier = Modifier.size(30.dp)
+                                    onClick = {
+                                        isCalculatorVisible = false
+                                        focusManager.clearFocus()
+                                        showCategorySheet = true
+                                    },
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                    shadowElevation = 1.dp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("category_field_selector")
                                 ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                                            contentDescription = if (isBn) "ক্যাটাগরি নির্বাচন করুন" else "Select Category",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(12.dp)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CategoryIcon(
+                                            iconName = currentCategory?.iconName ?: "category",
+                                            colorHex = currentCategory?.colorHex ?: "#6366F1",
+                                            size = 40.dp
                                         )
+
+                                        Spacer(modifier = Modifier.width(12.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = currentCategory?.getDisplayName(language) ?: selectedCategoryName,
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 15.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            )
+
+                                            val subDisplay = currentSubEntity?.getDisplayName(language) ?: selectedSubcategoryName
+                                            val subText = if (subDisplay.isNotBlank()) {
+                                                if (isBn) "সাবক্যাটাগরি: $subDisplay" else "Subcategory: $subDisplay"
+                                            } else {
+                                                if (isBn) "সাবক্যাটাগরি নির্বাচন করুন" else "Tap to choose subcategory"
+                                            }
+
+                                            Text(
+                                                text = subText,
+                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                    fontSize = 12.sp,
+                                                    color = if (selectedSubcategoryName.isNotBlank()) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            )
+                                        }
+
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                                    contentDescription = if (isBn) "ক্যাটাগরি নির্বাচন করুন" else "Select Category",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
+
+                                // Inline Quick Subcategory Pills for one-tap switching
+                                if (extendedSettings.enableSubcategories && currentCategorySubs.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    InlineSubcategoryQuickPills(
+                                        subcategories = currentCategorySubs,
+                                        selectedSubcategoryName = selectedSubcategoryName,
+                                        language = language,
+                                        onSelectSubcategory = { chosenSub ->
+                                            isCalculatorVisible = false
+                                            focusManager.clearFocus()
+                                            selectedSubcategoryName = chosenSub
+                                        }
+                                    )
+                                }
                             }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                        } else {
+                            // Transfer: Source Wallet
+                            WalletRowSelector(
+                                label = if (isBn) "উৎস ওয়ালেট" else "From Wallet",
+                                selectedAccountId = selectedAccountId,
+                                accounts = effectiveAccounts,
+                                currencySymbol = currencySymbol,
+                                onSelectAccount = {
+                                    isCalculatorVisible = false
+                                    focusManager.clearFocus()
+                                    userManuallyChangedWallet = true
+                                    selectedAccountId = it.id
+                                    if (selectedToAccountId == it.id) {
+                                        val other = effectiveAccounts.firstOrNull { acc -> !acc.isHidden && acc.id != it.id }
+                                        if (other != null) selectedToAccountId = other.id
+                                    }
+                                },
+                                onViewAllWallets = {
+                                    isCalculatorVisible = false
+                                    focusManager.clearFocus()
+                                    showSourceWalletSheet = true
+                                },
+                                testTagPrefix = "transfer_from_wallet"
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Transfer: Destination Wallet (source wallet is excluded)
+                            WalletRowSelector(
+                                label = if (isBn) "গন্তব্য ওয়ালেট" else "To Wallet",
+                                selectedAccountId = selectedToAccountId,
+                                accounts = effectiveAccounts,
+                                currencySymbol = currencySymbol,
+                                excludedAccountId = selectedAccountId,
+                                onSelectAccount = {
+                                    isCalculatorVisible = false
+                                    focusManager.clearFocus()
+                                    userManuallyChangedWallet = true
+                                    selectedToAccountId = it.id
+                                },
+                                onViewAllWallets = {
+                                    isCalculatorVisible = false
+                                    focusManager.clearFocus()
+                                    showDestinationWalletSheet = true
+                                },
+                                testTagPrefix = "transfer_to_wallet"
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(12.dp))
                 }
 
-                // 6. Transaction Name (Renamed from Merchant/Payee with editable text input)
+                val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                val activeTypeAccent = when (selectedType) {
+                    TransactionType.EXPENSE -> ExpenseRed
+                    TransactionType.INCOME -> IncomeGreen
+                    TransactionType.TRANSFER -> TransferBlue
+                    else -> MaterialTheme.colorScheme.primary
+                }
+                val indigoAccent = Color(0xFF4F46E5)
+                val violetAccent = Color(0xFF7C3AED)
+
+                // 6. Transaction Name (Elevated Tactile Bento Input)
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = if (isBn) "লেনদেনের শিরোনাম / বিবরণ" else "Transaction Name",
+                        text = AppStrings.t("transaction_name_label", language),
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
@@ -1403,144 +1405,101 @@ fun AddTransactionScreen(
                         modifier = Modifier.padding(bottom = 6.dp)
                     )
 
-                    OutlinedTextField(
+                    BentoTransactionTextField(
                         value = title,
                         onValueChange = {
                             isCalculatorVisible = false
                             title = it
                         },
+                        placeholder = AppStrings.t("enter_transaction_name", language),
+                        leadingIcon = Icons.Rounded.EditNote,
+                        iconTint = if (isDarkTheme) Color(0xFFA5B4FC) else indigoAccent,
+                        badgeBackgroundColor = indigoAccent.copy(alpha = if (isDarkTheme) 0.22f else 0.11f),
+                        badgeBorderColor = indigoAccent.copy(alpha = if (isDarkTheme) 0.32f else 0.20f),
+                        activeAccentColor = activeTypeAccent,
                         interactionSource = titleInteractionSource,
-                        placeholder = {
-                            Text(
-                                text = if (isBn) "লেনদেনের নাম লিখুন" else "Enter transaction name",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                        ),
                         singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusChanged { focusState ->
-                                if (focusState.isFocused) {
-                                    isCalculatorVisible = false
-                                }
-                            }
-                            .testTag("merchant_payee_input")
+                        onFocusGained = { isCalculatorVisible = false },
+                        testTag = "merchant_payee_input"
                     )
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 7. Date Selector & Note Section
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Date Selector Card
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable {
-                                isCalculatorVisible = false
-                                focusManager.clearFocus()
-                                showDatePickerDialog = true
-                            }
-                            .testTag("transaction_date_picker")
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CalendarToday,
-                                contentDescription = if (isBn) "তারিখ" else "Date",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = if (isBn) "তারিখ" else "Date",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                )
-                                Text(
-                                    text = formattedDate,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
+                // 7. Date Selector Card (Elevated Tactile Bento Input)
+                BentoTransactionDateField(
+                    label = AppStrings.t("date", language),
+                    formattedDate = formattedDate,
+                    onClick = {
+                        isCalculatorVisible = false
+                        focusManager.clearFocus()
+                        showDatePickerDialog = true
+                    },
+                    testTag = "transaction_date_picker"
+                )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Note Field (optional)
-                OutlinedTextField(
+                // 8. Note Field (optional) (Elevated Tactile Bento Input)
+                BentoTransactionTextField(
                     value = notes,
                     onValueChange = {
                         isCalculatorVisible = false
                         notes = it
                     },
+                    placeholder = AppStrings.t("note_optional", language),
+                    leadingIcon = Icons.Rounded.Notes,
+                    iconTint = if (isDarkTheme) Color(0xFFC4B5FD) else violetAccent,
+                    badgeBackgroundColor = violetAccent.copy(alpha = if (isDarkTheme) 0.20f else 0.10f),
+                    badgeBorderColor = violetAccent.copy(alpha = if (isDarkTheme) 0.30f else 0.18f),
+                    activeAccentColor = activeTypeAccent,
                     interactionSource = notesInteractionSource,
-                    placeholder = {
-                        Text(
-                            text = if (isBn) "নোট (ঐচ্ছিক)" else "Note (optional)",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focusState ->
-                            if (focusState.isFocused) {
-                                isCalculatorVisible = false
-                            }
-                        }
-                        .testTag("transaction_notes_input")
+                    singleLine = false,
+                    maxLines = 4,
+                    onFocusGained = { isCalculatorVisible = false },
+                    testTag = "transaction_notes_input"
                 )
+
+                // 8b. Additional Options: Exclude from budgets toggle (Expense mode only)
+                AnimatedVisibility(
+                    visible = selectedType == TransactionType.EXPENSE,
+                    enter = fadeIn(tween(180)) + expandVertically(tween(200)),
+                    exit = fadeOut(tween(140)) + shrinkVertically(tween(160))
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        AdditionalOptionsBudgetToggleCard(
+                            excludeFromBudgets = excludeFromBudgets,
+                            onToggleExclude = {
+                                isCalculatorVisible = false
+                                focusManager.clearFocus()
+                                excludeFromBudgets = it
+                            },
+                            language = language
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // 8. Save Button
+                // 9. Save Button
                 val finalAmountToSave = if (liveEvaluatedAmount > 0) liveEvaluatedAmount else CalculatorEvaluator.evaluate(expression)
+                val isDebtLinked = !txToEdit?.debtId.isNullOrBlank()
                 val isValidAccountSelection = if (selectedType == TransactionType.TRANSFER) {
                     selectedAccountId.isNotBlank() && selectedToAccountId.isNotBlank() && selectedAccountId != selectedToAccountId
                 } else {
-                    selectedAccountId.isNotBlank()
+                    selectedAccountId.isNotBlank() || isDebtLinked
                 }
                 val saveButtonEnabled = finalAmountToSave > 0 && isValidAccountSelection
 
                 Button(
                     onClick = {
+                        isCalculatorVisible = false
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
                         val cleanTitle = title.ifBlank {
                             if (selectedType == TransactionType.TRANSFER) "Transfer to ${selectedToAccount?.name ?: "Account"}"
-                            else "$selectedCategoryName ${if (selectedSubcategoryName.isNotBlank()) "($selectedSubcategoryName)" else ""}"
+                            else "$selectedCategoryName ${if (selectedSubcategoryName.isNotBlank()) "($selectedSubcategoryName)" else ""}".trim()
                         }
                         viewModel.saveTransaction(
                             id = txToEdit?.id,
@@ -1552,8 +1511,12 @@ fun AddTransactionScreen(
                             accountId = selectedAccountId,
                             toAccountId = if (selectedType == TransactionType.TRANSFER) selectedToAccountId else null,
                             timestamp = selectedDateTimestamp,
-                            notes = notes
+                            notes = notes,
+                            debtId = txToEdit?.debtId,
+                            excludeFromBudgets = if (selectedType == TransactionType.EXPENSE) excludeFromBudgets else false
                         )
+                        viewModel.clearTransactionDraft()
+                        onBack()
                     },
                     enabled = saveButtonEnabled,
                     shape = RoundedCornerShape(24.dp),
@@ -1592,32 +1555,74 @@ fun AddTransactionScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
                 }
+            }
 
-                // 9. Docked Calculator Keypad with % Percentage Key (never overlaps scrollable fields)
-                AnimatedVisibility(
-                    visible = isCalculatorVisible,
-                    enter = expandVertically(
-                        expandFrom = Alignment.Top,
-                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
-                    ),
-                    exit = shrinkVertically(
-                        shrinkTowards = Alignment.Top,
-                        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    CalculatorKeypad(
-                        expression = expression,
-                        onExpressionChange = { expression = it },
-                        onDone = { evaluated ->
-                            expression = if (evaluated % 1.0 == 0.0) evaluated.toLong().toString()
-                            else String.format(Locale.US, "%.2f", evaluated)
-                            isCalculatorVisible = false
-                        },
-                        onDismiss = { isCalculatorVisible = false },
-                        language = language
-                    )
+            // 10. Modal Dim Scrim + Calculator Bottom Sheet Overlay (commits exact amount before closing)
+            val scrimTargetColor = when {
+                !isCalculatorVisible -> Color.Transparent
+                isDark -> Color.Black.copy(alpha = 0.62f)
+                else -> Color.Black.copy(alpha = 0.42f)
+            }
+            val animatedScrimColor by animateColorAsState(
+                targetValue = scrimTargetColor,
+                animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+                label = "calculator_modal_dim_scrim"
+            )
+            val commitAndCloseCalculator: () -> Unit = {
+                val evaluated = CalculatorEvaluator.evaluate(expression)
+                if (evaluated > 0.0) {
+                    expression = formatEvaluatedNumber(evaluated)
                 }
+                isCalculatorVisible = false
+            }
+
+            if (isCalculatorVisible || animatedScrimColor.alpha > 0.005f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(9f)
+                        .background(animatedScrimColor)
+                        .then(
+                            if (isCalculatorVisible) {
+                                Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = commitAndCloseCalculator
+                                )
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .testTag("calculator_modal_scrim")
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isCalculatorVisible,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(durationMillis = 160)),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(durationMillis = 140)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .zIndex(10f)
+            ) {
+                CalculatorKeypad(
+                    expression = expression,
+                    onExpressionChange = { expression = it },
+                    onDone = { evaluated ->
+                        expression = formatEvaluatedNumber(evaluated)
+                        isCalculatorVisible = false
+                    },
+                    onDismiss = commitAndCloseCalculator,
+                    language = language,
+                    currencySymbol = currencySymbol
+                )
             }
         }
         }
@@ -1636,6 +1641,7 @@ fun AddTransactionScreen(
             onCategorySelected = { catName, subName ->
                 selectedCategoryName = catName
                 selectedSubcategoryName = subName
+                showCategorySheet = false
             },
             onAddNewCategory = {
                 showCategorySheet = false

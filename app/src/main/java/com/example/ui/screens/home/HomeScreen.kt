@@ -10,12 +10,22 @@ import com.example.ui.screens.accounts.MfsProviderLogo
 
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
@@ -23,8 +33,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -92,6 +104,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.TrendingDown
+import androidx.compose.foundation.border
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -190,6 +205,9 @@ fun HomeScreen(
     val settings by viewModel.settings.collectAsState()
     val homeCustomization by viewModel.homeCustomization.collectAsState()
     val extendedSettings by viewModel.extendedSettings.collectAsState()
+    val currentTab by viewModel.currentTab.collectAsState()
+    val currentSubScreen by viewModel.currentSubScreen.collectAsState()
+    val isHomeActive = currentTab == MainTab.HOME && currentSubScreen == SubScreen.NONE
 
     var isBalanceVisible by remember { mutableStateOf(true) }
 
@@ -209,6 +227,18 @@ fun HomeScreen(
             FinancialIntegrityValidator.isEligibleExpense(tx) &&
                 FinancialIntegrityValidator.isInYearMonth(tx.timestamp, refYear, refMonth)
         }.sumOf { it.amount }
+    }
+    val earnedThisMonth = remember(transactions, refYear, refMonth) {
+        transactions.filter { tx ->
+            FinancialIntegrityValidator.isEligibleIncome(tx) &&
+                FinancialIntegrityValidator.isInYearMonth(tx.timestamp, refYear, refMonth)
+        }.sumOf { it.amount }
+    }
+    val visibleAccountCount = remember(accounts) { accounts.count { !it.isHidden } }
+    val cycleHomeCardStyle: () -> Unit = {
+        viewModel.updateHomeCustomization(
+            homeCustomization.copy(cardStyle = homeCustomization.cardStyle.next())
+        )
     }
 
     // Real camera capture launcher for receipts
@@ -236,7 +266,7 @@ fun HomeScreen(
     val scrollLayout = rememberScrollAwareGlassLayout(
         listState = listState,
         defaultHeaderHeight = 68.dp,
-        extraTopGap = 4.dp,
+        extraTopGap = 6.dp,
         bottomNavClearance = 112.dp
     )
 
@@ -274,40 +304,119 @@ fun HomeScreen(
                 .testTag("home_lazy_column"),
             contentPadding = scrollLayout.contentPadding
         ) {
-            // 1. Summary Cards: Total Balance & Spent This Month
-            item(key = "home_balance_card") {
-                HomeSummaryCardsSection(
-                totalBalance = netWorth.totalAssets,
-                spentThisMonth = spentThisMonth,
-                isBalanceVisible = isBalanceVisible,
-                currencySymbol = currencySymbol,
-                isBangla = isBangla,
-                isGradient = homeCustomization.balanceCardStyle == BalanceCardStyle.GRADIENT,
-                onToggleVisibility = { isBalanceVisible = !isBalanceVisible }
-            )
-        }
+            // 1 & 2. Unified Top Compact Frosted Glass KPI Strip + Fluid Card View Mode Switcher
+            item(key = "home_accounts_section") {
+                val layoutSpring = remember {
+                    spring<androidx.compose.ui.unit.IntSize>(
+                        dampingRatio = 0.88f,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                }
+                val cardViewMode = homeCustomization.cardStyle
 
-        // 3. Accounts Section (Card Stack vs Carousel based on Customize Home)
-        item(key = "home_accounts_section") {
-            if (homeCustomization.cardStyle == HomeCardStyle.STACK) {
-                StackedAccountCards(
-                    accounts = accounts,
-                    isBalanceVisible = isBalanceVisible,
-                    currencySymbol = currencySymbol,
-                    isBangla = isBangla,
-                    onAccountClick = { acc -> viewModel.openAccountDetail(acc.id) },
-                    onAllAccountsClick = { viewModel.openSubScreen(SubScreen.ACCOUNTS_MANAGEMENT) }
-                )
-            } else {
-                AccountCardsCarousel(
-                    accounts = accounts,
-                    isBalanceVisible = isBalanceVisible,
-                    currencySymbol = currencySymbol,
-                    language = lang,
-                    onAccountClick = { acc -> viewModel.openAccountDetail(acc.id) }
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(animationSpec = layoutSpring)
+                ) {
+                    AnimatedVisibility(
+                        visible = cardViewMode != HomeCardStyle.BALANCE_CARD,
+                        enter = fadeIn(animationSpec = tween(durationMillis = 260, delayMillis = 40)) +
+                            expandVertically(
+                                animationSpec = spring(
+                                    dampingRatio = 0.88f,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            ),
+                        exit = fadeOut(animationSpec = tween(durationMillis = 180)) +
+                            shrinkVertically(
+                                animationSpec = spring(
+                                    dampingRatio = 0.88f,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
+                    ) {
+                        HomeSummaryCardsSection(
+                            totalBalance = netWorth.totalAssets,
+                            spentThisMonth = spentThisMonth,
+                            isBalanceVisible = isBalanceVisible,
+                            currencySymbol = currencySymbol,
+                            isBangla = isBangla,
+                            onToggleVisibility = { isBalanceVisible = !isBalanceVisible }
+                        )
+                    }
+
+                    AnimatedContent(
+                        targetState = cardViewMode,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = tween(durationMillis = 260, delayMillis = 40)) +
+                                scaleIn(
+                                    initialScale = 0.96f,
+                                    animationSpec = spring(
+                                        dampingRatio = 0.86f,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )) togetherWith
+                                (fadeOut(animationSpec = tween(durationMillis = 180)) +
+                                    scaleOut(
+                                        targetScale = 0.97f,
+                                        animationSpec = tween(durationMillis = 180)
+                                    )) using SizeTransform(
+                                clip = false,
+                                sizeAnimationSpec = { _, _ -> layoutSpring }
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "home_card_view_mode_transition"
+                    ) { activeMode ->
+                        when (activeMode) {
+                            HomeCardStyle.STACK -> {
+                                StackedAccountCards(
+                                    accounts = accounts,
+                                    isBalanceVisible = isBalanceVisible,
+                                    currencySymbol = currencySymbol,
+                                    isBangla = isBangla,
+                                    isHomeActive = isHomeActive,
+                                    currentCardStyle = activeMode,
+                                    showHeader = true,
+                                    onSwitchViewMode = cycleHomeCardStyle,
+                                    onAccountClick = { acc -> viewModel.openAccountDetail(acc.id) },
+                                    onAllAccountsClick = { viewModel.openSubScreen(SubScreen.ACCOUNTS_MANAGEMENT) }
+                                )
+                            }
+                            HomeCardStyle.CAROUSEL -> {
+                                AccountCardsCarousel(
+                                    accounts = accounts,
+                                    isBalanceVisible = isBalanceVisible,
+                                    currencySymbol = currencySymbol,
+                                    language = lang,
+                                    isBangla = isBangla,
+                                    currentCardStyle = activeMode,
+                                    showHeader = true,
+                                    onSwitchViewMode = cycleHomeCardStyle,
+                                    onAccountClick = { acc -> viewModel.openAccountDetail(acc.id) },
+                                    onAllAccountsClick = { viewModel.openSubScreen(SubScreen.ACCOUNTS_MANAGEMENT) }
+                                )
+                            }
+                            HomeCardStyle.BALANCE_CARD -> {
+                                BalanceCardHero(
+                                    totalBalance = netWorth.totalAssets,
+                                    earnedThisMonth = earnedThisMonth,
+                                    spentThisMonth = spentThisMonth,
+                                    accountCount = visibleAccountCount,
+                                    isBalanceVisible = isBalanceVisible,
+                                    currencySymbol = currencySymbol,
+                                    isBangla = isBangla,
+                                    currentStyle = activeMode,
+                                    onCardClick = { viewModel.openSubScreen(SubScreen.ACCOUNTS_MANAGEMENT) },
+                                    onToggleVisibility = { isBalanceVisible = !isBalanceVisible },
+                                    onSwitchViewMode = cycleHomeCardStyle
+                                )
+                            }
+                        }
+                    }
+                }
             }
-        }
 
         // 4. Dynamic Sections in User-Customized Order
         val orderedSections = UserSettingsPreferences.normalizeHomeSectionOrder(homeCustomization.sectionOrder)
@@ -528,7 +637,7 @@ private fun HomeHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AvatarBadge(
@@ -648,125 +757,266 @@ private fun HomeSummaryCardsSection(
     isBalanceVisible: Boolean,
     currencySymbol: String,
     isBangla: Boolean = false,
-    isGradient: Boolean = false,
     onToggleVisibility: () -> Unit = {}
 ) {
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val royalIndigo = Color(0xFF4F46E5)
+    val coralRose = Color(0xFFF43F5E)
+    val language = if (isBangla) {
+        com.example.data.model.AppLanguage.BANGLA
+    } else {
+        com.example.data.model.AppLanguage.ENGLISH
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 6.dp)
+            .testTag("home_unified_kpi_card"),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        HomeSummaryCard(
-            label = if (isBangla) "মোট ব্যালেন্স" else "Total Balance",
+        FrostedKpiGlassPill(
+            label = AppStrings.t("total_balance_caps", language),
             amount = if (isBalanceVisible) CurrencyFormatter.format(totalBalance, currencySymbol) else "••••••••",
-            isGradient = isGradient,
+            icon = Icons.Rounded.AccountBalanceWallet,
+            iconTint = if (isDark) Color(0xFF818CF8) else royalIndigo,
+            badgeBgColor = royalIndigo.copy(alpha = if (isDark) 0.24f else 0.12f),
+            isDark = isDark,
+            isBangla = isBangla,
             onClick = onToggleVisibility,
-            testTag = "home_total_balance_card",
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .weight(1f)
+                .testTag("home_total_balance_card")
         )
 
-        HomeSummaryCard(
-            label = if (isBangla) "এই মাসের খরচ" else "Spent This Month",
+        FrostedKpiGlassPill(
+            label = AppStrings.t("spent_this_month_caps", language),
             amount = if (isBalanceVisible) CurrencyFormatter.format(spentThisMonth, currencySymbol) else "••••••••",
-            isGradient = isGradient,
+            icon = Icons.Rounded.TrendingDown,
+            iconTint = if (isDark) Color(0xFFFB7185) else coralRose,
+            badgeBgColor = coralRose.copy(alpha = if (isDark) 0.24f else 0.12f),
+            isDark = isDark,
+            isBangla = isBangla,
             onClick = onToggleVisibility,
-            testTag = "home_spent_this_month_card",
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .weight(1f)
+                .testTag("home_spent_this_month_card")
         )
     }
 }
 
 @Composable
-private fun HomeSummaryCard(
+private fun FrostedKpiGlassPill(
     label: String,
     amount: String,
-    isGradient: Boolean,
+    icon: ImageVector,
+    iconTint: Color,
+    badgeBgColor: Color,
+    isDark: Boolean,
+    isBangla: Boolean,
     onClick: () -> Unit,
-    testTag: String,
     modifier: Modifier = Modifier
 ) {
-    if (isGradient) {
-        Surface(
-            modifier = modifier
-                .testTag(testTag)
-                .clickable(onClick = onClick),
-            shape = RoundedCornerShape(22.dp),
-            color = Color(0xFF4338CA),
-            shadowElevation = 2.dp
+    val pillShape = RoundedCornerShape(18.dp)
+    val badgeShape = RoundedCornerShape(8.dp)
+    var amountFontSizeSp by remember(amount) { mutableFloatStateOf(18f) }
+
+    val borderBrush = remember(isDark) {
+        if (isDark) {
+            Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.22f),
+                    Color.White.copy(alpha = 0.08f),
+                    Color.White.copy(alpha = 0.03f)
+                )
+            )
+        } else {
+            Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.75f),
+                    Color.White.copy(alpha = 0.48f),
+                    Color.White.copy(alpha = 0.26f)
+                )
+            )
+        }
+    }
+
+    val surfaceColor = if (isDark) {
+        Color(0xFF1E293B).copy(alpha = 0.55f)
+    } else {
+        Color.White.copy(alpha = 0.62f)
+    }
+
+    Row(
+        modifier = modifier
+            .clip(pillShape)
+            .background(surfaceColor, pillShape)
+            .border(width = 1.dp, brush = borderBrush, shape = pillShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(badgeShape)
+                .background(badgeBgColor),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.linearGradient(
-                            listOf(Color(0xFF4F46E5), Color(0xFF6366F1), Color(0xFF4338CA))
-                        )
-                    )
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = amount,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color.White
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = iconTint,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                    letterSpacing = if (isBangla) 0.sp else 0.45.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
+                ),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = amount,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = amountFontSizeSp.sp,
+                    lineHeight = (amountFontSizeSp + 3f).sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.3).sp,
+                    color = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A),
+                    fontFeatureSettings = "tnum"
+                ),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { result ->
+                    if (result.didOverflowWidth && amountFontSizeSp > 13f) {
+                        amountFontSizeSp = (amountFontSizeSp - 0.5f).coerceAtLeast(13f)
+                    }
                 }
-            }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SharedWalletCardsHeaderRow(
+    accountCount: Int,
+    currentCardStyle: HomeCardStyle,
+    isBangla: Boolean,
+    onAllAccountsClick: () -> Unit,
+    onSwitchViewMode: () -> Unit
+) {
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val pillLabel = if (currentCardStyle == HomeCardStyle.STACK) {
+        val remainingCount = (accountCount - 1).coerceAtLeast(0)
+        if (remainingCount > 0) {
+            if (isBangla) "+${CurrencyFormatter.convertToBanglaDigits(remainingCount.toString())} আরও"
+            else "+$remainingCount more"
+        } else {
+            if (isBangla) "${CurrencyFormatter.convertToBanglaDigits(accountCount.toString())}টি অ্যাকাউন্ট"
+            else if (accountCount == 1) "1 account" else "$accountCount accounts"
         }
     } else {
-        TranslucentCard(
-            modifier = modifier.testTag(testTag),
-            cornerRadius = 22.dp,
-            onClick = onClick
+        if (isBangla) {
+            "${CurrencyFormatter.convertToBanglaDigits(accountCount.toString())}টি অ্যাকাউন্ট"
+        } else {
+            if (accountCount == 1) "1 account" else "$accountCount accounts"
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(
+                    color = if (isDark) Color(0xFF1E293B).copy(alpha = 0.58f)
+                    else Color.White.copy(alpha = 0.64f),
+                    shape = CircleShape
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (isDark) Color.White.copy(alpha = 0.14f)
+                    else Color.White.copy(alpha = 0.78f),
+                    shape = CircleShape
+                )
+                .padding(horizontal = 11.dp, vertical = 5.dp)
         ) {
-            Column(
+            Text(
+                text = pillLabel,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.80f),
+                    fontSize = 12.sp
+                ),
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.Center
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onAllAccountsClick() }
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .testTag(
+                        if (currentCardStyle == HomeCardStyle.STACK) {
+                            "stack_all_accounts_button"
+                        } else {
+                            "carousel_all_accounts_button"
+                        }
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = if (isBangla) "সকল অ্যাকাউন্ট" else "All accounts",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.5.sp
+                    )
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = amount,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(11.dp)
                 )
             }
+
+            HomeCardViewSwitcherButton(
+                currentStyle = currentCardStyle,
+                isBangla = isBangla,
+                onClick = onSwitchViewMode
+            )
         }
     }
 }
@@ -777,31 +1027,63 @@ private fun AccountCardsCarousel(
     isBalanceVisible: Boolean,
     currencySymbol: String,
     language: com.example.data.model.AppLanguage,
-    onAccountClick: (AccountEntity) -> Unit
+    isBangla: Boolean,
+    currentCardStyle: HomeCardStyle,
+    showHeader: Boolean = true,
+    onSwitchViewMode: () -> Unit,
+    onAccountClick: (AccountEntity) -> Unit,
+    onAllAccountsClick: () -> Unit
 ) {
-    if (accounts.isEmpty()) return
+    val visibleAccounts = remember(accounts) { accounts.filter { !it.isHidden } }
+    val carouselListState = rememberLazyListState()
+    val snapFlingBehavior = rememberSnapFlingBehavior(lazyListState = carouselListState)
 
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = if (showHeader) 6.dp else 0.dp, bottom = if (showHeader) 8.dp else 0.dp)
+            .testTag("home_wallet_card_carousel")
     ) {
-        items(accounts.filter { !it.isHidden }) { acc ->
-            com.example.ui.screens.accounts.HishabPatiAccountCard(
-                account = acc,
-                currencySymbol = currencySymbol,
-                isBalanceVisible = isBalanceVisible,
-                language = language,
-                cornerRadius = 22.dp,
-                shadowElevation = 5.dp,
-                onClick = { onAccountClick(acc) },
-                modifier = Modifier
-                    .width(290.dp)
-                    .height(176.dp)
-                    .walletCardSharedBounds(
-                        accountId = acc.id,
-                        cornerRadius = 22.dp
-                    )
+        if (showHeader) {
+            SharedWalletCardsHeaderRow(
+                accountCount = visibleAccounts.size,
+                currentCardStyle = currentCardStyle,
+                isBangla = isBangla,
+                onAllAccountsClick = onAllAccountsClick,
+                onSwitchViewMode = onSwitchViewMode
             )
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        if (visibleAccounts.isNotEmpty()) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val cardWidth = (maxWidth - 32.dp).coerceAtLeast(260.dp)
+                LazyRow(
+                    state = carouselListState,
+                    flingBehavior = snapFlingBehavior,
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(visibleAccounts, key = { it.id }) { acc ->
+                        com.example.ui.screens.accounts.HishabPatiAccountCard(
+                            account = acc,
+                            currencySymbol = currencySymbol,
+                            isBalanceVisible = isBalanceVisible,
+                            language = language,
+                            cornerRadius = 22.dp,
+                            shadowElevation = 8.dp,
+                            onClick = { onAccountClick(acc) },
+                            modifier = Modifier
+                                .width(cardWidth)
+                                .height(180.dp)
+                                .walletCardSharedBounds(
+                                    accountId = acc.id,
+                                    cornerRadius = 22.dp
+                                )
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -825,7 +1107,7 @@ private fun QuickShortcutsRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             QuickActionButton(
@@ -1062,167 +1344,132 @@ internal fun CustomizeHomeBottomSheet(
                     Color(0xFFF8FAFC)
                 }
 
+                val primaryAccent = MaterialTheme.colorScheme.primary
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Option 1: Card carousel (horizontal scrolling account cards)
-                    val isCarouselSelected = current.cardStyle == HomeCardStyle.CAROUSEL
+                    // Option 1: Balance card (total balance hero with monthly income/expense pills)
+                    val isBalanceSelected = current.cardStyle == HomeCardStyle.BALANCE_CARD
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(18.dp),
                         color = MaterialTheme.colorScheme.surface,
-                        border = androidx.compose.foundation.BorderStroke(
-                            width = if (isCarouselSelected) 2.dp else 1.dp,
-                            color = if (isCarouselSelected) Color(0xFF4F46E5) else Color.LightGray.copy(alpha = 0.35f)
+                        border = BorderStroke(
+                            width = if (isBalanceSelected) 2.dp else 1.dp,
+                            color = if (isBalanceSelected) primaryAccent else Color.LightGray.copy(alpha = 0.35f)
                         ),
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
-                                onUpdate(current.copy(cardStyle = HomeCardStyle.CAROUSEL))
+                                onUpdate(current.copy(cardStyle = HomeCardStyle.BALANCE_CARD))
                             }
-                            .testTag("customize_home_card_carousel")
+                            .testTag("customize_home_card_balance")
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            // Mini illustration: horizontal side-by-side wallet cards with peeking second card
+                        Column(modifier = Modifier.padding(9.dp)) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(86.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(previewCanvasColor)
+                                    .height(74.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(previewCanvasColor),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
+                                // Mini Balance Card Hero thumbnail
+                                Column(
                                     modifier = Modifier
-                                        .align(Alignment.CenterStart)
-                                        .padding(start = 14.dp)
-                                        .offset(y = (-3).dp),
-                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 7.dp)
+                                        .height(54.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(primaryAccent, Color(0xFF312E81))
+                                            )
+                                        )
+                                        .padding(7.dp),
+                                    verticalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    // Primary left card
-                                    Box(
-                                        modifier = Modifier
-                                            .size(width = 86.dp, height = 50.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(
-                                                Brush.horizontalGradient(
-                                                    listOf(Color(0xFF5A45FF), Color(0xFF4F46E5))
-                                                )
-                                            )
-                                            .padding(horizontal = 9.dp, vertical = 9.dp)
-                                    ) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(46.dp)
-                                                    .height(5.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color.White)
-                                            )
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(28.dp)
-                                                    .height(3.5.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color.White.copy(alpha = 0.72f))
-                                            )
-                                        }
-                                        // Miniature gold chip
+                                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                         Box(
                                             modifier = Modifier
-                                                .align(Alignment.BottomStart)
-                                                .size(width = 10.dp, height = 6.dp)
-                                                .clip(RoundedCornerShape(2.dp))
-                                                .background(Color(0xFFF59E0B))
+                                                .width(24.dp)
+                                                .height(2.5.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.White.copy(alpha = 0.72f))
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .width(44.dp)
+                                                .height(6.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.White)
                                         )
                                     }
-
-                                    // Peeking second wallet card on the right
-                                    Box(
-                                        modifier = Modifier
-                                            .size(width = 48.dp, height = 46.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(
-                                                Brush.horizontalGradient(
-                                                    listOf(Color(0xFF0D9488), Color(0xFF2563EB))
-                                                )
-                                            )
-                                            .padding(horizontal = 7.dp, vertical = 9.dp)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(10.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color.White.copy(alpha = 0.22f)),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .width(22.dp)
-                                                    .height(4.5.dp)
+                                                    .padding(start = 3.dp)
+                                                    .size(4.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color.White.copy(alpha = 0.9f))
+                                                    .background(Color(0xFF6EE7B7))
                                             )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(10.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color.White.copy(alpha = 0.22f)),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .width(14.dp)
-                                                    .height(3.dp)
+                                                    .padding(start = 3.dp)
+                                                    .size(4.dp)
                                                     .clip(CircleShape)
-                                                    .background(Color.White.copy(alpha = 0.65f))
+                                                    .background(Color(0xFFFDA4AF))
                                             )
                                         }
                                     }
                                 }
 
-                                // Subtle horizontal carousel pager dots
-                                Row(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .padding(bottom = 7.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(10.dp)
-                                            .height(3.5.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF4F46E5))
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .size(3.5.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF94A3B8).copy(alpha = 0.55f))
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .size(3.5.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF94A3B8).copy(alpha = 0.35f))
-                                    )
-                                }
-
-                                if (isCarouselSelected) {
+                                if (isBalanceSelected) {
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
-                                            .padding(6.dp)
-                                            .size(20.dp)
+                                            .padding(5.dp)
+                                            .size(18.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF4F46E5)),
+                                            .background(primaryAccent),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Check,
                                             contentDescription = null,
                                             tint = Color.White,
-                                            modifier = Modifier.size(13.dp)
+                                            modifier = Modifier.size(11.dp)
                                         )
                                     }
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = AppStrings.t("home_style_card_carousel", sheetLanguage),
+                                text = AppStrings.t("home_style_balance_card", sheetLanguage),
                                 style = MaterialTheme.typography.titleSmall.copy(
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.5.sp,
+                                    fontSize = 12.5.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 ),
                                 maxLines = 1,
@@ -1230,11 +1477,11 @@ internal fun CustomizeHomeBottomSheet(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = AppStrings.t("home_style_card_carousel_subtitle", sheetLanguage),
+                                text = AppStrings.t("home_style_balance_card_subtitle", sheetLanguage),
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                                    fontSize = 11.5.sp,
-                                    lineHeight = 15.sp
+                                    fontSize = 10.5.sp,
+                                    lineHeight = 13.5.sp
                                 ),
                                 minLines = 2,
                                 maxLines = 2,
@@ -1246,11 +1493,11 @@ internal fun CustomizeHomeBottomSheet(
                     // Option 2: Card stack (layered vertical wallet stack)
                     val isStackSelected = current.cardStyle == HomeCardStyle.STACK
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(18.dp),
                         color = MaterialTheme.colorScheme.surface,
-                        border = androidx.compose.foundation.BorderStroke(
+                        border = BorderStroke(
                             width = if (isStackSelected) 2.dp else 1.dp,
-                            color = if (isStackSelected) Color(0xFF4F46E5) else Color.LightGray.copy(alpha = 0.35f)
+                            color = if (isStackSelected) primaryAccent else Color.LightGray.copy(alpha = 0.35f)
                         ),
                         modifier = Modifier
                             .weight(1f)
@@ -1259,53 +1506,48 @@ internal fun CustomizeHomeBottomSheet(
                             }
                             .testTag("customize_home_card_stack")
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            // Mini illustration with 3 overlapping vertical cards
+                        Column(modifier = Modifier.padding(9.dp)) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(86.dp)
-                                    .clip(RoundedCornerShape(14.dp))
+                                    .height(74.dp)
+                                    .clip(RoundedCornerShape(12.dp))
                                     .background(previewCanvasColor),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Box(
-                                    modifier = Modifier.size(width = 100.dp, height = 54.dp),
+                                    modifier = Modifier.size(width = 72.dp, height = 46.dp),
                                     contentAlignment = Alignment.BottomCenter
                                 ) {
-                                    // Card 1 (teal backmost)
                                     Box(
                                         modifier = Modifier
-                                            .size(width = 92.dp, height = 40.dp)
+                                            .size(width = 64.dp, height = 32.dp)
                                             .offset(y = (-10).dp)
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .clip(RoundedCornerShape(7.dp))
                                             .background(Color(0xFF0D9488))
                                     )
-                                    // Card 2 (blue middle)
                                     Box(
                                         modifier = Modifier
-                                            .size(width = 95.dp, height = 42.dp)
+                                            .size(width = 68.dp, height = 34.dp)
                                             .offset(y = (-5).dp)
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .clip(RoundedCornerShape(7.dp))
                                             .background(Color(0xFF2563EB))
                                     )
-                                    // Card 3 (magenta/pink front)
                                     Box(
                                         modifier = Modifier
-                                            .size(width = 98.dp, height = 44.dp)
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .size(width = 72.dp, height = 36.dp)
+                                            .clip(RoundedCornerShape(7.dp))
                                             .background(
                                                 Brush.horizontalGradient(
                                                     listOf(Color(0xFFDB2777), Color(0xFFE11D48))
                                                 )
                                             )
-                                            .padding(6.dp)
+                                            .padding(5.dp)
                                     ) {
-                                        // Miniature gold chip
                                         Box(
                                             modifier = Modifier
                                                 .align(Alignment.BottomStart)
-                                                .size(width = 11.dp, height = 7.dp)
+                                                .size(width = 9.dp, height = 6.dp)
                                                 .clip(RoundedCornerShape(2.dp))
                                                 .background(Color(0xFFF59E0B))
                                         )
@@ -1316,28 +1558,28 @@ internal fun CustomizeHomeBottomSheet(
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
-                                            .padding(6.dp)
-                                            .size(20.dp)
+                                            .padding(5.dp)
+                                            .size(18.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF4F46E5)),
+                                            .background(primaryAccent),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Check,
                                             contentDescription = null,
                                             tint = Color.White,
-                                            modifier = Modifier.size(13.dp)
+                                            modifier = Modifier.size(11.dp)
                                         )
                                     }
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = AppStrings.t("home_style_card_stack", sheetLanguage),
                                 style = MaterialTheme.typography.titleSmall.copy(
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.5.sp,
+                                    fontSize = 12.5.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 ),
                                 maxLines = 1,
@@ -1348,8 +1590,171 @@ internal fun CustomizeHomeBottomSheet(
                                 text = AppStrings.t("home_style_card_stack_subtitle", sheetLanguage),
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                                    fontSize = 11.5.sp,
-                                    lineHeight = 15.sp
+                                    fontSize = 10.5.sp,
+                                    lineHeight = 13.5.sp
+                                ),
+                                minLines = 2,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    // Option 3: Card carousel (horizontal scrolling account cards)
+                    val isCarouselSelected = current.cardStyle == HomeCardStyle.CAROUSEL
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(
+                            width = if (isCarouselSelected) 2.dp else 1.dp,
+                            color = if (isCarouselSelected) primaryAccent else Color.LightGray.copy(alpha = 0.35f)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                onUpdate(current.copy(cardStyle = HomeCardStyle.CAROUSEL))
+                            }
+                            .testTag("customize_home_card_carousel")
+                    ) {
+                        Column(modifier = Modifier.padding(9.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(74.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(previewCanvasColor)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .padding(start = 8.dp)
+                                        .offset(y = (-3).dp),
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 56.dp, height = 38.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    listOf(Color(0xFF5A45FF), Color(0xFF4F46E5))
+                                                )
+                                            )
+                                            .padding(6.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(30.dp)
+                                                    .height(4.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White)
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(18.dp)
+                                                    .height(3.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White.copy(alpha = 0.72f))
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomStart)
+                                                .size(width = 8.dp, height = 5.dp)
+                                                .clip(RoundedCornerShape(1.5.dp))
+                                                .background(Color(0xFFF59E0B))
+                                        )
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 30.dp, height = 34.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    listOf(Color(0xFF0D9488), Color(0xFF2563EB))
+                                                )
+                                            )
+                                            .padding(5.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(14.dp)
+                                                .height(3.5.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.White.copy(alpha = 0.85f))
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(8.dp)
+                                            .height(3.dp)
+                                            .clip(CircleShape)
+                                            .background(primaryAccent)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(3.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF94A3B8).copy(alpha = 0.55f))
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(3.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF94A3B8).copy(alpha = 0.35f))
+                                    )
+                                }
+
+                                if (isCarouselSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(5.dp)
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .background(primaryAccent),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = AppStrings.t("home_style_card_carousel", sheetLanguage),
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = AppStrings.t("home_style_card_carousel_subtitle", sheetLanguage),
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                                    fontSize = 10.5.sp,
+                                    lineHeight = 13.5.sp
                                 ),
                                 minLines = 2,
                                 maxLines = 2,
@@ -1660,11 +2065,23 @@ private fun MonthlyBudgetSection(
         }
     }
 
-    val definedBudget = monthBudgets.firstOrNull { it.isOverall }?.monthlyLimit
-        ?: monthBudgets.filter { !it.isOverall }.sumOf { it.monthlyLimit }.takeIf { it > 0.0 }
+    val explicitOverallBudget = monthBudgets.firstOrNull { it.isOverall }
+    val definedBudget = explicitOverallBudget?.monthlyLimit?.takeIf { it > 0.0 }
+        ?: FinancialIntegrityValidator.computeTotalMonthlyBudget(monthBudgets, monthKey).takeIf { it > 0.0 }
     val hasBudget = definedBudget != null && definedBudget > 0.0
     val overallBudget = definedBudget ?: 0.0
-    val totalExpense = monthExpenseTransactions.sumOf { it.amount }
+    val totalExpense = if (explicitOverallBudget != null) {
+        monthExpenseTransactions.sumOf { it.amount }
+    } else {
+        val catBudgets = monthBudgets.filter { !it.isOverall && !it.categoryName.equals("Overall", ignoreCase = true) }
+        if (catBudgets.isNotEmpty()) {
+            monthExpenseTransactions.filter { tx ->
+                catBudgets.any { b -> FinancialIntegrityValidator.isMatchingBudgetTransaction(tx, b) }
+            }.sumOf { it.amount }
+        } else {
+            monthExpenseTransactions.sumOf { it.amount }
+        }
+    }
 
     val percentage = if (overallBudget > 0) ((totalExpense / overallBudget) * 100).toInt().coerceIn(0, 999) else 0
     val remaining = overallBudget - totalExpense
@@ -1675,7 +2092,7 @@ private fun MonthlyBudgetSection(
     TranslucentCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("home_section_budget"),
         onClick = onDetailsClick
     ) {
@@ -1782,8 +2199,19 @@ private fun MonthlyBudgetSection(
                     )
                 )
 
-                val categoryBudgets = monthBudgets.filter { !it.isOverall }.take(3)
-                if (categoryBudgets.isNotEmpty()) {
+                val categoryBudgetsWithSpent = monthBudgets
+                    .filter { !it.isOverall && !it.categoryName.equals("Overall", ignoreCase = true) && it.monthlyLimit > 0.0 }
+                    .map { catBgt ->
+                        val catSpent = monthExpenseTransactions
+                            .filter { FinancialIntegrityValidator.isMatchingBudgetTransaction(it, catBgt) }
+                            .sumOf { it.amount }
+                        val ratio = if (catBgt.monthlyLimit > 0.0) catSpent / catBgt.monthlyLimit else 0.0
+                        Triple(catBgt, catSpent, ratio)
+                    }
+                    .sortedWith(compareByDescending<Triple<BudgetEntity, Double, Double>> { it.third }.thenByDescending { it.second })
+                    .take(3)
+
+                if (categoryBudgetsWithSpent.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Box(
                         modifier = Modifier
@@ -1793,10 +2221,7 @@ private fun MonthlyBudgetSection(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    categoryBudgets.forEach { catBgt ->
-                        val catSpent = monthExpenseTransactions
-                            .filter { it.category.equals(catBgt.categoryName, ignoreCase = true) }
-                            .sumOf { it.amount }
+                    categoryBudgetsWithSpent.forEach { (catBgt, catSpent, _) ->
                         val catProgress = if (catBgt.monthlyLimit > 0) (catSpent / catBgt.monthlyLimit).toFloat().coerceIn(0f, 1f) else 0f
                         val catIsOver = catSpent > catBgt.monthlyLimit
                         val catPct = if (catBgt.monthlyLimit > 0) (catSpent / catBgt.monthlyLimit * 100).toInt() else 0
@@ -1927,7 +2352,7 @@ private fun TopSpendingSection(
         TranslucentCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 6.dp),
             onClick = onInsightsClick
         ) {
             if (categoryTotals.isEmpty()) {
@@ -2079,7 +2504,7 @@ private fun SpendingByDaySection(
         TranslucentCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 6.dp),
             onClick = onInsightsClick
         ) {
             if (!hasData) {
@@ -2190,7 +2615,7 @@ private fun RecentActivitySection(
         TranslucentCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp)
+                .padding(horizontal = 16.dp, vertical = 6.dp)
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 if (transactions.isEmpty()) {
@@ -2354,7 +2779,7 @@ private fun FinancialHealthCard(
         TranslucentCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 6.dp),
             onClick = onDetailsClick
         ) {
             Row(
@@ -2488,7 +2913,7 @@ private fun SmartInsightBanner(
     TranslucentCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("home_section_smart_insights"),
         onClick = onClick
     ) {
@@ -2594,7 +3019,7 @@ private fun UpcomingBillsSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("home_section_bills")
     ) {
         Row(
@@ -2762,7 +3187,7 @@ private fun HomeSavingsGoalsSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("home_section_savings")
     ) {
         Row(
@@ -2977,7 +3402,7 @@ private fun SpendingStreakSection(
     TranslucentCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("home_section_spending_streak"),
         cornerRadius = 20.dp,
         onClick = onDetailsClick

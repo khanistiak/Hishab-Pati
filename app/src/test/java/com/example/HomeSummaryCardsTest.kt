@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.backup.FinancialIntegrityValidator
@@ -19,6 +20,7 @@ import com.example.data.model.AccountType
 import com.example.data.model.ThemeMode
 import com.example.data.model.TransactionType
 import com.example.ui.DEFAULT_HOME_SECTIONS
+import com.example.ui.HomeCardStyle
 import com.example.ui.HomeCustomization
 import com.example.ui.MainTab
 import com.example.ui.MainViewModel
@@ -47,7 +49,7 @@ import java.util.Calendar
  * 6. All 10 Customise Home sections render and scroll into view with sample data & empty states.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xhdpi")
 class HomeSummaryCardsTest {
 
     @get:Rule
@@ -272,8 +274,9 @@ class HomeSummaryCardsTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("home_lazy_column").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("home_total_balance_card").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("home_spent_this_month_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_unified_kpi_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_total_balance_card", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_spent_this_month_card", useUnmergedTree = true).assertIsDisplayed()
 
         val allSectionTags = listOf(
             "home_section_budget",
@@ -346,5 +349,71 @@ class HomeSummaryCardsTest {
             composeTestRule.onNodeWithTag(tag)
                 .assertIsDisplayed()
         }
+    }
+
+    @Test
+    fun inPlaceViewSwitcher_cyclesThreeModes_andAutoHidesTopKpiCardsInBalanceMode() {
+        val viewModel = initViewModelWithApp()
+        runBlocking {
+            val sampleJson = SampleDataGenerator.generateSampleJsonTemplate()
+            val result = viewModel.backupManager.restoreWithDetailedSummary(sampleJson, replaceAll = true)
+            assertTrue("Sample backup restore must succeed", result.isSuccess)
+        }
+
+        viewModel.setTab(MainTab.HOME)
+        viewModel.updateHomeCustomization(
+            HomeCustomization(cardStyle = HomeCardStyle.STACK)
+        )
+
+        composeTestRule.setContent {
+            MyWalletTheme(themeMode = ThemeMode.LIGHT) {
+                MyWalletApp(viewModel = viewModel)
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        // 1. STACK mode: Unified KPI Bento card sits ABOVE the Wallet Card Stack
+        composeTestRule.onNodeWithTag("home_unified_kpi_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_total_balance_card", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_spent_this_month_card", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_wallet_card_stack").assertIsDisplayed()
+        val kpiBottom = composeTestRule.onNodeWithTag("home_unified_kpi_card").fetchSemanticsNode().boundsInRoot.bottom
+        val stackTop = composeTestRule.onNodeWithTag("home_wallet_card_stack").fetchSemanticsNode().boundsInRoot.top
+        assertTrue("Expected unified KPI Bento card above Wallet Card Stack", kpiBottom <= stackTop + 2f)
+
+        // 2. Tap switcher -> CAROUSEL mode: Unified KPI card above Card Carousel
+        composeTestRule.onNodeWithTag("home_card_view_switcher_button").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(HomeCardStyle.CAROUSEL, viewModel.homeCustomization.value.cardStyle)
+        composeTestRule.onNodeWithTag("home_unified_kpi_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_total_balance_card", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_spent_this_month_card", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_wallet_card_carousel").assertIsDisplayed()
+        val carouselKpiBottom = composeTestRule.onNodeWithTag("home_unified_kpi_card").fetchSemanticsNode().boundsInRoot.bottom
+        val carouselTop = composeTestRule.onNodeWithTag("home_wallet_card_carousel").fetchSemanticsNode().boundsInRoot.top
+        assertTrue("Expected unified KPI Bento card above Wallet Card Carousel", carouselKpiBottom <= carouselTop + 2f)
+
+        // 3. Tap switcher -> BALANCE_CARD mode: BalanceCardHero visible & unified KPI card hidden
+        composeTestRule.onNodeWithTag("home_card_view_switcher_button").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(HomeCardStyle.BALANCE_CARD, viewModel.homeCustomization.value.cardStyle)
+        composeTestRule.onNodeWithTag("home_balance_card_hero").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("balance_card_income_pill", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("balance_card_expense_pill", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_unified_kpi_card").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("home_total_balance_card", useUnmergedTree = true).assertDoesNotExist()
+        composeTestRule.onNodeWithTag("home_spent_this_month_card", useUnmergedTree = true).assertDoesNotExist()
+
+        // Persistence check across SharedPreferences reload
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val reloaded = UserSettingsPreferences.loadHomeCustomization(app)
+        assertEquals(HomeCardStyle.BALANCE_CARD, reloaded.cardStyle)
+
+        // 4. Tap switcher -> loops cleanly back to STACK mode with unified KPI card restored
+        composeTestRule.onNodeWithTag("home_card_view_switcher_button").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(HomeCardStyle.STACK, viewModel.homeCustomization.value.cardStyle)
+        composeTestRule.onNodeWithTag("home_unified_kpi_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_wallet_card_stack").assertIsDisplayed()
     }
 }

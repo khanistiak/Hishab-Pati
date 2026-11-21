@@ -52,12 +52,22 @@ object FinancialIntegrityValidator {
         if (tx.category.equals("Adjustment", ignoreCase = true)) return true
         if (tx.subcategory.equals("Adjustment", ignoreCase = true)) return true
         if (tx.subcategory.equals("Reconciliation", ignoreCase = true)) return true
+        if (tx.excludeFromBudgets) return true
         if (tx.notes.contains("[EXCLUDE_BUDGET]", ignoreCase = true)) return true
         return false
     }
 
     fun isEligibleExpense(tx: TransactionEntity): Boolean {
         return !isExcludedFromBudgetAndExpense(tx)
+    }
+
+    fun isMatchingBudgetTransaction(tx: TransactionEntity, budget: BudgetEntity): Boolean {
+        if (!isEligibleExpense(tx)) return false
+        if (budget.isOverall || budget.categoryName.equals("Overall", ignoreCase = true)) return true
+        val catMatches = tx.category.trim().equals(budget.categoryName.trim(), ignoreCase = true)
+        if (!catMatches) return false
+        return budget.subcategoryName.isBlank() ||
+            tx.subcategory.trim().equals(budget.subcategoryName.trim(), ignoreCase = true)
     }
 
     fun isEligibleIncome(tx: TransactionEntity): Boolean {

@@ -2,11 +2,9 @@ package com.example.ui.screens.home
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,28 +26,28 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.Contactless
-import androidx.compose.material.icons.filled.CreditCard
-import androidx.compose.material.icons.filled.Payments
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -57,51 +55,113 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp as lerpDp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.local.entity.AccountEntity
 import com.example.data.model.AccountType
 import com.example.data.model.AppLanguage
+import com.example.ui.HomeCardStyle
 import com.example.ui.components.TranslucentCard
-import com.example.ui.screens.accounts.HishabPatiAccountCard
+import com.example.ui.components.rememberReducedMotionEnabled
 import com.example.ui.navigation.walletCardSharedBounds
-import com.example.ui.theme.CardBackgroundDark
-import com.example.ui.theme.CardBackgroundLight
-import com.example.ui.theme.CardBorderLight
+import com.example.ui.screens.accounts.HishabPatiAccountCard
 import com.example.ui.util.CurrencyFormatter
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private const val MAX_VISIBLE_INFO_CARDS = 3
+private const val MAX_VISIBLE_STACK_CARDS = 5
+private const val Z_SWAP_PROGRESS = 0.45f
 
-private enum class StackTransitionPhase {
-    IDLE,
-    TUCKING_TO_BACK,
-    PULLING_FROM_BACK_OUT,
-    LANDING_AT_FRONT
+private enum class StackSwipeDirection {
+    NONE,
+    FORWARD_RIGHT,
+    BACKWARD_LEFT
 }
 
-private data class StackCardSpec(
+private fun lerpFloat(start: Float, stop: Float, fraction: Float): Float {
+    return start + (stop - start) * fraction.coerceIn(0f, 1f)
+}
+
+/**
+ * Tight, crisp vertical peek offsets for the top 3 cards + 2 slim text-free depth strips:
+ * - pos 0: 0.dp (full front card)
+ * - pos 1: -26.dp (2nd card peeking header)
+ * - pos 2: -50.dp (3rd card peeking header)
+ * - pos 3: -56.dp (4th slim colored/shadow depth strip)
+ * - pos 4: -61.dp (5th slim colored/shadow depth strip)
+ */
+private fun slotYDp(slot: Int): Dp = when (slot) {
+    0 -> 0.dp
+    1 -> (-26).dp
+    2 -> (-50).dp
+    3 -> (-56).dp
+    else -> (-61).dp
+}
+
+private fun slotScale(slot: Int): Float = when (slot) {
+    0 -> 1.00f
+    1 -> 0.96f
+    2 -> 0.92f
+    3 -> 0.885f
+    else -> 0.85f
+}
+
+private fun slotAlpha(slot: Int): Float = when (slot) {
+    0 -> 1.00f
+    1 -> 0.92f
+    2 -> 0.92f
+    3 -> 0.90f
+    else -> 0.88f
+}
+
+private fun slotShadowElevation(slot: Int): Dp = when (slot) {
+    0 -> 12.dp
+    1 -> 8.dp
+    2 -> 6.dp
+    3 -> 4.dp
+    else -> 3.dp
+}
+
+private fun nextIndexForDirection(currentIndex: Int, dir: StackSwipeDirection, count: Int): Int {
+    if (count <= 1) return 0
+    return when (dir) {
+        StackSwipeDirection.FORWARD_RIGHT -> (currentIndex + 1) % count
+        StackSwipeDirection.BACKWARD_LEFT -> (currentIndex - 1 + count) % count
+        StackSwipeDirection.NONE -> currentIndex
+    }
+}
+
+private data class RenderedDeckCard(
+    val renderKey: Any,
     val account: AccountEntity,
-    val stackPosition: Int, // 0, 1, 2 for visible stack; 3 for rear transition slot when N > 3
-    val targetY: Dp,
-    val targetScale: Float,
-    val targetAlpha: Float,
+    val testPos: Int,
+    val translationXPx: Float,
+    val translationYDp: Dp,
+    val scale: Float,
+    val alpha: Float,
     val zIndex: Float,
-    val isFrontCard: Boolean,
-    val isTrackedByDrag: Boolean,
-    val isTrackedByTransition: Boolean
+    val shadowElevation: Dp,
+    val peekingHeaderOnly: Boolean,
+    val hideContent: Boolean,
+    val isFrontInteractive: Boolean,
+    val tapSlotOffset: Int
 )
 
 @Composable
@@ -110,6 +170,10 @@ internal fun StackedAccountCards(
     isBalanceVisible: Boolean,
     currencySymbol: String,
     isBangla: Boolean = false,
+    isHomeActive: Boolean = true,
+    currentCardStyle: HomeCardStyle = HomeCardStyle.STACK,
+    showHeader: Boolean = true,
+    onSwitchViewMode: (() -> Unit)? = null,
     onAccountClick: (AccountEntity) -> Unit,
     onAllAccountsClick: () -> Unit
 ) {
@@ -118,15 +182,27 @@ internal fun StackedAccountCards(
         TranslucentCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
-            cornerRadius = 26.dp
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .testTag("home_wallet_card_stack"),
+            cornerRadius = 24.dp
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                if (showHeader && onSwitchViewMode != null) {
+                    HomeCardViewSwitcherButton(
+                        currentStyle = currentCardStyle,
+                        isBangla = isBangla,
+                        onClick = onSwitchViewMode,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(14.dp)
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                 Icon(
                     imageVector = Icons.Default.AccountBalance,
                     contentDescription = null,
@@ -153,6 +229,7 @@ internal fun StackedAccountCards(
                 ) {
                     Text(text = if (isBangla) "অ্যাকাউন্ট যোগ করুন" else "Add Account")
                 }
+                }
             }
         }
         return
@@ -171,44 +248,85 @@ internal fun StackedAccountCards(
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val reducedMotion = rememberReducedMotionEnabled()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    // 1:1 finger tracking for active front card (zero lag via snapTo while dragging)
-    val dragOffsetX = remember { Animatable(0f) }
-    // Independent horizontal trajectory for the card actively tucking behind or pulling out from behind
-    val transitionOffsetX = remember { Animatable(0f) }
-
+    // Zero-lag 1:1 horizontal finger drag tracking + snap-back job
+    var liveDragOffsetX by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
-    var isAnimating by remember { mutableStateOf(false) }
-    var transitionCardId by remember { mutableStateOf<String?>(null) }
-    var transitionPhase by remember { mutableStateOf(StackTransitionPhase.IDLE) }
+    val snapBackAnimatable = remember { Animatable(0f) }
+    var snapBackJob by remember { mutableStateOf<Job?>(null) }
 
-    val cancelSpring = remember { spring<Float>(dampingRatio = 0.84f, stiffness = 340f) }
-    val commitSpring = remember { spring<Float>(dampingRatio = 0.86f, stiffness = 300f) }
+    // Single atomic transition Animatable(0f -> 1f) driving all cards in lockstep
+    val transitionProgress = remember { Animatable(0f) }
+    var activeTransitionDir by remember { mutableStateOf(StackSwipeDirection.NONE) }
+    var transitionStartX by remember { mutableFloatStateOf(0f) }
+    var transitionJob by remember { mutableStateOf<Job?>(null) }
+
+    // Entry & Home-return staggered fan-out unfold animation
+    var fanReplayTick by remember { mutableIntStateOf(1) }
+    var wasHomeActive by remember { mutableStateOf(isHomeActive) }
+    var hasSeenInitialResume by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isHomeActive) {
+        if (isHomeActive && !wasHomeActive) {
+            fanReplayTick++
+        }
+        wasHomeActive = isHomeActive
+    }
+
+    DisposableEffect(lifecycleOwner, isHomeActive) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (hasSeenInitialResume && isHomeActive) {
+                    fanReplayTick++
+                }
+                hasSeenInitialResume = true
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val fanAnimatables = remember {
+        List(MAX_VISIBLE_STACK_CARDS) { Animatable(if (reducedMotion) 1f else 0f) }
+    }
+
+    LaunchedEffect(fanReplayTick, reducedMotion) {
+        if (reducedMotion) {
+            fanAnimatables.forEach { it.snapTo(1f) }
+        } else {
+            fanAnimatables.forEach { it.snapTo(0f) }
+            for (pos in 0 until MAX_VISIBLE_STACK_CARDS) {
+                launch {
+                    delay(pos * 40L)
+                    fanAnimatables[pos].animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = 0.78f,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    )
+                }
+            }
+        }
+    }
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val containerBg = if (isDark) CardBackgroundDark else CardBackgroundLight
-    val containerBorder = if (isDark) Color(0x22FFFFFF) else CardBorderLight
-    val containerShape = RoundedCornerShape(26.dp)
 
-    // Non-clipping surface container so cards glide cleanly past the edge during swap without slicing
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
-            .background(containerBg, containerShape)
-            .border(1.dp, containerBorder, containerShape)
+            .padding(top = if (showHeader) 6.dp else 0.dp, bottom = if (showHeader) 8.dp else 0.dp)
             .testTag("home_wallet_card_stack")
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp)
-        ) {
-            // Container Header: "+N more" and "All accounts >"
+        if (showHeader) {
+            // Lightweight floating header row: frosted glass "+N more" pill on left,
+            // "All accounts >" + circular frosted view-switcher button on right
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -222,470 +340,638 @@ internal fun StackedAccountCards(
                 } else {
                     if (isBangla) "১টি অ্যাকাউন্ট" else "1 account"
                 }
-                Text(
-                    text = remainingText,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                        fontSize = 13.5.sp
-                    )
-                )
-                Row(
+
+                Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onAllAccountsClick() }
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                        .testTag("stack_all_accounts_button"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        .clip(CircleShape)
+                        .background(
+                            color = if (isDark) Color(0xFF1E293B).copy(alpha = 0.58f)
+                            else Color.White.copy(alpha = 0.64f),
+                            shape = CircleShape
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (isDark) Color.White.copy(alpha = 0.14f)
+                            else Color.White.copy(alpha = 0.78f),
+                            shape = CircleShape
+                        )
+                        .padding(horizontal = 11.dp, vertical = 5.dp)
                 ) {
                     Text(
-                        text = if (isBangla) "সকল অ্যাকাউন্ট" else "All accounts",
+                        text = remainingText,
                         style = MaterialTheme.typography.labelMedium.copy(
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.80f),
+                            fontSize = 12.sp
                         )
                     )
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(11.dp)
-                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onAllAccountsClick() }
+                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                            .testTag("stack_all_accounts_button"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = if (isBangla) "সকল অ্যাকাউন্ট" else "All accounts",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.5.sp
+                            )
+                        )
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(11.dp)
+                        )
+                    }
+
+                    if (onSwitchViewMode != null) {
+                        HomeCardViewSwitcherButton(
+                            currentStyle = currentCardStyle,
+                            isBangla = isBangla,
+                            onClick = onSwitchViewMode
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
+        }
 
-            val visibleCount = minOf(n, MAX_VISIBLE_INFO_CARDS)
-            val cardHeight = 188.dp
-            val topPeekHeightDp = when {
-                n >= 5 -> 80f
-                n == 4 -> 74f
-                n == 3 -> 66f
-                n == 2 -> 34f
-                else -> 0f
+        val visibleCount = minOf(n, MAX_VISIBLE_STACK_CARDS)
+        val backSlot = (visibleCount - 1).coerceAtLeast(0)
+        val cardHeight = 180.dp
+        val maxTopPeekDp = -slotYDp(backSlot)
+        val totalStackHeight = cardHeight + maxTopPeekDp
+
+            val dismissThresholdPx = with(density) { 68.dp.toPx() }
+            val currentActiveIndex by rememberUpdatedState(activeIndex)
+            val currentTransitionDir by rememberUpdatedState(activeTransitionDir)
+
+            // Synchronously commits any in-flight swipe before starting a new drag/swipe so
+            // rapid 4-5+ consecutive swipes NEVER leave cards stuck or the front slot empty.
+            fun commitActiveTransitionImmediately(): Int {
+                val inFlightDir = currentTransitionDir
+                if (inFlightDir != StackSwipeDirection.NONE) {
+                    transitionJob?.cancel()
+                    transitionJob = null
+                    val committedIdx = nextIndexForDirection(currentActiveIndex, inFlightDir, n)
+                    rawActiveIndex = committedIdx
+                    activeTransitionDir = StackSwipeDirection.NONE
+                    transitionStartX = 0f
+                    liveDragOffsetX = 0f
+                    scope.launch { transitionProgress.snapTo(0f) }
+                    return committedIdx
+                }
+                return currentActiveIndex
             }
-            val topHeadroom = 10.dp
-            val totalStackHeight = cardHeight + topPeekHeightDp.dp + topHeadroom
 
-            fun slotYDp(pos: Int): Dp = when (pos) {
-                0 -> 0.dp
-                1 -> (-34).dp
-                2 -> (-66).dp
-                3 -> (-74).dp
-                else -> (-80).dp
-            }
-
-            fun slotScale(pos: Int): Float = when (pos) {
-                0 -> 1.0f
-                1 -> 0.96f
-                2 -> 0.92f
-                3 -> 0.88f
-                else -> 0.84f
-            }
-
-            BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(totalStackHeight)
+            fun startAtomicTransition(
+                direction: StackSwipeDirection,
+                startX: Float,
+                startProgress: Float = 0f,
+                initialVelocityProgress: Float = 0f
             ) {
-                val cardWidthPx = constraints.maxWidth.toFloat().coerceAtLeast(300f)
-                val swipeThresholdPx = cardWidthPx * 0.35f
-                val outwardApexPx = cardWidthPx * 0.85f
+                if (n <= 1 || direction == StackSwipeDirection.NONE) return
+                snapBackJob?.cancel()
+                snapBackJob = null
 
-                // Commit Right Swipe (Front card goes outward right, flips behind stack, glides into rear slot)
-                suspend fun performRightCommit() {
-                    val outgoingAccount = visibleAccounts[activeIndex]
-                    // 1. Slide front card smoothly past right edge
-                    dragOffsetX.animateTo(
-                        targetValue = outwardApexPx,
-                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
-                    )
-                    // 2. Commit moment: flip zIndex behind stack, advance activeIndex so remaining cards step forward
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    transitionCardId = outgoingAccount.id
-                    transitionPhase = StackTransitionPhase.TUCKING_TO_BACK
-                    transitionOffsetX.snapTo(dragOffsetX.value)
-                    rawActiveIndex = (rawActiveIndex + 1) % n
-                    dragOffsetX.snapTo(0f)
+                val baseIdx = commitActiveTransitionImmediately()
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
-                    // 3. Smoothly glide departing card inward into rear stack slot
-                    transitionOffsetX.animateTo(
-                        targetValue = 0f,
-                        animationSpec = commitSpring
-                    )
-                    transitionPhase = StackTransitionPhase.IDLE
-                    transitionCardId = null
+                if (reducedMotion) {
+                    rawActiveIndex = nextIndexForDirection(baseIdx, direction, n)
+                    liveDragOffsetX = 0f
+                    return
                 }
 
-                // Commit Left Swipe (Rear-most card pulls smoothly outward left behind stack, flips to front, lands at pos 0)
-                suspend fun performLeftCommit(targetAccountIdx: Int = (activeIndex - 1 + n) % n) {
-                    val incomingAccount = visibleAccounts[targetAccountIdx]
-                    transitionCardId = incomingAccount.id
-                    transitionPhase = StackTransitionPhase.PULLING_FROM_BACK_OUT
-                    transitionOffsetX.snapTo(0f)
+                transitionStartX = startX
+                liveDragOffsetX = 0f
+                activeTransitionDir = direction
 
-                    // 1. Return dragged front card cleanly to 0f while pulling target rear card outward to -0.85 * cardWidth
-                    coroutineScope {
-                        if (abs(dragOffsetX.value) > 0.5f) {
-                            launch {
-                                dragOffsetX.animateTo(0f, animationSpec = commitSpring)
-                            }
-                        }
-                        launch {
-                            transitionOffsetX.animateTo(
-                                targetValue = -outwardApexPx,
-                                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                transitionJob = scope.launch {
+                    try {
+                        if (direction == StackSwipeDirection.BACKWARD_LEFT) {
+                            transitionProgress.snapTo(startProgress.coerceIn(0f, 1f))
+                            transitionProgress.animateTo(
+                                targetValue = 1f,
+                                initialVelocity = initialVelocityProgress.coerceIn(0f, 8f),
+                                animationSpec = spring(
+                                    dampingRatio = 0.84f,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
                             )
-                        }
-                    }
-
-                    // 2. Apex commit moment: elevate zIndex to front (10f) & update activeIndex so previous front steps back to pos 1
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    transitionPhase = StackTransitionPhase.LANDING_AT_FRONT
-                    rawActiveIndex = targetAccountIdx
-
-                    // 3. Glide incoming card smoothly into front slot (pos = 0)
-                    transitionOffsetX.animateTo(
-                        targetValue = 0f,
-                        animationSpec = commitSpring
-                    )
-                    transitionPhase = StackTransitionPhase.IDLE
-                    transitionCardId = null
-                }
-
-                // Tapping peeking card pos = 1 or pos = 2 smoothly brings that card to front
-                fun onPeekingCardTapped(targetStackPos: Int) {
-                    if (isAnimating || isDragging || n <= 1 || targetStackPos <= 0) return
-                    scope.launch {
-                        isAnimating = true
-                        try {
-                            if (targetStackPos == 1) {
-                                performRightCommit()
-                            } else {
-                                val targetIdx = (activeIndex + targetStackPos) % n
-                                performLeftCommit(targetAccountIdx = targetIdx)
-                            }
-                        } finally {
-                            isAnimating = false
-                        }
-                    }
-                }
-
-                // Build the exact list of cards to render (top 3 + active transition card if outside top 3)
-                val cardSpecs = remember(
-                    visibleAccounts,
-                    activeIndex,
-                    visibleCount,
-                    n,
-                    transitionCardId,
-                    transitionPhase
-                ) {
-                    val specs = mutableListOf<StackCardSpec>()
-                    val includedIds = HashSet<String>()
-
-                    for (pos in (visibleCount - 1) downTo 0) {
-                        val idx = (activeIndex + pos) % n
-                        val acc = visibleAccounts[idx]
-                        includedIds.add(acc.id)
-
-                        val isTransitionTarget = acc.id == transitionCardId
-                        val cardZIndex = when {
-                            isTransitionTarget && transitionPhase == StackTransitionPhase.TUCKING_TO_BACK -> -1f
-                            isTransitionTarget && transitionPhase == StackTransitionPhase.PULLING_FROM_BACK_OUT -> -1f
-                            isTransitionTarget && transitionPhase == StackTransitionPhase.LANDING_AT_FRONT -> 10f
-                            pos == 0 -> 5f
-                            else -> (visibleCount - pos).toFloat()
-                        }
-
-                        specs.add(
-                            StackCardSpec(
-                                account = acc,
-                                stackPosition = pos,
-                                targetY = slotYDp(pos),
-                                targetScale = slotScale(pos),
-                                targetAlpha = 1f,
-                                zIndex = cardZIndex,
-                                isFrontCard = (pos == 0),
-                                isTrackedByDrag = (pos == 0 && !isTransitionTarget),
-                                isTrackedByTransition = isTransitionTarget
-                            )
-                        )
-                    }
-
-                    // Include transitioning card when N > 3 and it is outside the top 3 (slot 3 rear tuck / pull)
-                    val activeTransId = transitionCardId
-                    if (activeTransId != null && !includedIds.contains(activeTransId)) {
-                        val transAcc = visibleAccounts.firstOrNull { it.id == activeTransId }
-                        if (transAcc != null) {
-                            val isPullingOut = transitionPhase == StackTransitionPhase.PULLING_FROM_BACK_OUT
-                            specs.add(
-                                StackCardSpec(
-                                    account = transAcc,
-                                    stackPosition = 3,
-                                    targetY = slotYDp(3),
-                                    targetScale = slotScale(3),
-                                    targetAlpha = if (isPullingOut) 1f else 0.40f,
-                                    zIndex = -1f,
-                                    isFrontCard = false,
-                                    isTrackedByDrag = false,
-                                    isTrackedByTransition = true
+                        } else {
+                            transitionProgress.snapTo(0f)
+                            transitionProgress.animateTo(
+                                targetValue = 1f,
+                                animationSpec = tween(
+                                    durationMillis = 260,
+                                    easing = FastOutSlowInEasing
                                 )
                             )
                         }
+                        // Atomic handoff: update index and clear direction together in one frame
+                        rawActiveIndex = nextIndexForDirection(baseIdx, direction, n)
+                        activeTransitionDir = StackSwipeDirection.NONE
+                        transitionStartX = 0f
+                        transitionProgress.snapTo(0f)
+                    } catch (_: CancellationException) {
+                        // Interrupted by a rapid follow-up swipe; already committed cleanly
                     }
-
-                    specs
                 }
+            }
+
+            fun startSnapBack(fromX: Float, velocityX: Float) {
+                snapBackJob?.cancel()
+                snapBackJob = scope.launch {
+                    try {
+                        snapBackAnimatable.snapTo(fromX)
+                        val snapSpec = if (fromX < 0f) {
+                            spring<Float>(
+                                dampingRatio = 0.84f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        } else {
+                            spring<Float>(
+                                dampingRatio = 0.80f,
+                                stiffness = 420f
+                            )
+                        }
+                        snapBackAnimatable.animateTo(
+                            targetValue = 0f,
+                            initialVelocity = velocityX,
+                            animationSpec = snapSpec
+                        ) {
+                            liveDragOffsetX = value
+                        }
+                        liveDragOffsetX = 0f
+                    } catch (_: CancellationException) {
+                        // Interrupted by new drag
+                    }
+                }
+            }
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .height(totalStackHeight)
+        ) {
+                val cardWidthPx = constraints.maxWidth.toFloat().coerceAtLeast(300f)
 
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .pointerInput(n, activeIndex, cardWidthPx) {
+                        .pointerInput(n, cardWidthPx) {
                             if (n > 1) {
+                                val velocityTracker = VelocityTracker()
                                 detectHorizontalDragGestures(
                                     onDragStart = {
-                                        if (!isAnimating) {
-                                            isDragging = true
-                                        }
+                                        velocityTracker.resetTracking()
+                                        snapBackJob?.cancel()
+                                        snapBackJob = null
+                                        commitActiveTransitionImmediately()
+                                        isDragging = true
                                     },
                                     onHorizontalDrag = { change, dragAmount ->
-                                        if (isAnimating) return@detectHorizontalDragGestures
                                         change.consume()
-                                        isDragging = true
-                                        val next = (dragOffsetX.value + dragAmount)
-                                            .coerceIn(-cardWidthPx * 0.95f, cardWidthPx * 0.95f)
-                                        scope.launch {
-                                            // Zero-lag 1:1 finger tracking; background deck stays 100% stationary
-                                            dragOffsetX.snapTo(next)
-                                        }
+                                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                        // Zero-lag synchronous 1:1 horizontal tracking
+                                        liveDragOffsetX = (liveDragOffsetX + dragAmount)
+                                            .coerceIn(-cardWidthPx * 1.05f, cardWidthPx * 1.05f)
                                     },
                                     onDragEnd = {
-                                        if (isAnimating) return@detectHorizontalDragGestures
                                         isDragging = false
-                                        scope.launch {
-                                            isAnimating = true
-                                            try {
-                                                val currentX = dragOffsetX.value
-                                                when {
-                                                    // Right swipe past threshold: Front card goes to back
-                                                    currentX >= swipeThresholdPx -> {
-                                                        performRightCommit()
-                                                    }
-                                                    // Left swipe past threshold: Rear card comes to front
-                                                    currentX <= -swipeThresholdPx -> {
-                                                        performLeftCommit()
-                                                    }
-                                                    // Released before threshold: smooth rubber-band cancel back to 0f
-                                                    else -> {
-                                                        dragOffsetX.animateTo(
-                                                            targetValue = 0f,
-                                                            animationSpec = cancelSpring
-                                                        )
-                                                    }
-                                                }
-                                            } finally {
-                                                isAnimating = false
+                                        val velocityX = velocityTracker.calculateVelocity().x
+                                        val currentX = liveDragOffsetX
+                                        val rtlProgress = (-currentX / cardWidthPx).coerceIn(0f, 1f)
+                                        val shouldCommitRight =
+                                            currentX > dismissThresholdPx ||
+                                                (velocityX > 450f && currentX >= -24f)
+                                        val shouldCommitLeft =
+                                            rtlProgress > 0.25f ||
+                                                (velocityX < -500f && currentX <= 24f)
+
+                                        when {
+                                            shouldCommitRight -> {
+                                                startAtomicTransition(
+                                                    direction = StackSwipeDirection.FORWARD_RIGHT,
+                                                    startX = currentX
+                                                )
+                                            }
+                                            shouldCommitLeft -> {
+                                                startAtomicTransition(
+                                                    direction = StackSwipeDirection.BACKWARD_LEFT,
+                                                    startX = currentX,
+                                                    startProgress = rtlProgress,
+                                                    initialVelocityProgress = (-velocityX / cardWidthPx).coerceAtLeast(0f)
+                                                )
+                                            }
+                                            else -> {
+                                                startSnapBack(currentX, velocityX)
                                             }
                                         }
                                     },
                                     onDragCancel = {
-                                        if (isAnimating) return@detectHorizontalDragGestures
                                         isDragging = false
-                                        scope.launch {
-                                            isAnimating = true
-                                            try {
-                                                dragOffsetX.animateTo(
-                                                    targetValue = 0f,
-                                                    animationSpec = cancelSpring
-                                                )
-                                            } finally {
-                                                isAnimating = false
-                                            }
-                                        }
+                                        startSnapBack(liveDragOffsetX, 0f)
                                     }
                                 )
                             }
                         }
                 ) {
-                    // Subtle depth-peek shadow strips strictly when accounts.size > 3 (no text)
-                    if (n >= 5) {
-                        val hint2Color = resolveAccountCardColor(visibleAccounts[(activeIndex + 4) % n])
-                        DepthHintCardLayer(
-                            tintColor = hint2Color,
-                            isDark = isDark,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .height(cardHeight)
-                                .zIndex(-4f)
-                                .offset(y = (-80).dp)
-                                .graphicsLayer {
-                                    scaleX = 0.84f
-                                    scaleY = 0.84f
-                                    rotationZ = 0f
-                                    alpha = 0.22f
-                                    transformOrigin = TransformOrigin(0.5f, 0.5f)
+                    val p = if (activeTransitionDir == StackSwipeDirection.NONE) {
+                        0f
+                    } else {
+                        transitionProgress.value.coerceIn(0f, 1f)
+                    }
+                    val rightEdgeMarginPx = with(density) { 24.dp.toPx() }
+
+                    fun MutableList<RenderedDeckCard>.appendBackwardLeftCards(
+                        rtlP: Float,
+                        isSettlingCommit: Boolean
+                    ) {
+                        val incomingIdx = (activeIndex - 1 + n) % n
+                        val incomingAcc = visibleAccounts[incomingIdx]
+
+                        // 1. Existing cards stay visible and smoothly step backward 1 slot in place.
+                        //    Never hide/remove the incoming back card before the swipe completes.
+                        for (pos in (visibleCount - 1) downTo 0) {
+                            val idx = (activeIndex + pos) % n
+                            val acc = visibleAccounts[idx]
+                            val fan = fanAnimatables[pos.coerceIn(0, MAX_VISIBLE_STACK_CARDS - 1)].value
+                            val baseTy = lerpDp(0.dp, slotYDp(pos), fan)
+                            val baseScale = lerpFloat(0.94f, slotScale(pos), fan)
+
+                            if (idx == incomingIdx) {
+                                // Keep back-slot card visible while drag begins, fading gently only
+                                // once the incoming front copy glides across the stack from the right.
+                                val backFade = 1f - ((rtlP - 0.35f) / 0.65f).coerceIn(0f, 1f)
+                                add(
+                                    RenderedDeckCard(
+                                        renderKey = "receding_back_${acc.id}",
+                                        account = acc,
+                                        testPos = pos,
+                                        translationXPx = 0f,
+                                        translationYDp = baseTy,
+                                        scale = baseScale,
+                                        alpha = (fan * slotAlpha(pos) * backFade).coerceIn(0f, 1f),
+                                        zIndex = (8 - pos).toFloat().coerceAtLeast(1f),
+                                        shadowElevation = slotShadowElevation(pos),
+                                        peekingHeaderOnly = pos in 1..2,
+                                        hideContent = pos >= 3,
+                                        isFrontInteractive = false,
+                                        tapSlotOffset = pos
+                                    )
+                                )
+                            } else {
+                                val targetSlot = pos + 1
+                                if (targetSlot < MAX_VISIBLE_STACK_CARDS) {
+                                    add(
+                                        RenderedDeckCard(
+                                            renderKey = acc.id,
+                                            account = acc,
+                                            testPos = if (isSettlingCommit) targetSlot else pos,
+                                            translationXPx = 0f,
+                                            translationYDp = lerpDp(baseTy, slotYDp(targetSlot), rtlP),
+                                            scale = lerpFloat(baseScale, slotScale(targetSlot), rtlP),
+                                            alpha = (fan * lerpFloat(slotAlpha(pos), slotAlpha(targetSlot), rtlP)).coerceIn(0f, 1f),
+                                            zIndex = (8 - targetSlot).toFloat().coerceAtLeast(2f),
+                                            shadowElevation = lerpDp(
+                                                slotShadowElevation(pos),
+                                                slotShadowElevation(targetSlot),
+                                                rtlP
+                                            ),
+                                            peekingHeaderOnly = when (targetSlot) {
+                                                1 -> rtlP >= 0.55f
+                                                2 -> true
+                                                else -> false
+                                            },
+                                            hideContent = when {
+                                                targetSlot >= 3 -> rtlP >= 0.45f || pos >= 3
+                                                else -> false
+                                            },
+                                            isFrontInteractive = false,
+                                            tapSlotOffset = targetSlot
+                                        )
+                                    )
+                                } else {
+                                    // 5th card softly fading behind when n > 5
+                                    add(
+                                        RenderedDeckCard(
+                                            renderKey = acc.id,
+                                            account = acc,
+                                            testPos = MAX_VISIBLE_STACK_CARDS - 1,
+                                            translationXPx = 0f,
+                                            translationYDp = slotYDp(MAX_VISIBLE_STACK_CARDS - 1),
+                                            scale = slotScale(MAX_VISIBLE_STACK_CARDS - 1),
+                                            alpha = (fan * slotAlpha(MAX_VISIBLE_STACK_CARDS - 1) * (1f - rtlP)).coerceIn(0f, 1f),
+                                            zIndex = 2f,
+                                            shadowElevation = slotShadowElevation(MAX_VISIBLE_STACK_CARDS - 1),
+                                            peekingHeaderOnly = false,
+                                            hideContent = true,
+                                            isFrontInteractive = false,
+                                            tapSlotOffset = MAX_VISIBLE_STACK_CARDS - 1
+                                        )
+                                    )
                                 }
-                                .testTag("wallet_stack_depth_hint_2")
+                            }
+                        }
+
+                        // 2. Incoming card (lastIndex) glides smoothly from the right edge
+                        //    ((cardWidth + 24.dp) * (1f - p)) at highest zIndex = 10f onto the front of the stack.
+                        val incomingTx = (cardWidthPx + rightEdgeMarginPx) * (1f - rtlP)
+                        add(
+                            RenderedDeckCard(
+                                renderKey = incomingAcc.id,
+                                account = incomingAcc,
+                                testPos = 0,
+                                translationXPx = incomingTx,
+                                translationYDp = lerpDp((-4).dp, 0.dp, rtlP),
+                                scale = 1.0f,
+                                alpha = 1f,
+                                zIndex = 10f,
+                                shadowElevation = lerpDp(16.dp, slotShadowElevation(0), rtlP),
+                                peekingHeaderOnly = false,
+                                hideContent = false,
+                                isFrontInteractive = isSettlingCommit && rtlP >= Z_SWAP_PROGRESS,
+                                tapSlotOffset = 0
+                            )
                         )
                     }
 
-                    if (n >= 4) {
-                        val hint1Color = resolveAccountCardColor(visibleAccounts[(activeIndex + 3) % n])
-                        DepthHintCardLayer(
-                            tintColor = hint1Color,
-                            isDark = isDark,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .height(cardHeight)
-                                .zIndex(-3f)
-                                .offset(y = (-74).dp)
-                                .graphicsLayer {
-                                    scaleX = 0.88f
-                                    scaleY = 0.88f
-                                    rotationZ = 0f
-                                    alpha = 0.40f
-                                    transformOrigin = TransformOrigin(0.5f, 0.5f)
+                    val renderedCards = buildList {
+                        when (activeTransitionDir) {
+                            StackSwipeDirection.NONE -> {
+                                val isPullingFromRight = liveDragOffsetX < -0.5f && n > 1
+                                if (isPullingFromRight) {
+                                    val rtlProgress = (-liveDragOffsetX / cardWidthPx).coerceIn(0f, 1f)
+                                    appendBackwardLeftCards(
+                                        rtlP = rtlProgress,
+                                        isSettlingCommit = false
+                                    )
+                                } else {
+                                    // Idle & Left-to-Right 1:1 dragging: front card slides right, background cards stay stationary
+                                    for (pos in (visibleCount - 1) downTo 0) {
+                                        val idx = (activeIndex + pos) % n
+                                        val acc = visibleAccounts[idx]
+                                        val fan = fanAnimatables[pos.coerceIn(0, MAX_VISIBLE_STACK_CARDS - 1)].value
+                                        val isFront = pos == 0
+                                        val txPx = if (isFront) liveDragOffsetX else 0f
+                                        val liftDp = if (isFront && txPx != 0f) {
+                                            (-8f * (abs(txPx) / cardWidthPx).coerceIn(0f, 1f)).dp
+                                        } else {
+                                            0.dp
+                                        }
+                                        add(
+                                            RenderedDeckCard(
+                                                renderKey = acc.id,
+                                                account = acc,
+                                                testPos = pos,
+                                                translationXPx = txPx,
+                                                translationYDp = lerpDp(0.dp, slotYDp(pos), fan) + liftDp,
+                                                scale = lerpFloat(0.94f, slotScale(pos), fan),
+                                                alpha = (fan * slotAlpha(pos)).coerceIn(0f, 1f),
+                                                zIndex = (10 - pos).toFloat(),
+                                                shadowElevation = slotShadowElevation(pos),
+                                                peekingHeaderOnly = pos in 1..2,
+                                                hideContent = pos >= 3,
+                                                isFrontInteractive = isFront,
+                                                tapSlotOffset = pos
+                                            )
+                                        )
+                                    }
                                 }
-                                .testTag("wallet_stack_depth_hint_1")
-                        )
+                            }
+
+                            StackSwipeDirection.FORWARD_RIGHT -> {
+                                // Outgoing front card (pos = 0): arcs right, drops behind at p >= 0.45f, tucks into back slot
+                                val outgoingAcc = visibleAccounts[activeIndex]
+                                val peakRightX = maxOf(
+                                    transitionStartX + cardWidthPx * 0.12f,
+                                    cardWidthPx * 0.68f
+                                ).coerceAtMost(cardWidthPx * 0.94f)
+                                val startLiftDp = (-8f * (abs(transitionStartX) / cardWidthPx).coerceIn(0f, 1f)).dp
+                                val isBehind = p >= Z_SWAP_PROGRESS
+
+                                val outTx: Float
+                                val outTy: Dp
+                                val outScale: Float
+                                val outAlpha: Float
+                                if (!isBehind) {
+                                    val phase = FastOutSlowInEasing.transform((p / Z_SWAP_PROGRESS).coerceIn(0f, 1f))
+                                    outTx = lerpFloat(transitionStartX, peakRightX, phase)
+                                    outTy = lerpDp(startLiftDp, (-16).dp, phase)
+                                    outScale = lerpFloat(1.0f, 0.94f, phase)
+                                    outAlpha = 1f
+                                } else {
+                                    val phase = FastOutSlowInEasing.transform(((p - Z_SWAP_PROGRESS) / (1f - Z_SWAP_PROGRESS)).coerceIn(0f, 1f))
+                                    outTx = lerpFloat(peakRightX, 0f, phase)
+                                    outTy = lerpDp((-16).dp, slotYDp(backSlot), phase)
+                                    outScale = lerpFloat(0.94f, slotScale(backSlot), phase)
+                                    outAlpha = if (n > MAX_VISIBLE_STACK_CARDS) {
+                                        lerpFloat(1f, 0f, phase)
+                                    } else {
+                                        lerpFloat(1f, slotAlpha(backSlot), phase)
+                                    }
+                                }
+
+                                add(
+                                    RenderedDeckCard(
+                                        renderKey = outgoingAcc.id,
+                                        account = outgoingAcc,
+                                        testPos = backSlot,
+                                        translationXPx = outTx,
+                                        translationYDp = outTy,
+                                        scale = outScale,
+                                        alpha = outAlpha,
+                                        zIndex = if (isBehind) 1f else 12f,
+                                        shadowElevation = if (isBehind) slotShadowElevation(backSlot) else 14.dp,
+                                        peekingHeaderOnly = isBehind && backSlot in 1..2,
+                                        hideContent = isBehind && backSlot >= 3,
+                                        isFrontInteractive = false,
+                                        tapSlotOffset = 0
+                                    )
+                                )
+
+                                // Simultaneously promote pos 1..visibleCount-1 forward by 1 slot
+                                for (pos in (visibleCount - 1) downTo 1) {
+                                    val idx = (activeIndex + pos) % n
+                                    val acc = visibleAccounts[idx]
+                                    val targetSlot = pos - 1
+                                    add(
+                                        RenderedDeckCard(
+                                            renderKey = acc.id,
+                                            account = acc,
+                                            testPos = targetSlot,
+                                            translationXPx = 0f,
+                                            translationYDp = lerpDp(slotYDp(pos), slotYDp(targetSlot), p),
+                                            scale = lerpFloat(slotScale(pos), slotScale(targetSlot), p),
+                                            alpha = lerpFloat(slotAlpha(pos), slotAlpha(targetSlot), p),
+                                            zIndex = (10 - targetSlot).toFloat(),
+                                            shadowElevation = lerpDp(
+                                                slotShadowElevation(pos),
+                                                slotShadowElevation(targetSlot),
+                                                p
+                                            ),
+                                            peekingHeaderOnly = when (targetSlot) {
+                                                0 -> p < Z_SWAP_PROGRESS
+                                                1, 2 -> true
+                                                else -> false
+                                            },
+                                            hideContent = when {
+                                                targetSlot == 0 || targetSlot == 1 -> false
+                                                targetSlot == 2 -> p < 0.35f
+                                                else -> true
+                                            },
+                                            isFrontInteractive = targetSlot == 0,
+                                            tapSlotOffset = targetSlot
+                                        )
+                                    )
+                                }
+
+                                // If more than 5 accounts exist, fade the next rear depth strip smoothly into slot 4
+                                if (n > MAX_VISIBLE_STACK_CARDS) {
+                                    val incomingRearIdx = (activeIndex + MAX_VISIBLE_STACK_CARDS) % n
+                                    add(
+                                        RenderedDeckCard(
+                                            renderKey = visibleAccounts[incomingRearIdx].id,
+                                            account = visibleAccounts[incomingRearIdx],
+                                            testPos = MAX_VISIBLE_STACK_CARDS - 1,
+                                            translationXPx = 0f,
+                                            translationYDp = slotYDp(MAX_VISIBLE_STACK_CARDS - 1),
+                                            scale = slotScale(MAX_VISIBLE_STACK_CARDS - 1),
+                                            alpha = p * slotAlpha(MAX_VISIBLE_STACK_CARDS - 1),
+                                            zIndex = 2f,
+                                            shadowElevation = slotShadowElevation(MAX_VISIBLE_STACK_CARDS - 1),
+                                            peekingHeaderOnly = false,
+                                            hideContent = true,
+                                            isFrontInteractive = false,
+                                            tapSlotOffset = MAX_VISIBLE_STACK_CARDS - 1
+                                        )
+                                    )
+                                }
+                            }
+
+                            StackSwipeDirection.BACKWARD_LEFT -> {
+                                appendBackwardLeftCards(
+                                    rtlP = p,
+                                    isSettlingCommit = true
+                                )
+                            }
+                        }
                     }
 
-                    // Active & peeking cards — background cards remain 100% stationary during drag and animate smoothly ONLY on commit
-                    cardSpecs.forEach { spec ->
-                        key(spec.account.id) {
-                            AnimatedStackCardItem(
-                                spec = spec,
-                                dragOffsetXProvider = { dragOffsetX.value },
-                                transitionOffsetXProvider = { transitionOffsetX.value },
-                                cardWidthPx = cardWidthPx,
-                                cardHeight = cardHeight,
+                    renderedCards.forEach { card ->
+                        key(card.renderKey) {
+                            val sharedBoundsModifier = if (card.isFrontInteractive) {
+                                Modifier.walletCardSharedBounds(
+                                    accountId = card.account.id,
+                                    cornerRadius = 22.dp
+                                )
+                            } else {
+                                Modifier
+                            }
+
+                            StackedDeckCardSurface(
+                                account = card.account,
                                 currencySymbol = currencySymbol,
                                 isBalanceVisible = isBalanceVisible,
                                 isBangla = isBangla,
-                                onCardTap = {
-                                    if (!isDragging && !isAnimating && abs(dragOffsetX.value) < 8f) {
-                                        if (spec.stackPosition == 0) {
-                                            onAccountClick(spec.account)
-                                        } else {
-                                            onPeekingCardTapped(spec.stackPosition)
+                                shadowElevation = card.shadowElevation,
+                                peekingHeaderOnly = card.peekingHeaderOnly,
+                                hideContent = card.hideContent,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .height(cardHeight)
+                                    .zIndex(card.zIndex)
+                                    .offset {
+                                        val yPx = with(density) { card.translationYDp.toPx() }
+                                        IntOffset(card.translationXPx.roundToInt(), yPx.roundToInt())
+                                    }
+                                    .graphicsLayer {
+                                        scaleX = card.scale
+                                        scaleY = card.scale
+                                        alpha = card.alpha.coerceIn(0f, 1f)
+                                        rotationZ = 0f // Strictly horizontal (0° rotation at all times)
+                                        transformOrigin = TransformOrigin(0.5f, 0f)
+                                    }
+                                    .then(sharedBoundsModifier)
+                                    .clickable {
+                                        if (!isDragging && abs(liveDragOffsetX) < 12f) {
+                                            if (card.isFrontInteractive) {
+                                                commitActiveTransitionImmediately()
+                                                onAccountClick(card.account)
+                                            } else if (n > 1 && card.tapSlotOffset > 0) {
+                                                if (card.tapSlotOffset == 1) {
+                                                    startAtomicTransition(StackSwipeDirection.FORWARD_RIGHT, 0f)
+                                                } else if (card.tapSlotOffset == n - 1) {
+                                                    startAtomicTransition(StackSwipeDirection.BACKWARD_LEFT, 0f)
+                                                } else {
+                                                    val base = commitActiveTransitionImmediately()
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    rawActiveIndex = (base + card.tapSlotOffset) % n
+                                                }
+                                            }
                                         }
                                     }
-                                },
-                                modifier = Modifier.align(Alignment.BottomCenter)
+                                    .testTag("wallet_stack_card_${card.testPos}")
                             )
                         }
                     }
-                }
             }
         }
     }
 }
 
 @Composable
-private fun AnimatedStackCardItem(
-    spec: StackCardSpec,
-    dragOffsetXProvider: () -> Float,
-    transitionOffsetXProvider: () -> Float,
-    cardWidthPx: Float,
-    cardHeight: Dp,
+private fun StackedDeckCardSurface(
+    account: AccountEntity,
     currencySymbol: String,
     isBalanceVisible: Boolean,
     isBangla: Boolean,
-    onCardTap: () -> Unit,
+    shadowElevation: Dp,
+    peekingHeaderOnly: Boolean,
+    hideContent: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val density = LocalDensity.current
+    val language = if (isBangla) AppLanguage.BANGLA else AppLanguage.ENGLISH
+    val cardShape = RoundedCornerShape(22.dp)
+    val cardHue = remember(account) { resolveAccountCardColor(account) }
 
-    // Only animate Y, Scale, and Alpha on commit (when target slot changes); strictly stationary during drag
-    val animatedY by animateDpAsState(
-        targetValue = spec.targetY,
-        animationSpec = spring(dampingRatio = 0.86f, stiffness = 300f),
-        label = "stack_card_y_${spec.account.id}"
-    )
-    val animatedScale by animateFloatAsState(
-        targetValue = spec.targetScale,
-        animationSpec = spring(dampingRatio = 0.86f, stiffness = 300f),
-        label = "stack_card_scale_${spec.account.id}"
-    )
-    val animatedAlpha by animateFloatAsState(
-        targetValue = spec.targetAlpha,
-        animationSpec = spring(dampingRatio = 0.86f, stiffness = 300f),
-        label = "stack_card_alpha_${spec.account.id}"
-    )
-
-    val liftMaxPx = with(density) { 10.dp.toPx() }
-
-    val sharedBoundsModifier = if (spec.isFrontCard) {
-        Modifier.walletCardSharedBounds(accountId = spec.account.id, cornerRadius = 22.dp)
-    } else {
-        Modifier
-    }
-
-    StackedWalletCard(
-        account = spec.account,
-        currencySymbol = currencySymbol,
-        isBalanceVisible = isBalanceVisible,
-        isBangla = isBangla,
-        isFrontCard = spec.isFrontCard,
+    Box(
         modifier = modifier
-            .fillMaxWidth()
-            .height(cardHeight)
-            .zIndex(spec.zIndex)
-            .offset {
-                val txPx = when {
-                    spec.isTrackedByTransition -> transitionOffsetXProvider()
-                    spec.isTrackedByDrag -> dragOffsetXProvider()
-                    else -> 0f
-                }
-                val liftPx = if (txPx != 0f) {
-                    -liftMaxPx * (abs(txPx) / cardWidthPx).coerceIn(0f, 1f)
-                } else {
-                    0f
-                }
-                val baseYPx = with(density) { animatedY.toPx() }
-                IntOffset(txPx.roundToInt(), (baseYPx + liftPx).roundToInt())
-            }
-            .graphicsLayer {
-                scaleX = animatedScale
-                scaleY = animatedScale
-                rotationZ = 0f
-                alpha = animatedAlpha
-                transformOrigin = TransformOrigin(0.5f, 0.5f)
-            }
-            .then(sharedBoundsModifier)
-            .clickable(onClick = onCardTap)
-            .testTag("wallet_stack_card_${spec.stackPosition}")
-    )
-}
-
-@Composable
-private fun DepthHintCardLayer(
-    tintColor: Color,
-    isDark: Boolean,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(22.dp),
-        color = tintColor,
-        shadowElevation = if (isDark) 1.dp else 2.dp,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
+            .shadow(
+                elevation = shadowElevation,
+                shape = cardShape,
+                ambientColor = cardHue.copy(alpha = 0.28f),
+                spotColor = cardHue.copy(alpha = 0.36f)
+            )
+            .clip(cardShape)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            tintColor,
-                            Color(0xFF0F172A).copy(alpha = 0.35f)
-                        )
-                    )
-                )
+        HishabPatiAccountCard(
+            account = account,
+            currencySymbol = currencySymbol,
+            isBalanceVisible = isBalanceVisible,
+            language = language,
+            cornerRadius = 22.dp,
+            shadowElevation = 0.dp,
+            peekingHeaderOnly = peekingHeaderOnly,
+            hideContent = hideContent,
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
@@ -718,26 +1004,4 @@ internal fun resolveAccountCardColor(account: AccountEntity): Color {
         AccountType.CASH -> Color(0xFF059669)
         else -> Color(0xFF4F46E5)
     }
-}
-
-@Composable
-private fun StackedWalletCard(
-    account: AccountEntity,
-    currencySymbol: String,
-    isBalanceVisible: Boolean,
-    isBangla: Boolean,
-    isFrontCard: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val language = if (isBangla) AppLanguage.BANGLA else AppLanguage.ENGLISH
-    HishabPatiAccountCard(
-        account = account,
-        currencySymbol = currencySymbol,
-        modifier = modifier,
-        isBalanceVisible = isBalanceVisible,
-        language = language,
-        cornerRadius = 22.dp,
-        shadowElevation = if (isFrontCard) 6.dp else 2.dp,
-        peekingHeaderOnly = !isFrontCard
-    )
 }

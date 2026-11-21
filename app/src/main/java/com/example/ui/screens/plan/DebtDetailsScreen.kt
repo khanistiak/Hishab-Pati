@@ -1,5 +1,6 @@
 package com.example.ui.screens.plan
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -45,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -62,9 +65,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,8 +81,12 @@ import com.example.data.model.TransactionType
 import com.example.ui.MainViewModel
 import com.example.ui.SubScreen
 import com.example.ui.components.TranslucentCard
+import com.example.ui.screens.transaction.CategorySelectionSheetStyle
+import com.example.ui.screens.transaction.DisableSheetForceDark
+import com.example.ui.screens.transaction.SheetHeaderCircleActionButton
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
+import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -90,7 +99,8 @@ data class DebtHistoryItem(
     val dateStr: String,
     val amount: Double,
     val isPositive: Boolean,
-    val accountName: String
+    val accountName: String,
+    val accountColorHex: String? = null
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,18 +110,32 @@ fun DebtDetailsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    androidx.activity.compose.BackHandler(onBack = onBack)
+    val currentSubScreen by viewModel.currentSubScreen.collectAsState()
+    androidx.activity.compose.BackHandler(
+        enabled = currentSubScreen == SubScreen.DEBT_DETAILS,
+        onBack = onBack
+    )
     val debts by viewModel.debts.collectAsState()
     val selectedDebtState by viewModel.selectedDebt.collectAsState()
     val allTransactions by viewModel.transactions.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val currencySymbol = settings?.currencySymbol ?: "৳"
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
-    val debt = debts.find { it.id == selectedDebtState?.id } ?: selectedDebtState
+    val liveDebt = debts.find { it.id == selectedDebtState?.id } ?: selectedDebtState
+    var lastKnownDebt by remember { mutableStateOf(liveDebt) }
+    if (liveDebt != null) {
+        lastKnownDebt = liveDebt
+    }
+    val debt = liveDebt ?: lastKnownDebt
 
     if (debt == null) {
-        onBack()
+        LaunchedEffect(currentSubScreen) {
+            if (currentSubScreen == SubScreen.DEBT_DETAILS) {
+                onBack()
+            }
+        }
         return
     }
 
@@ -148,31 +172,32 @@ fun DebtDetailsScreen(
 
     val repaymentsFromTxs = remember(matchingTransactions, isPayable) {
         matchingTransactions.filter { tx ->
-            tx.subcategory == "Installment" || tx.subcategory == "Final Settlement" ||
-            tx.category == "Debt Repayment" || tx.category == "Debt Collection" ||
-            (if (isPayable) tx.type == TransactionType.EXPENSE else tx.type == TransactionType.INCOME)
+            !isDebtAdditionTransaction(tx, isPayable)
         }.sumOf { it.amount }
     }
 
     val additionsFromTxs = remember(matchingTransactions, isPayable) {
         matchingTransactions.filter { tx ->
-            val isPayment = tx.subcategory == "Installment" || tx.subcategory == "Final Settlement" ||
-                            tx.category == "Debt Repayment" || tx.category == "Debt Collection" ||
-                            (if (isPayable) tx.type == TransactionType.EXPENSE else tx.type == TransactionType.INCOME)
-            !isPayment
+            isDebtAdditionTransaction(tx, isPayable)
         }.sumOf { it.amount }
     }
 
+    val baseDebtTotal = if (debt.totalAmount > 0.0) debt.totalAmount else (debt.amount + debt.paidAmount)
     val displayTotal = if (matchingTransactions.isNotEmpty()) {
-        if (hasInitialTx) additionsFromTxs else maxOf(debt.totalAmount, additionsFromTxs)
-    } else debt.totalAmount
+        if (hasInitialTx) additionsFromTxs else maxOf(baseDebtTotal, additionsFromTxs)
+    } else {
+        baseDebtTotal
+    }
 
     val displayPaid = if (matchingTransactions.isNotEmpty()) {
-        repaymentsFromTxs
-    } else debt.paidAmount
+        if (hasInitialTx) repaymentsFromTxs else maxOf(debt.paidAmount, repaymentsFromTxs)
+    } else {
+        debt.paidAmount
+    }
 
     val displayRemaining = (displayTotal - displayPaid).coerceAtLeast(0.0)
-    val displayIsSettled = (displayRemaining <= 0.001 && displayTotal > 0) || (displayPaid >= displayTotal && displayTotal > 0) || debt.isSettled
+    val displayIsSettled = (displayTotal > 0.0 && displayRemaining <= 0.001) ||
+        (displayTotal <= 0.0 && debt.isSettled)
     val paidPct = if (displayTotal > 0) ((displayPaid / displayTotal) * 100).toInt().coerceIn(0, 100) else 0
 
     LaunchedEffect(debt.id) {
@@ -180,7 +205,7 @@ fun DebtDetailsScreen(
     }
 
     // Build complete chronological debt history
-    val historyItems = remember(matchingTransactions, debt, accounts) {
+    val historyItems = remember(matchingTransactions, debt, accounts, language) {
         val list = mutableListOf<DebtHistoryItem>()
         val dateFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.US)
 
@@ -191,7 +216,10 @@ fun DebtDetailsScreen(
 
             // Compute initial debt amount by subtracting recorded additions from totalAmount
             val additionalAdditions = matchingTransactions
-                .filter { (it.type == TransactionType.BORROW || it.type == TransactionType.LEND || it.subcategory == "Borrow More" || it.subcategory == "Lend More") && it.subcategory != "Initial Debt" }
+                .filter {
+                    isDebtAdditionTransaction(it, isPayable) &&
+                        !it.subcategory.equals("Initial Debt", ignoreCase = true)
+                }
                 .sumOf { it.amount }
             val initialDebtAmount = (displayTotal - additionalAdditions).coerceAtLeast(0.0)
 
@@ -202,7 +230,7 @@ fun DebtDetailsScreen(
             }
 
             val boundName = if (debt.bindToWallet && boundAccount != null) boundAccount.name
-            else if (isBn) "সরাসরি / ক্যাশ" else "Direct / Unbound"
+            else AppStrings.t("direct_unbound", language)
 
             list.add(
                 DebtHistoryItem(
@@ -212,7 +240,8 @@ fun DebtDetailsScreen(
                     dateStr = if (isBn) CurrencyFormatter.convertToBanglaDigits(initialDateStr) else initialDateStr,
                     amount = if (initialDebtAmount > 0) initialDebtAmount else displayTotal,
                     isPositive = true,
-                    accountName = boundName
+                    accountName = boundName,
+                    accountColorHex = if (debt.bindToWallet) boundAccount?.colorHex else null
                 )
             )
         }
@@ -220,24 +249,28 @@ fun DebtDetailsScreen(
         // Add all recorded transactions for this specific debt
         matchingTransactions.forEach { tx ->
             val dateStr = dateFormatter.format(Date(tx.timestamp))
-            val accName = accounts.find { it.id == tx.accountId }?.name ?: (if (isBn) "সরাসরি / ক্যাশ" else "Direct / Unbound")
-            val isAddition = tx.type == TransactionType.BORROW || tx.type == TransactionType.LEND ||
-                             tx.subcategory == "Initial Debt" || tx.subcategory == "Borrow More" || tx.subcategory == "Lend More" ||
-                             tx.subcategory == "Interest" || tx.category == "Interest" ||
-                             tx.category == "Debt / Borrow" || tx.category == "Debt / Lend"
-            val isPayment = tx.subcategory == "Installment" || tx.subcategory == "Final Settlement" ||
-                            tx.category == "Debt Repayment" || tx.category == "Debt Collection" ||
-                            (if (isPayable) tx.type == TransactionType.EXPENSE else tx.type == TransactionType.INCOME)
+            val matchedAcc = accounts.find { it.id == tx.accountId }
+            val accName = matchedAcc?.name ?: AppStrings.t("direct_unbound", language)
+            val isAddition = isDebtAdditionTransaction(tx, isPayable)
+            val isPayment = !isAddition
 
             val displayTitle = when {
-                tx.subcategory == "Initial Debt" -> {
+                tx.subcategory.equals("Initial Debt", ignoreCase = true) -> {
                     if (isPayable) (if (isBn) "প্রাথমিক ঋণ গ্রহণ" else "Initial Debt (Borrowed)")
                     else (if (isBn) "প্রাথমিক ঋণ প্রদান" else "Initial Debt (Lent)")
                 }
-                tx.subcategory == "Borrow More" -> if (isBn) "আরও ঋণ গ্রহণ" else "Borrowed More"
-                tx.subcategory == "Lend More" -> if (isBn) "আরও ঋণ প্রদান" else "Lent More"
-                tx.subcategory == "Interest" || tx.category == "Interest" -> if (isBn) "সুদ" else "Interest"
-                tx.subcategory == "Final Settlement" -> if (isBn) "চূড়ান্ত পরিশোধ" else "Final Settlement"
+                tx.subcategory.equals("Borrow More", ignoreCase = true) -> {
+                    if (isBn) "আরও ঋণ গ্রহণ" else "Borrowed More"
+                }
+                tx.subcategory.equals("Lend More", ignoreCase = true) -> {
+                    if (isBn) "আরও ঋণ প্রদান" else "Lent More"
+                }
+                tx.subcategory.equals("Interest", ignoreCase = true) || tx.category.equals("Interest", ignoreCase = true) -> {
+                    if (isBn) "সুদ" else "Interest"
+                }
+                tx.subcategory.equals("Final Settlement", ignoreCase = true) -> {
+                    if (isBn) "চূড়ান্ত পরিশোধ" else "Final Settlement"
+                }
                 isPayment -> if (isPayable) (if (isBn) "ঋণ পরিশোধ" else "Repayment") else (if (isBn) "আদায় গ্রহণ" else "Payment Received")
                 else -> tx.title
             }
@@ -245,7 +278,7 @@ fun DebtDetailsScreen(
             // Both for Payable and Receivable:
             // Additions (Borrow More, Lend More, Initial Debt, Interest) increase the debt balance (+ green up arrow)
             // Payments (Repayments or Payments Received) reduce the debt balance (- red down arrow)
-            val isPos = !isPayment
+            val isPos = isAddition
 
             list.add(
                 DebtHistoryItem(
@@ -255,7 +288,8 @@ fun DebtDetailsScreen(
                     dateStr = if (isBn) CurrencyFormatter.convertToBanglaDigits(dateStr) else dateStr,
                     amount = tx.amount,
                     isPositive = isPos,
-                    accountName = accName
+                    accountName = accName,
+                    accountColorHex = matchedAcc?.colorHex
                 )
             )
         }
@@ -282,13 +316,15 @@ fun DebtDetailsScreen(
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier
+                        .size(40.dp)
+                        .testTag("debt_details_back_button"),
                     onClick = onBack
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = if (isBn) "পেছনে" else "Back",
+                            contentDescription = AppStrings.t("back", language),
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
@@ -358,12 +394,13 @@ fun DebtDetailsScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .navigationBarsPadding()
                             .padding(horizontal = 18.dp, vertical = 12.dp)
                     ) {
                         val bottomBtnLabel = if (isPayable) {
-                            if (isBn) "ঋণ পরিশোধ করুন" else "Repay Debt"
+                            AppStrings.t("repay_debt", language)
                         } else {
-                            if (isBn) "আদায় গ্রহণ করুন" else "Receive Payment"
+                            AppStrings.t("receive_payment", language)
                         }
                         Button(
                             onClick = {
@@ -375,7 +412,7 @@ fun DebtDetailsScreen(
                                 .testTag("repay_debt_button"),
                             shape = RoundedCornerShape(25.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF2A303C),
+                                containerColor = if (isDark) MaterialTheme.colorScheme.primary else Color(0xFF2A303C),
                                 contentColor = Color.White
                             )
                         ) {
@@ -437,7 +474,7 @@ fun DebtDetailsScreen(
                                     )
                                 )
                                 Text(
-                                    text = "${if (isBn) "মোট" else "Total"}: ${CurrencyFormatter.format(displayTotal, currencySymbol)}",
+                                    text = "${if (isBn) "মোট" else "Total"}: ${CurrencyFormatter.format(displayTotal, currencySymbol, language = language)}",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                                         fontSize = 12.5.sp
@@ -492,7 +529,7 @@ fun DebtDetailsScreen(
                         ) {
                             Column {
                                 Text(
-                                    text = CurrencyFormatter.format(displayPaid, currencySymbol),
+                                    text = CurrencyFormatter.format(displayPaid, currencySymbol, language = language),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -506,7 +543,7 @@ fun DebtDetailsScreen(
 
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = CurrencyFormatter.format(displayRemaining, currencySymbol),
+                                    text = CurrencyFormatter.format(displayRemaining, currencySymbol, language = language),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = if (displayIsSettled) IncomeGreen else if (isPayable) ExpenseRed else IncomeGreen
@@ -593,13 +630,13 @@ fun DebtDetailsScreen(
                             }
                         }
 
-                        // Action Buttons: Add Interest & Borrow/Lend More
-                        if (!displayIsSettled) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                        // Action Buttons: Add Interest (when unsettled) & Borrow/Lend More
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (!displayIsSettled) {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
@@ -607,6 +644,7 @@ fun DebtDetailsScreen(
                                         .weight(1f)
                                         .clip(RoundedCornerShape(12.dp))
                                         .clickable { showAddInterestDialog = true }
+                                        .testTag("debt_add_interest_button")
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(vertical = 10.dp),
@@ -628,41 +666,42 @@ fun DebtDetailsScreen(
                                         )
                                     }
                                 }
+                            }
 
-                                val borrowMoreLabel = if (isPayable) {
-                                    if (isBn) "আরও ঋণ গ্রহণ" else "Borrow More"
-                                } else {
-                                    if (isBn) "আরও ঋণ প্রদান" else "Lend More"
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable {
-                                            viewModel.openAddDebtTransaction(debt, if (isPayable) "Borrow More" else "Lend More")
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(vertical = 10.dp),
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Payments,
-                                            contentDescription = borrowMoreLabel,
-                                            tint = MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = borrowMoreLabel,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 12.5.sp,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
+                            val borrowMoreLabel = if (isPayable) {
+                                if (isBn) "আরও ঋণ গ্রহণ" else "Borrow More"
+                            } else {
+                                if (isBn) "আরও ঋণ প্রদান" else "Lend More"
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        viewModel.openAddDebtTransaction(debt, if (isPayable) "Borrow More" else "Lend More")
                                     }
+                                    .testTag("debt_borrow_or_lend_more_button")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Payments,
+                                        contentDescription = borrowMoreLabel,
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = borrowMoreLabel,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                 }
                             }
                         }
@@ -707,6 +746,7 @@ fun DebtDetailsScreen(
                 CompactDebtHistoryRow(
                     item = item,
                     currencySymbol = currencySymbol,
+                    language = language,
                     onClick = { selectedHistoryItemForDetails = item }
                 )
             }
@@ -717,112 +757,279 @@ fun DebtDetailsScreen(
         }
     }
 
-    // Modal Bottom Sheet for Transaction Details & Editing
+    // Hishab Pati Bento Bottom Sheet for Debt History Item Details & Editing
     selectedHistoryItemForDetails?.let { item ->
+        val sheetBg = if (isDark) Color(0xFF141824) else Color(0xFFF8FAFC)
+        val bentoCardBg = if (isDark) Color(0xFF1E2433).copy(alpha = 0.92f) else Color.White.copy(alpha = 0.92f)
+        val bentoBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0x186366F1)
+        val accentColor = if (item.isPositive) IncomeGreen else ExpenseRed
+        val secondaryTextColor = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+        val primaryTextColor = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+        val dividerColor = if (isDark) Color.White.copy(alpha = 0.07f) else Color(0xFFE2E8F0)
+        val walletDotColor = remember(item.accountColorHex, isDark) {
+            item.accountColorHex?.let { hex ->
+                try {
+                    Color(android.graphics.Color.parseColor(hex))
+                } catch (_: Exception) {
+                    null
+                }
+            } ?: if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7)
+        }
+        val hasNote = item.subtitle.isNotBlank() && item.subtitle != item.title
+
         ModalBottomSheet(
             onDismissRequest = { selectedHistoryItemForDetails = null },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.surface
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            containerColor = sheetBg,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 12.dp, bottom = 6.dp)
+                        .width(40.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(if (isDark) Color.White.copy(alpha = 0.22f) else Color(0xFFCBD5E1))
+                )
+            }
         ) {
+            DisableSheetForceDark()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 6.dp, bottom = 22.dp)
+                    .testTag("debt_history_detail_sheet")
             ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${if (item.isPositive) "+" else "-"} ${CurrencyFormatter.format(item.amount, currencySymbol)}",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (item.isPositive) IncomeGreen else ExpenseRed
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
+                // Header & Hero Amount
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Text(
-                        text = if (isBn) "তারিখ:" else "Date:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = item.dateStr,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (isBn) "ওয়ালেট:" else "Wallet:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = item.accountName,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                if (item.subtitle.isNotBlank() && item.subtitle != item.title) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = accentColor.copy(alpha = if (isDark) 0.18f else 0.13f),
+                        border = BorderStroke(1.dp, accentColor.copy(alpha = if (isDark) 0.30f else 0.22f)),
+                        modifier = Modifier.size(48.dp)
                     ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (item.isPositive) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                                contentDescription = item.title,
+                                tint = accentColor,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (isBn) "বিবরণ:" else "Details:",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = item.title,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp
+                            ),
+                            color = primaryTextColor,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("debt_history_sheet_title")
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = item.subtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "${if (item.isPositive) "+" else "-"} ${CurrencyFormatter.format(item.amount, currencySymbol, language = language)}",
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 26.sp,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            color = accentColor,
+                            modifier = Modifier.testTag("debt_history_sheet_amount")
                         )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    SheetHeaderCircleActionButton(
+                        icon = CategorySelectionSheetStyle.HighContrastCloseIcon,
+                        contentDescription = AppStrings.t("close", language),
+                        isDark = isDark,
+                        onClick = { selectedHistoryItemForDetails = null },
+                        testTag = "debt_history_sheet_close_button"
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Clean Bento Info Card
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = bentoCardBg,
+                    border = BorderStroke(1.dp, bentoBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("debt_history_sheet_bento_card")
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Date Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = AppStrings.t("date", language),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 13.5.sp
+                                ),
+                                color = secondaryTextColor
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = item.dateStr,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                ),
+                                color = primaryTextColor,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.testTag("debt_history_sheet_date")
+                            )
+                        }
+
+                        HorizontalDivider(color = dividerColor, thickness = 0.75.dp)
+
+                        // Wallet / Account Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = AppStrings.t("wallet", language),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 13.5.sp
+                                ),
+                                color = secondaryTextColor
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.End,
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(walletDotColor)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Wallet,
+                                    contentDescription = null,
+                                    tint = secondaryTextColor,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = item.accountName,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp
+                                    ),
+                                    color = primaryTextColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.testTag("debt_history_sheet_wallet")
+                                )
+                            }
+                        }
+
+                        // Note / Details Row (multi-line wrapped, guaranteed spacing)
+                        if (hasNote) {
+                            HorizontalDivider(color = dividerColor, thickness = 0.75.dp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(
+                                    text = AppStrings.t("note_details", language),
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 13.5.sp
+                                    ),
+                                    color = secondaryTextColor,
+                                    modifier = Modifier.padding(top = 1.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = item.subtitle,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 13.5.sp,
+                                        lineHeight = 20.sp
+                                    ),
+                                    color = primaryTextColor,
+                                    textAlign = TextAlign.End,
+                                    softWrap = true,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("debt_history_sheet_details")
+                                )
+                            }
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
+                // Action Buttons Row (48.dp pill buttons)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(
+                    OutlinedButton(
                         onClick = {
                             val historyItem = item
                             selectedHistoryItemForDetails = null
                             itemToDelete = historyItem
-                        }
+                        },
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, ExpenseRed.copy(alpha = if (isDark) 0.35f else 0.25f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = ExpenseRed.copy(alpha = if (isDark) 0.18f else 0.11f),
+                            contentColor = ExpenseRed
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("delete_debt_transaction_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete",
+                            contentDescription = AppStrings.t("delete", language),
                             tint = ExpenseRed,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isBn) "মুছুন" else "Delete",
+                            text = AppStrings.t("delete", language),
                             color = ExpenseRed,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.5.sp
                         )
                     }
 
@@ -835,13 +1042,13 @@ fun DebtDetailsScreen(
                                 viewModel.transactionToEdit.value = existingTx
                                 viewModel.openSubScreen(SubScreen.ADD_EDIT_TRANSACTION)
                             } else {
-                                val isPayable = debt.type == DebtType.BORROWED
+                                val isPayableDebt = debt.type == DebtType.BORROWED
                                 val fallbackTx = TransactionEntity(
                                     id = historyItem.id,
-                                    type = if (isPayable) TransactionType.BORROW else TransactionType.LEND,
+                                    type = if (isPayableDebt) TransactionType.BORROW else TransactionType.LEND,
                                     amount = historyItem.amount,
                                     title = historyItem.title,
-                                    category = if (isPayable) "Debt / Borrow" else "Debt / Lend",
+                                    category = if (isPayableDebt) "Debt / Borrow" else "Debt / Lend",
                                     subcategory = "Initial Debt",
                                     accountId = if (debt.bindToWallet) debt.accountId else "",
                                     timestamp = debt.createdAt,
@@ -857,22 +1064,26 @@ fun DebtDetailsScreen(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = Color.White
                         ),
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.testTag("edit_debt_transaction_button")
+                        shape = RoundedCornerShape(24.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("edit_debt_transaction_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit",
+                            contentDescription = AppStrings.t("edit", language),
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isBn) "সম্পাদনা" else "Edit",
-                            fontWeight = FontWeight.Bold
+                            text = AppStrings.t("edit", language),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.5.sp
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
@@ -971,6 +1182,7 @@ fun DebtDetailsScreen(
                     onClick = {
                         showDeleteConfirmDialog = false
                         viewModel.deleteDebt(debt.id)
+                        onBack()
                     }
                 ) {
                     Text(if (isBn) "মুছে ফেলুন" else "Delete", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
@@ -989,6 +1201,7 @@ fun DebtDetailsScreen(
 private fun CompactDebtHistoryRow(
     item: DebtHistoryItem,
     currencySymbol: String,
+    language: AppLanguage,
     onClick: () -> Unit
 ) {
     TranslucentCard(
@@ -1047,11 +1260,12 @@ private fun CompactDebtHistoryRow(
             // Right: Amount aligned to right, Wallet name directly underneath
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "${if (item.isPositive) "+" else "-"} ${CurrencyFormatter.format(item.amount, currencySymbol)}",
+                    text = "${if (item.isPositive) "+" else "-"} ${CurrencyFormatter.format(item.amount, currencySymbol, language = language)}",
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = if (item.isPositive) IncomeGreen else ExpenseRed,
-                        fontSize = 14.5.sp
+                        fontSize = 14.5.sp,
+                        fontFeatureSettings = "tnum"
                     )
                 )
                 Spacer(modifier = Modifier.height(2.dp))

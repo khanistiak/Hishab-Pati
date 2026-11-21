@@ -755,9 +755,8 @@ fun generateRealNotifications(
     for (budget in budgets) {
         val spent = transactions
             .filter {
-                it.type == TransactionType.EXPENSE &&
-                    it.timestamp >= monthStart &&
-                    it.category.equals(budget.categoryName, ignoreCase = true)
+                it.timestamp >= monthStart &&
+                    com.example.data.backup.FinancialIntegrityValidator.isMatchingBudgetTransaction(it, budget)
             }
             .sumOf { it.amount }
 

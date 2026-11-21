@@ -35,8 +35,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import com.example.data.model.AppLanguage
 import com.example.data.model.ThemeMode
+import com.example.ui.ActivityFilterType
 import com.example.ui.InsightsPeriod
 import com.example.ui.MainViewModel
 import com.example.ui.components.ScrollAwareFixedHeader
@@ -136,7 +140,7 @@ fun InsightsScreen(
                 )
             }
 
-            // 5. Spending by Category (Ranked breakdown + Donut chart + "View Transactions" button)
+            // 5. Spending by Category (Segmented Donut + Progress Bars + Direct Tap-to-Open Transactions)
             item(key = "category_spending_card") {
                 CategorySpendingCard(
                     transactions = transactions,
@@ -146,11 +150,12 @@ fun InsightsScreen(
                     onSelectCategory = { catName ->
                         viewModel.insightsSelectedCategory.value = catName
                     },
-                    onViewTransactions = { cat, datePair, dateLabel ->
-                        viewModel.navigateToActivityWithFilter(
+                    onViewTransactions = { cat, datePair, dateLabel, filterType ->
+                        viewModel.openFilteredReports(
                             category = cat,
                             dateRange = datePair,
-                            dateRangeLabel = dateLabel
+                            dateRangeLabel = dateLabel,
+                            filterType = filterType
                         )
                     },
                     currencySymbol = currencySymbol,
@@ -211,11 +216,16 @@ fun InsightsScreen(
                         )
                     }
 
+                    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                    val glassCircleBg = if (isDark) Color(0xFF1E293B).copy(alpha = 0.65f) else Color.White.copy(alpha = 0.70f)
+                    val glassCircleBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.85f)
+
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         // Calendar Picker Button
                         Surface(
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface,
+                            color = glassCircleBg,
+                            border = BorderStroke(1.dp, glassCircleBorder),
                             shadowElevation = 2.dp,
                             modifier = Modifier
                                 .size(40.dp)
@@ -226,7 +236,7 @@ fun InsightsScreen(
                                 Icon(
                                     imageVector = Icons.Default.CalendarMonth,
                                     contentDescription = "Select Date Range",
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    tint = Color(0xFF4F46E5),
                                     modifier = Modifier.size(19.dp)
                                 )
                             }
@@ -235,7 +245,8 @@ fun InsightsScreen(
                         // Export Report Button
                         Surface(
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface,
+                            color = glassCircleBg,
+                            border = BorderStroke(1.dp, glassCircleBorder),
                             shadowElevation = 2.dp,
                             modifier = Modifier
                                 .size(40.dp)
@@ -268,11 +279,43 @@ fun InsightsScreen(
                         }
                     },
                     onPreviousPeriod = {
-                        viewModel.insightsPeriodOffset.value -= 1
+                        when {
+                            period == InsightsPeriod.THIS_MONTH && periodOffset == 0 -> {
+                                // Stepping back 1 month from This Month lands cleanly on Last Month
+                                viewModel.insightsPeriod.value = InsightsPeriod.LAST_MONTH
+                                viewModel.insightsPeriodOffset.value = 0
+                            }
+                            period == InsightsPeriod.LAST_MONTH -> {
+                                // Stepping back from Last Month moves into custom month offset (-2, -3, ...)
+                                // so Last Month chip does not stay falsely highlighted
+                                viewModel.insightsPeriod.value = InsightsPeriod.THIS_MONTH
+                                viewModel.insightsPeriodOffset.value = periodOffset - 2
+                            }
+                            period == InsightsPeriod.CUSTOM -> {
+                                // Step back to Last Month if user hits < from a custom date range
+                                viewModel.insightsPeriod.value = InsightsPeriod.LAST_MONTH
+                                viewModel.insightsPeriodOffset.value = 0
+                            }
+                            else -> {
+                                viewModel.insightsPeriodOffset.value -= 1
+                            }
+                        }
                     },
                     onNextPeriod = {
-                        if (periodOffset < 0 && period != InsightsPeriod.CUSTOM) {
-                            viewModel.insightsPeriodOffset.value += 1
+                        when {
+                            period == InsightsPeriod.LAST_MONTH && periodOffset == 0 -> {
+                                // Stepping forward from Last Month returns cleanly to This Month
+                                viewModel.insightsPeriod.value = InsightsPeriod.THIS_MONTH
+                                viewModel.insightsPeriodOffset.value = 0
+                            }
+                            period == InsightsPeriod.THIS_MONTH && periodOffset == -2 -> {
+                                // Stepping forward from 2 months ago lands cleanly on Last Month
+                                viewModel.insightsPeriod.value = InsightsPeriod.LAST_MONTH
+                                viewModel.insightsPeriodOffset.value = 0
+                            }
+                            periodOffset < 0 && period != InsightsPeriod.CUSTOM -> {
+                                viewModel.insightsPeriodOffset.value += 1
+                            }
                         }
                     }
                 )

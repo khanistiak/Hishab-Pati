@@ -3,6 +3,7 @@ package com.example.ui.screens.transaction
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -59,6 +60,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -297,6 +299,16 @@ fun CategorySelectionBottomSheet(
     var searchQuery by remember { mutableStateOf("") }
     var drilledCategory by remember { mutableStateOf<CategoryEntity?>(null) }
     val categoryListState = rememberLazyListState()
+
+    val currentOnCategorySelected by rememberUpdatedState(onCategorySelected)
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+
+    val commitSelection: (String, String) -> Unit = remember {
+        { catName, subName ->
+            currentOnCategorySelected(catName, subName)
+            currentOnDismiss()
+        }
+    }
 
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
@@ -583,12 +595,12 @@ fun CategorySelectionBottomSheet(
                 targetState = drilledCategory,
                 transitionSpec = {
                     if (targetState != null) {
-                        (slideInHorizontally { width -> width } + fadeIn()).togetherWith(
-                            slideOutHorizontally { width -> -width } + fadeOut()
+                        (slideInHorizontally(animationSpec = tween(150)) { width -> width / 3 } + fadeIn(tween(150))).togetherWith(
+                            slideOutHorizontally(animationSpec = tween(120)) { width -> -width / 3 } + fadeOut(tween(120))
                         )
                     } else {
-                        (slideInHorizontally { width -> -width } + fadeIn()).togetherWith(
-                            slideOutHorizontally { width -> width } + fadeOut()
+                        (slideInHorizontally(animationSpec = tween(150)) { width -> -width / 3 } + fadeIn(tween(150))).togetherWith(
+                            slideOutHorizontally(animationSpec = tween(120)) { width -> width / 3 } + fadeOut(tween(120))
                         )
                     }
                 },
@@ -646,9 +658,8 @@ fun CategorySelectionBottomSheet(
                                             // Drill down to show subcategories
                                             drilledCategory = cat
                                         } else {
-                                            // No subcategories: Select directly & dismiss
-                                            onCategorySelected(cat.name, "")
-                                            onDismiss()
+                                            // No subcategories: Select directly & dismiss on first tap
+                                            commitSelection(cat.name, "")
                                         }
                                     }
                                 )
@@ -672,6 +683,9 @@ fun CategorySelectionBottomSheet(
                             val rowShape = RoundedCornerShape(CategorySelectionSheetStyle.ROW_CORNER_RADIUS)
 
                             Surface(
+                                onClick = {
+                                    commitSelection(targetCategory.name, "")
+                                },
                                 shape = rowShape,
                                 color = if (isEntireSelected) cardBgSelected else cardBgUnselected,
                                 border = BorderStroke(
@@ -680,11 +694,6 @@ fun CategorySelectionBottomSheet(
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(rowShape)
-                                    .clickable {
-                                        onCategorySelected(targetCategory.name, "")
-                                        onDismiss()
-                                    }
                                     .testTag("select_category_entire")
                             ) {
                                 Row(
@@ -745,6 +754,9 @@ fun CategorySelectionBottomSheet(
                             val rowShape = RoundedCornerShape(CategorySelectionSheetStyle.ROW_CORNER_RADIUS)
 
                             Surface(
+                                onClick = {
+                                    commitSelection(targetCategory.name, sub.name)
+                                },
                                 shape = rowShape,
                                 color = if (isSubSelected) cardBgSelected else cardBgUnselected,
                                 border = BorderStroke(
@@ -753,11 +765,6 @@ fun CategorySelectionBottomSheet(
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(rowShape)
-                                    .clickable {
-                                        onCategorySelected(targetCategory.name, sub.name)
-                                        onDismiss()
-                                    }
                                     .testTag("subcategory_item_${sub.name}")
                             ) {
                                 Row(
@@ -823,6 +830,7 @@ private fun CategoryItemCard(
     val rowShape = RoundedCornerShape(CategorySelectionSheetStyle.ROW_CORNER_RADIUS)
 
     Surface(
+        onClick = onClick,
         shape = rowShape,
         color = if (isSelected) cardBgSelected else cardBgUnselected,
         border = BorderStroke(
@@ -831,8 +839,6 @@ private fun CategoryItemCard(
         ),
         modifier = modifier
             .fillMaxWidth()
-            .clip(rowShape)
-            .clickable(onClick = onClick)
             .testTag("category_item_${category.name}")
     ) {
         Row(

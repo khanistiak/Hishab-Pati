@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,9 +43,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,15 +68,44 @@ import com.example.ui.MainViewModel
 import com.example.ui.components.ScrollAwareFixedHeader
 import com.example.ui.components.recordFrostedBackdrop
 import com.example.ui.components.rememberScrollAwareGlassLayout
+import com.example.ui.navigation.rememberNavigationScopeKey
 import com.example.ui.theme.CardBackgroundDark
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
+
+fun isDebtAdditionTransaction(
+    tx: com.example.data.local.entity.TransactionEntity,
+    isPayable: Boolean
+): Boolean {
+    val isExplicitAddition = tx.type == com.example.data.model.TransactionType.BORROW ||
+        tx.type == com.example.data.model.TransactionType.LEND ||
+        tx.subcategory.equals("Initial Debt", ignoreCase = true) ||
+        tx.subcategory.equals("Borrow More", ignoreCase = true) ||
+        tx.subcategory.equals("Lend More", ignoreCase = true) ||
+        tx.subcategory.equals("Interest", ignoreCase = true) ||
+        tx.category.equals("Interest", ignoreCase = true) ||
+        tx.category.equals("Debt / Borrow", ignoreCase = true) ||
+        tx.category.equals("Debt / Lend", ignoreCase = true)
+    if (isExplicitAddition) return true
+
+    val isExplicitPayment = tx.subcategory.equals("Installment", ignoreCase = true) ||
+        tx.subcategory.equals("Final Settlement", ignoreCase = true) ||
+        tx.category.equals("Debt Repayment", ignoreCase = true) ||
+        tx.category.equals("Debt Collection", ignoreCase = true) ||
+        (if (isPayable) {
+            tx.type == com.example.data.model.TransactionType.EXPENSE
+        } else {
+            tx.type == com.example.data.model.TransactionType.INCOME
+        })
+    return !isExplicitPayment
+}
 
 /**
  * Calculates the actual unpaid balance of a debt.
@@ -97,7 +130,8 @@ fun ManageDebtsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    BackHandler(onBack = onBack)
+    val currentSubScreen by viewModel.currentSubScreen.collectAsState()
+    BackHandler(enabled = currentSubScreen == com.example.ui.SubScreen.MANAGE_DEBTS, onBack = onBack)
 
     val debts by viewModel.debts.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
@@ -110,13 +144,15 @@ fun ManageDebtsScreen(
 
     val showSettledDebts by viewModel.showSettledDebts.collectAsState()
 
-    val borrowedList = remember(debts, showSettledDebts) {
-        debts.filter { it.type == DebtType.BORROWED && (showSettledDebts || !it.isSettled) }
+    val borrowedCount = remember(debts, showSettledDebts) {
+        debts.count { it.type == DebtType.BORROWED && (showSettledDebts || !it.isSettled) }
     }
-    val lentList = remember(debts, showSettledDebts) {
-        debts.filter { it.type == DebtType.LENT && (showSettledDebts || !it.isSettled) }
+    val lentCount = remember(debts, showSettledDebts) {
+        debts.count { it.type == DebtType.LENT && (showSettledDebts || !it.isSettled) }
     }
-    val filteredDebts = if (filterType == DebtType.BORROWED) borrowedList else lentList
+    val filteredDebts = remember(debts, filterType, showSettledDebts) {
+        debts.filter { it.type == filterType && (showSettledDebts || !it.isSettled) }
+    }
     val isPayable = filterType == DebtType.BORROWED
 
     // Totals exclude settled debts regardless of visibility toggle
@@ -131,10 +167,45 @@ fun ManageDebtsScreen(
     val netDebtPosition = totalLent - totalBorrowed
     val totalOutstanding = if (isPayable) totalBorrowed else totalLent
 
-    val listState = viewModel.rememberScreenLazyListState(
-        subKey = filterType.name,
+    // Keep a single stable LazyListState so swapping Borrowed/Lent tabs never swaps
+    // LazyColumn's state instance (which can stall recomposition of LazyColumn items),
+    // while still persisting/restoring per-tab scroll position in scrollStateStore.
+    val navScopeKey = rememberNavigationScopeKey(
+        viewModel = viewModel,
         screenOverride = com.example.ui.SubScreen.MANAGE_DEBTS
     )
+    val tabScrollKey = "$navScopeKey|LAZY:${filterType.name}"
+    val listState = remember(navScopeKey) {
+        val initial = viewModel.scrollStateStore.getLazyPosition(tabScrollKey)
+        LazyListState(
+            firstVisibleItemIndex = initial.index,
+            firstVisibleItemScrollOffset = initial.offset
+        )
+    }
+    LaunchedEffect(listState, tabScrollKey) {
+        val saved = viewModel.scrollStateStore.getLazyPosition(tabScrollKey)
+        if (listState.firstVisibleItemIndex != saved.index ||
+            listState.firstVisibleItemScrollOffset != saved.offset
+        ) {
+            listState.scrollToItem(saved.index, saved.offset)
+        }
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }
+            .distinctUntilChanged()
+            .collect { (index, offset) ->
+                viewModel.scrollStateStore.saveLazyPosition(tabScrollKey, index, offset)
+            }
+    }
+    DisposableEffect(listState, tabScrollKey) {
+        onDispose {
+            viewModel.scrollStateStore.saveLazyPosition(
+                tabScrollKey,
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset
+            )
+        }
+    }
     val scrollLayout = rememberScrollAwareGlassLayout(
         listState = listState,
         defaultHeaderHeight = 68.dp,
@@ -232,8 +303,8 @@ fun ManageDebtsScreen(
                 item(key = "debt_type_selector") {
                     DebtSegmentedTabPill(
                         selectedType = filterType,
-                        borrowedCount = borrowedList.size,
-                        lentCount = lentList.size,
+                        borrowedCount = borrowedCount,
+                        lentCount = lentCount,
                         language = language,
                         isDark = isDark,
                         onSelect = { viewModel.debtFilterType.value = it },
@@ -242,7 +313,7 @@ fun ManageDebtsScreen(
                 }
 
                 // 3. Section Header Row
-                item(key = "debt_summary_bar") {
+                item(key = "debt_summary_bar_${filterType.name}") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -262,7 +333,8 @@ fun ManageDebtsScreen(
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                                     fontWeight = FontWeight.Medium,
                                     fontSize = 12.5.sp
-                                )
+                                ),
+                                modifier = Modifier.testTag("debt_summary_count")
                             )
                             if (showSettledDebts) {
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -282,9 +354,9 @@ fun ManageDebtsScreen(
                         }
 
                         val totalLabel = if (isPayable) {
-                            if (isBn) "মোট ধার নেওয়া: " else "Total Borrowed: "
+                            "${AppStrings.t("total_borrowed", language)}: "
                         } else {
-                            if (isBn) "মোট ধার দেওয়া: " else "Total Lent: "
+                            "${AppStrings.t("total_lent", language)}: "
                         }
                         Text(
                             text = "$totalLabel${CurrencyFormatter.format(totalOutstanding, currencySymbol, language = language)}",
@@ -292,14 +364,15 @@ fun ManageDebtsScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = if (isPayable) ExpenseRed else IncomeGreen,
                                 fontSize = 12.5.sp
-                            )
+                            ),
+                            modifier = Modifier.testTag("debt_summary_total")
                         )
                     }
                 }
 
                 // 4. Debt Items or Empty State
                 if (filteredDebts.isEmpty()) {
-                    item(key = "empty_debts") {
+                    item(key = "empty_debts_${filterType.name}") {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = cardColor,
@@ -354,7 +427,11 @@ fun ManageDebtsScreen(
                         }
                     }
                 } else {
-                    items(filteredDebts, key = { it.id }) { debt ->
+                    items(
+                        items = filteredDebts,
+                        key = { "${filterType.name}_${it.id}" },
+                        contentType = { "debt_card" }
+                    ) { debt ->
                         val boundAcc = accounts.find { it.id == debt.accountId }
                         CompactDebtCard(
                             debt = debt,

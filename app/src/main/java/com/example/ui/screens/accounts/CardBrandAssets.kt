@@ -32,10 +32,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -219,15 +222,16 @@ enum class EmvChipStyle {
 }
 
 /**
- * Realistic Metallic EMV Smart Chip for Debit and Credit cards only.
- * Includes brushed gold (Credit) or brushed silver-gold (Bank/Debit) metallic gradient,
- * micro-beveled outline, and authentic etched circuit contact cutouts.
+ * Realistic Brushed-Metal EMV Smart Chip for Debit and Credit cards only.
+ * Features a smooth diagonal brushed-gold (Credit) or brushed-silver (Bank/Debit) base,
+ * delicate 0.6.dp bevel highlight, and ultra-fine etched 6-pad ISO 7816 contact grooves
+ * paired with a subtle micro light-catch edge.
  */
 @Composable
 fun EmvChip(
     modifier: Modifier = Modifier,
     width: Dp = 34.dp,
-    height: Dp = 24.dp,
+    height: Dp = 25.dp,
     style: EmvChipStyle = EmvChipStyle.GOLD,
     cornerRadius: Dp = 5.dp
 ) {
@@ -235,31 +239,26 @@ fun EmvChip(
         modifier = modifier
             .size(width = width, height = height)
     ) {
+        val w = size.width
+        val h = size.height
         val corner = cornerRadius.toPx()
+        val isMiniChip = width < 20.dp
 
-        // 1. Brushed metallic gradient base
+        // 1. Smooth diagonal brushed metallic gradient base
         val chipBrush = when (style) {
             EmvChipStyle.GOLD -> Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFFFFEEA0),
-                    Color(0xFFE5B745),
-                    Color(0xFFBA8618),
-                    Color(0xFFF7DE88),
-                    Color(0xFFCE9622)
-                ),
+                0.00f to Color(0xFFF3D98B),
+                0.48f to Color(0xFFD8B254),
+                1.00f to Color(0xFFB99136),
                 start = Offset(0f, 0f),
-                end = Offset(size.width, size.height)
+                end = Offset(w, h)
             )
             EmvChipStyle.SILVER_GOLD -> Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFFF8FAFC),
-                    Color(0xFFE3DEC8),
-                    Color(0xFFB5B09A),
-                    Color(0xFFEDF0F5),
-                    Color(0xFF9CA3AF)
-                ),
+                0.00f to Color(0xFFECEFF4),
+                0.48f to Color(0xFFCBD2DC),
+                1.00f to Color(0xFFA3ADB9),
                 start = Offset(0f, 0f),
-                end = Offset(size.width, size.height)
+                end = Offset(w, h)
             )
         }
 
@@ -269,80 +268,177 @@ fun EmvChip(
             cornerRadius = CornerRadius(corner, corner)
         )
 
-        // 2. Beveled outer border
-        val borderMidColor = if (style == EmvChipStyle.GOLD) Color(0xFF8D6208) else Color(0xFF64748B)
-        val borderBrush = Brush.linearGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.82f),
-                borderMidColor,
-                Color.White.copy(alpha = 0.42f)
+        // Subtle metallic specular sheen across upper-left chip surface
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                0.00f to Color.White.copy(alpha = 0.24f),
+                0.45f to Color.Transparent,
+                1.00f to Color.Black.copy(alpha = 0.08f),
+                start = Offset(0f, 0f),
+                end = Offset(w, h)
             ),
-            start = Offset(0f, 0f),
-            end = Offset(size.width, size.height)
+            size = size,
+            cornerRadius = CornerRadius(corner, corner)
         )
 
+        // 2. Ultra-fine etched 6-pad EMV contact layout (grooves + adjacent micro light catch)
+        val grooveColor = if (style == EmvChipStyle.GOLD) {
+            Color(0xFF6B4F1D).copy(alpha = 0.42f)
+        } else {
+            Color(0xFF334155).copy(alpha = 0.36f)
+        }
+        val lightCatchColor = Color.White.copy(alpha = 0.25f)
+        val groovePx = (if (isMiniChip) 0.45.dp else 0.75.dp).toPx()
+        val catchPx = (if (isMiniChip) 0.30.dp else 0.50.dp).toPx()
+        val catchShift = groovePx * 0.85f
+
+        val leftX = w * 0.31f
+        val rightX = w * 0.69f
+        val topSplitY = h * 0.34f
+        val bottomSplitY = h * 0.66f
+        val midY = h * 0.50f
+        val edgeInset = groovePx * 0.6f
+
+        fun drawEtchedLine(start: Offset, end: Offset, isHorizontal: Boolean) {
+            // Subtle adjacent micro light catch
+            if (!isMiniChip) {
+                val dx = if (isHorizontal) 0f else catchShift
+                val dy = if (isHorizontal) catchShift else 0f
+                drawLine(
+                    color = lightCatchColor,
+                    start = Offset(start.x + dx, start.y + dy),
+                    end = Offset(end.x + dx, end.y + dy),
+                    strokeWidth = catchPx
+                )
+            }
+            // Fine etched metallic groove
+            drawLine(
+                color = grooveColor,
+                start = start,
+                end = end,
+                strokeWidth = groovePx
+            )
+        }
+
+        // Left & right vertical column boundaries separating left/center/right contact pads
+        drawEtchedLine(Offset(leftX, edgeInset), Offset(leftX, h - edgeInset), isHorizontal = false)
+        drawEtchedLine(Offset(rightX, edgeInset), Offset(rightX, h - edgeInset), isHorizontal = false)
+
+        // Left top / mid / bottom contact pad splits
+        drawEtchedLine(Offset(edgeInset, topSplitY), Offset(leftX, topSplitY), isHorizontal = true)
+        drawEtchedLine(Offset(edgeInset, bottomSplitY), Offset(leftX, bottomSplitY), isHorizontal = true)
+
+        // Right top / mid / bottom contact pad splits
+        drawEtchedLine(Offset(rightX, topSplitY), Offset(w - edgeInset, topSplitY), isHorizontal = true)
+        drawEtchedLine(Offset(rightX, bottomSplitY), Offset(w - edgeInset, bottomSplitY), isHorizontal = true)
+
+        // Center top & bottom bridge pad horizontal split
+        drawEtchedLine(Offset(leftX, midY), Offset(rightX, midY), isHorizontal = true)
+
+        // 3. Delicate 0.6.dp outer bevel highlight
+        val outerBevelBrush = Brush.linearGradient(
+            0.00f to Color.White.copy(alpha = 0.45f),
+            0.50f to Color.White.copy(alpha = 0.16f),
+            1.00f to grooveColor.copy(alpha = 0.40f),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
+        )
         drawRoundRect(
-            brush = borderBrush,
+            brush = outerBevelBrush,
             size = size,
             cornerRadius = CornerRadius(corner, corner),
-            style = Stroke(width = 0.9.dp.toPx())
-        )
-
-        // 3. Etched micro-circuit grooves (ISO 7816 contact layout)
-        val etchColor = if (style == EmvChipStyle.GOLD) {
-            Color(0xFF6B4B04).copy(alpha = 0.85f)
-        } else {
-            Color(0xFF334155).copy(alpha = 0.72f)
-        }
-        val etchStroke = (size.height * 0.038f).coerceAtLeast(0.6.dp.toPx())
-
-        val padLeft = size.width * 0.28f
-        val padRight = size.width * 0.72f
-        val padTop = size.height * 0.25f
-        val padBottom = size.height * 0.75f
-
-        // Center contact pad
-        drawRoundRect(
-            color = etchColor,
-            topLeft = Offset(padLeft, padTop),
-            size = Size(padRight - padLeft, padBottom - padTop),
-            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
-            style = Stroke(width = etchStroke)
-        )
-
-        // Horizontal contact divider
-        drawLine(
-            color = etchColor,
-            start = Offset(0f, size.height * 0.5f),
-            end = Offset(padLeft, size.height * 0.5f),
-            strokeWidth = etchStroke
-        )
-        drawLine(
-            color = etchColor,
-            start = Offset(padRight, size.height * 0.5f),
-            end = Offset(size.width, size.height * 0.5f),
-            strokeWidth = etchStroke
-        )
-
-        // Vertical contact dividers
-        drawLine(
-            color = etchColor,
-            start = Offset(size.width * 0.5f, 0f),
-            end = Offset(size.width * 0.5f, padTop),
-            strokeWidth = etchStroke
-        )
-        drawLine(
-            color = etchColor,
-            start = Offset(size.width * 0.5f, padBottom),
-            end = Offset(size.width * 0.5f, size.height),
-            strokeWidth = etchStroke
+            style = Stroke(width = 0.6.dp.toPx())
         )
     }
 }
 
 /**
+ * Authentic pure-white VISA brand vector emblem (aspect ratio 1000:324.68 ~= 3.08:1),
+ * featuring the signature curved top-left wing/beak on the V, slanted geometric I,
+ * flowing italic S, and sharp A with rounded top-left shoulder and triangular counter.
+ */
+private val VisaWhiteEmblem: ImageVector by lazy {
+    val whiteFill = SolidColor(Color.White)
+    ImageVector.Builder(
+        name = "VisaWhiteEmblem",
+        defaultWidth = 40.dp,
+        defaultHeight = 13.dp,
+        viewportWidth = 1000f,
+        viewportHeight = 324.68f
+    ).apply {
+        // V with signature curved top-left wing/beak flowing into the left stem
+        path(fill = whiteFill) {
+            moveTo(293.60f, 5.29f)
+            lineTo(378.40f, 5.29f)
+            lineTo(249.10f, 319.39f)
+            lineTo(161.30f, 319.39f)
+            lineTo(96.50f, 67.50f)
+            curveTo(88.80f, 37.50f, 61.20f, 22.80f, 0.0f, 10.60f)
+            lineTo(0.0f, 5.29f)
+            lineTo(134.20f, 5.29f)
+            curveTo(157.80f, 5.29f, 173.40f, 19.60f, 178.90f, 45.20f)
+            lineTo(209.80f, 218.50f)
+            close()
+        }
+
+        // Slanted geometric I
+        path(fill = whiteFill) {
+            moveTo(412.19f, 5.29f)
+            lineTo(495.59f, 5.29f)
+            lineTo(428.87f, 319.39f)
+            lineTo(345.47f, 319.39f)
+            close()
+        }
+
+        // Flowing geometric italic S
+        path(fill = whiteFill) {
+            moveTo(730.20f, 13.80f)
+            lineTo(715.80f, 80.50f)
+            curveTo(695.00f, 70.80f, 667.50f, 64.50f, 643.00f, 64.50f)
+            curveTo(614.00f, 64.50f, 598.50f, 76.20f, 598.50f, 91.50f)
+            curveTo(598.50f, 108.50f, 616.50f, 118.80f, 651.50f, 136.20f)
+            curveTo(697.00f, 158.80f, 718.50f, 182.50f, 714.50f, 221.50f)
+            curveTo(708.50f, 286.50f, 651.50f, 324.68f, 574.50f, 324.68f)
+            curveTo(537.50f, 324.68f, 503.00f, 316.50f, 482.50f, 306.80f)
+            lineTo(497.50f, 237.80f)
+            curveTo(520.50f, 249.50f, 549.50f, 258.50f, 579.50f, 258.50f)
+            curveTo(610.50f, 258.50f, 629.00f, 245.50f, 629.00f, 227.50f)
+            curveTo(629.00f, 211.00f, 612.50f, 200.50f, 577.50f, 183.00f)
+            curveTo(534.50f, 161.50f, 514.00f, 136.50f, 517.80f, 97.50f)
+            curveTo(523.50f, 36.50f, 576.50f, 0.0f, 652.00f, 0.0f)
+            curveTo(685.50f, 0.0f, 712.50f, 6.20f, 730.20f, 13.80f)
+            close()
+        }
+
+        // Sharp geometric A with rounded top-left shoulder, horizontal crossbar & triangular counter
+        path(
+            fill = whiteFill,
+            pathFillType = PathFillType.EvenOdd
+        ) {
+            // Outer silhouette of A
+            moveTo(708.50f, 319.39f)
+            lineTo(830.50f, 24.50f)
+            curveTo(836.50f, 11.20f, 846.80f, 5.29f, 862.50f, 5.29f)
+            lineTo(936.00f, 5.29f)
+            lineTo(1000.00f, 319.39f)
+            lineTo(924.50f, 319.39f)
+            lineTo(914.50f, 263.00f)
+            lineTo(811.50f, 263.00f)
+            lineTo(790.50f, 319.39f)
+            close()
+            // Inner triangular counter cutout
+            moveTo(877.50f, 92.00f)
+            lineTo(832.50f, 204.00f)
+            lineTo(903.50f, 204.00f)
+            close()
+        }
+    }.build()
+}
+
+/**
  * Payment Network Logos (Visa, Mastercard, AMEX, UnionPay, Generic).
- * Rendered flat and clean using official assets.
+ * Unified to a compact, consistent visual footprint across all networks, with VISA rendered
+ * using the authentic pure-white vector emblem (40.dp x 13.dp) beside the security foil.
  */
 @Composable
 fun CardNetworkLogo(
@@ -353,18 +449,25 @@ fun CardNetworkLogo(
 
     when {
         net.contains("visa") -> {
-            Image(
-                painter = painterResource(id = R.drawable.ic_net_visa),
-                contentDescription = "Visa",
-                modifier = modifier.height(18.dp),
-                contentScale = ContentScale.Fit
-            )
+            Box(
+                modifier = modifier,
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    imageVector = VisaWhiteEmblem,
+                    contentDescription = "Visa",
+                    modifier = Modifier.size(width = 40.dp, height = 13.dp),
+                    contentScale = ContentScale.Fit
+                )
+            }
         }
         net.contains("master") -> {
             Image(
                 painter = painterResource(id = R.drawable.ic_net_mastercard),
                 contentDescription = "Mastercard",
-                modifier = modifier.height(20.dp),
+                modifier = modifier
+                    .height(16.dp)
+                    .widthIn(max = 28.dp),
                 contentScale = ContentScale.Fit
             )
         }
@@ -372,7 +475,9 @@ fun CardNetworkLogo(
             Image(
                 painter = painterResource(id = R.drawable.ic_net_amex),
                 contentDescription = "American Express",
-                modifier = modifier.height(22.dp),
+                modifier = modifier
+                    .height(16.dp)
+                    .widthIn(max = 30.dp),
                 contentScale = ContentScale.Fit
             )
         }
@@ -380,7 +485,9 @@ fun CardNetworkLogo(
             Image(
                 painter = painterResource(id = R.drawable.ic_net_unionpay),
                 contentDescription = "UnionPay",
-                modifier = modifier.height(20.dp),
+                modifier = modifier
+                    .height(16.dp)
+                    .widthIn(max = 28.dp),
                 contentScale = ContentScale.Fit
             )
         }
@@ -389,7 +496,7 @@ fun CardNetworkLogo(
                 imageVector = Icons.Default.CreditCard,
                 contentDescription = "Card",
                 tint = Color.White.copy(alpha = 0.85f),
-                modifier = modifier.size(20.dp)
+                modifier = modifier.size(16.dp)
             )
         }
     }

@@ -126,12 +126,13 @@ fun ActivityScreen(
     var txToDelete by remember { mutableStateOf<TransactionEntity?>(null) }
 
     val vmCategoryFilter by viewModel.activitySelectedCategory.collectAsState()
+    val vmAccountFilter by viewModel.activitySelectedAccount.collectAsState()
     val vmCustomDateRange by viewModel.activityCustomDateRange.collectAsState()
     val vmDateRangeLabel by viewModel.activityDateRangeLabel.collectAsState()
 
     var isFilteredReportMode by rememberSaveable { mutableStateOf(false) }
     var selectedTimeRange by rememberSaveable { mutableStateOf("ALL") } // ALL, THIS_WEEK, PREVIOUS_WEEK, THIS_MONTH, LAST_MONTH, THIS_YEAR
-    var selectedAccountIdFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedAccountIdFilter by rememberSaveable { mutableStateOf(viewModel.activitySelectedAccount.value) }
     var selectedCategoryFilter by rememberSaveable { mutableStateOf(viewModel.activitySelectedCategory.value) }
     var customDateRange by remember { mutableStateOf(viewModel.activityCustomDateRange.value) }
     var customDateRangeLabel by rememberSaveable { mutableStateOf(viewModel.activityDateRangeLabel.value) }
@@ -148,6 +149,10 @@ fun ActivityScreen(
         selectedCategoryFilter = vmCategoryFilter
     }
 
+    LaunchedEffect(vmAccountFilter) {
+        selectedAccountIdFilter = vmAccountFilter
+    }
+
     LaunchedEffect(vmCustomDateRange, vmDateRangeLabel) {
         customDateRange = vmCustomDateRange
         customDateRangeLabel = vmDateRangeLabel
@@ -156,6 +161,7 @@ fun ActivityScreen(
     LaunchedEffect(currentTab) {
         if (currentTab == MainTab.ACTIVITY) {
             selectedCategoryFilter = viewModel.activitySelectedCategory.value
+            selectedAccountIdFilter = viewModel.activitySelectedAccount.value
             customDateRange = viewModel.activityCustomDateRange.value
             customDateRangeLabel = viewModel.activityDateRangeLabel.value
         }
@@ -317,11 +323,17 @@ fun ActivityScreen(
                     tx.category.contains(searchQuery, ignoreCase = true) ||
                     tx.subcategory.contains(searchQuery, ignoreCase = true)
 
+            val isStrictExpense = tx.type == TransactionType.EXPENSE &&
+                    !tx.category.equals("Transfer", ignoreCase = true)
+            val isStrictIncome = tx.type == TransactionType.INCOME &&
+                    !tx.category.equals("Transfer", ignoreCase = true)
+            val isTransferTx = tx.type == TransactionType.TRANSFER || tx.type == TransactionType.CC_PAYMENT
+
             val matchesType = when (selectedFilter) {
                 ActivityFilterType.ALL -> true
-                ActivityFilterType.EXPENSES -> tx.type == TransactionType.EXPENSE || tx.type == TransactionType.LEND
-                ActivityFilterType.INCOME -> tx.type == TransactionType.INCOME || tx.type == TransactionType.BORROW
-                ActivityFilterType.TRANSFERS -> tx.type == TransactionType.TRANSFER || tx.type == TransactionType.CC_PAYMENT
+                ActivityFilterType.EXPENSES -> isStrictExpense
+                ActivityFilterType.INCOME -> isStrictIncome
+                ActivityFilterType.TRANSFERS -> isTransferTx
             }
 
             val matchesTime = when {
@@ -359,9 +371,9 @@ fun ActivityScreen(
         var moneyIn = 0.0
         var moneyOut = 0.0
         filteredList.forEach { tx ->
-            if (tx.type == TransactionType.INCOME || tx.type == TransactionType.BORROW) {
+            if (tx.type == TransactionType.INCOME && !tx.category.equals("Transfer", ignoreCase = true)) {
                 moneyIn += tx.amount
-            } else if (tx.type == TransactionType.EXPENSE || tx.type == TransactionType.LEND) {
+            } else if (tx.type == TransactionType.EXPENSE && !tx.category.equals("Transfer", ignoreCase = true)) {
                 moneyOut += tx.amount
             }
         }
@@ -392,16 +404,24 @@ fun ActivityScreen(
 
     val reportTotalAmount = remember(filteredList, selectedFilter) {
         when (selectedFilter) {
-            ActivityFilterType.EXPENSES -> filteredList.filter { it.type == TransactionType.EXPENSE || it.type == TransactionType.LEND }.sumOf { it.amount }
-            ActivityFilterType.INCOME -> filteredList.filter { it.type == TransactionType.INCOME || it.type == TransactionType.BORROW }.sumOf { it.amount }
-            ActivityFilterType.TRANSFERS -> filteredList.filter { it.type == TransactionType.TRANSFER || it.type == TransactionType.CC_PAYMENT }.sumOf { it.amount }
+            ActivityFilterType.EXPENSES -> filteredList.filter {
+                it.type == TransactionType.EXPENSE && !it.category.equals("Transfer", ignoreCase = true)
+            }.sumOf { it.amount }
+            ActivityFilterType.INCOME -> filteredList.filter {
+                it.type == TransactionType.INCOME && !it.category.equals("Transfer", ignoreCase = true)
+            }.sumOf { it.amount }
+            ActivityFilterType.TRANSFERS -> filteredList.filter {
+                it.type == TransactionType.TRANSFER || it.type == TransactionType.CC_PAYMENT
+            }.sumOf { it.amount }
             ActivityFilterType.ALL -> {
                 var sum = 0.0
                 filteredList.forEach { tx ->
-                    when (tx.type) {
-                        TransactionType.INCOME, TransactionType.BORROW -> sum += tx.amount
-                        TransactionType.EXPENSE, TransactionType.LEND -> sum -= tx.amount
-                        else -> {}
+                    if (!tx.category.equals("Transfer", ignoreCase = true)) {
+                        when (tx.type) {
+                            TransactionType.INCOME -> sum += tx.amount
+                            TransactionType.EXPENSE -> sum -= tx.amount
+                            else -> {}
+                        }
                     }
                 }
                 sum
@@ -432,8 +452,12 @@ fun ActivityScreen(
             val firstTimestamp = txs.firstOrNull()?.timestamp ?: System.currentTimeMillis()
             val formattedLabel = DateFormatter.localizeText(dayLabelFormat.format(Date(firstTimestamp)), language)
 
-            val dayExpenses = txs.filter { it.type == TransactionType.EXPENSE || it.type == TransactionType.LEND }.sumOf { it.amount }
-            val dayIncome = txs.filter { it.type == TransactionType.INCOME || it.type == TransactionType.BORROW }.sumOf { it.amount }
+            val dayExpenses = txs.filter {
+                it.type == TransactionType.EXPENSE && !it.category.equals("Transfer", ignoreCase = true)
+            }.sumOf { it.amount }
+            val dayIncome = txs.filter {
+                it.type == TransactionType.INCOME && !it.category.equals("Transfer", ignoreCase = true)
+            }.sumOf { it.amount }
 
             val totalText = when {
                 dayExpenses > 0 && dayIncome == 0.0 -> "Δ -" + CurrencyFormatter.format(dayExpenses, currencySymbol, language = language)

@@ -21,5 +21,6 @@ data class TransactionEntity(
     val payeeOrPayer: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val debtId: String? = null
+    val debtId: String? = null,
+    val excludeFromBudgets: Boolean = false
 )

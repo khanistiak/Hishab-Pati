@@ -645,14 +645,28 @@ fun PlanDebtSummaryCard(
             }
 
             Column(horizontalAlignment = Alignment.End) {
+                val remaining = calculateDebtRemaining(debt)
                 Text(
-                    text = if (debt.amount > 0) CurrencyFormatter.format(debt.amount, currencySymbol, showSign = !isPayable) else "${currencySymbol}0",
+                    text = if (remaining > 0.0) {
+                        CurrencyFormatter.format(remaining, currencySymbol, showSign = !isPayable)
+                    } else {
+                        "${currencySymbol}0"
+                    },
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = if (isPayable) MaterialTheme.colorScheme.onBackground else IncomeGreen
+                        color = if (debt.isSettled) IncomeGreen else if (isPayable) MaterialTheme.colorScheme.onBackground else IncomeGreen
                     )
                 )
-                if (debt.tentativeCloseDateStr.isNotBlank()) {
+                if (debt.isSettled) {
+                    Text(
+                        text = AppStrings.t("settled", language),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = IncomeGreen
+                        )
+                    )
+                } else if (debt.tentativeCloseDateStr.isNotBlank()) {
                     val dueText = if (language == AppLanguage.BANGLA) "মেয়াদ: ${DateFormatter.localizeText(debt.tentativeCloseDateStr, language)}" else "Due: ${debt.tentativeCloseDateStr}"
                     Text(
                         text = dueText,

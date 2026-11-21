@@ -392,10 +392,19 @@ object AppStrings {
             "active_wallets_suffix" -> if (isBn) "টি সক্রিয়" else "active"
 
             // Customise Home — Top of Home Card Style Options
+            "home_style_balance_card" -> if (isBn) "ব্যালেন্স কার্ড" else "Balance card"
+            "home_style_balance_card_subtitle" -> if (isBn) "মোট ব্যালেন্স ও মাসিক প্রবাহ" else "Total balance & monthly flow"
             "home_style_card_carousel" -> if (isBn) "কার্ড ক্যারোসেল" else "Card carousel"
             "home_style_card_carousel_subtitle" -> if (isBn) "ডানে-বামে সোয়াইপযোগ্য কার্ড" else "Swipe accounts horizontally"
             "home_style_card_stack" -> if (isBn) "কার্ড স্ট্যাক" else "Card stack"
             "home_style_card_stack_subtitle" -> if (isBn) "স্তরে সাজানো ভার্টিক্যাল কার্ড" else "Layered vertical wallet stack"
+            "total_balance_caps" -> if (isBn) "মোট ব্যালেন্স" else "TOTAL BALANCE"
+            "spent_this_month_caps" -> if (isBn) "এই মাসের খরচ" else "SPENT THIS MONTH"
+            "this_month_caps" -> if (isBn) "এই মাস" else "THIS MONTH"
+            "in_short" -> if (isBn) "আয়" else "in"
+            "out_short" -> if (isBn) "ব্যয়" else "out"
+            "spent_title" -> if (isBn) "খরচ" else "Spent"
+            "switch_card_view" -> if (isBn) "কার্ড ভিউ পরিবর্তন" else "Switch card view"
 
             // Account Details Quick Actions, 90-Day Flow & Entries Header
             "quick_add" -> if (isBn) "যোগ" else "Add"
@@ -442,6 +451,31 @@ object AppStrings {
             "credit_card_label" -> if (isBn) "ক্রেডিট কার্ড" else "Credit Card"
             "balance_caps" -> if (isBn) "ব্যালেন্স" else "BALANCE"
             "debit_tag" -> if (isBn) "ডেবিট" else "DEBIT"
+
+            // Loans & Debt Transaction Form & History Detail Sheet
+            "add_transaction" -> if (isBn) "নতুন লেনদেন" else "Add Transaction"
+            "transaction_type" -> if (isBn) "লেনদেনের ধরণ" else "Transaction Type"
+            "date" -> if (isBn) "তারিখ" else "Date"
+            "name" -> if (isBn) "নাম" else "Name"
+            "wallet" -> if (isBn) "ওয়ালেট" else "Wallet"
+            "other_notes" -> if (isBn) "অন্যান্য নোট" else "Other Notes"
+            "note_details" -> if (isBn) "নোট / বিবরণ" else "Note / Details"
+            "direct_unbound" -> if (isBn) "সরাসরি / ক্যাশ" else "Direct / Unbound"
+            "invalid_amount_error" -> if (isBn) "সঠিক টাকার পরিমাণ লিখুন" else "Please enter a valid amount"
+            "notes_placeholder" -> if (isBn) "অতিরিক্ত নোট এখানে লিখুন" else "Insert your additional notes here"
+            "debt_notes_placeholder" -> if (isBn) "ঐচ্ছিক নোট যোগ করুন..." else "Add an optional note..."
+            "transaction_name_placeholder" -> if (isBn) "লেনদেনের নাম লিখুন" else "My Transaction"
+            "transaction_name_label" -> if (isBn) "লেনদেনের শিরোনাম / বিবরণ" else "Transaction Name"
+            "enter_transaction_name" -> if (isBn) "লেনদেনের নাম লিখুন" else "Enter transaction name"
+            "note_optional" -> if (isBn) "নোট (ঐচ্ছিক)" else "Note (optional)"
+            "receive_payment" -> if (isBn) "আদায় গ্রহণ" else "Receive Payment"
+            "repay_debt" -> if (isBn) "ঋণ পরিশোধ" else "Repay Debt"
+            "borrowed_tab" -> if (isBn) "ধার নেওয়া" else "Borrowed"
+            "lent_tab" -> if (isBn) "ধার দেওয়া" else "Lent"
+            "total_borrowed" -> if (isBn) "মোট ধার নেওয়া" else "Total Borrowed"
+            "total_lent" -> if (isBn) "মোট ধার দেওয়া" else "Total Lent"
+            "total_amount" -> if (isBn) "মোট পরিমাণ" else "Total Amount"
+            "close" -> if (isBn) "বন্ধ করুন" else "Close"
 
             else -> key
         }

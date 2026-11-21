@@ -245,8 +245,7 @@ fun BudgetDashboardScreen(
             .map { b ->
                 val cat = catMap[b.categoryName.lowercase(Locale.ENGLISH)]
                 val matchingTxs = monthExpenses.filter { tx ->
-                    tx.category.equals(b.categoryName, ignoreCase = true) &&
-                        (b.subcategoryName.isBlank() || tx.subcategory.equals(b.subcategoryName, ignoreCase = true))
+                    FinancialIntegrityValidator.isMatchingBudgetTransaction(tx, b)
                 }
                 val spent = matchingTxs.sumOf { it.amount }
                 val limit = b.monthlyLimit.coerceAtLeast(0.0)
