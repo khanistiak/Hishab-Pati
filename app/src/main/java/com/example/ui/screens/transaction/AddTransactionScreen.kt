@@ -112,8 +112,11 @@ import com.example.ui.MainViewModel
 import com.example.ui.components.CalculatorEvaluator
 import com.example.ui.components.CalculatorKeypad
 import com.example.ui.components.CategoryIcon
+import com.example.ui.components.ScrollAwareFixedHeader
 import com.example.ui.components.formatCalculatorDisplayExpression
 import com.example.ui.components.formatEvaluatedNumber
+import com.example.ui.components.recordFrostedBackdrop
+import com.example.ui.components.rememberScrollAwareGlassLayout
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.TransferBlue
@@ -328,8 +331,17 @@ fun AddTransactionScreen(
         )
     }
 
+    var assignedBudgetIds by remember(txToEdit) {
+        mutableStateOf(
+            activeDraft?.assignedBudgetIds
+                ?: txToEdit?.parsedAssignedBudgetIds()
+                ?: emptySet()
+        )
+    }
+
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showCategorySheet by remember { mutableStateOf(false) }
+    var showAssignedBudgetsSheet by remember { mutableStateOf(false) }
     var showSourceWalletSheet by remember(txToEdit) {
         mutableStateOf(activeDraft?.activeWalletSheet == ActiveWalletSheet.SOURCE)
     }
@@ -381,7 +393,8 @@ fun AddTransactionScreen(
             newlyCreatedCategoryName = newlyCreatedCategoryName,
             voiceOrReceiptNotice = voiceOrReceiptNotice,
             isReceiptNotice = isReceiptNotice,
-            excludeFromBudgets = excludeFromBudgets
+            excludeFromBudgets = excludeFromBudgets,
+            assignedBudgetIds = assignedBudgetIds
         )
     }
 
@@ -405,7 +418,8 @@ fun AddTransactionScreen(
         newlyCreatedCategoryName,
         voiceOrReceiptNotice,
         isReceiptNotice,
-        excludeFromBudgets
+        excludeFromBudgets,
+        assignedBudgetIds
     ) {
         viewModel.updateTransactionDraft(currentDraftSnapshot())
     }
@@ -659,6 +673,18 @@ fun AddTransactionScreen(
             }
         )
     } else {
+        val glassLayout = rememberScrollAwareGlassLayout(
+            scrollState = scrollState,
+            defaultHeaderHeight = 56.dp,
+            extraTopGap = 4.dp,
+            bottomNavClearance = 24.dp
+        )
+        val headerPillBg = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.72f else 0.78f)
+        val headerPillBorder = BorderStroke(
+            width = 1.dp,
+            color = if (isDark) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.72f)
+        )
+
         // Edge-to-Edge: inner Scaffold has zero insets because outer Scaffold in MainActivity
         // handles statusBars padding. This eliminates excessive blank space while respecting safe insets.
         Scaffold(
@@ -671,184 +697,30 @@ fun AddTransactionScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Scrollable Content Underneath Seamless Frosted Header
             Column(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                // 1. Pinned Top Header Row: Close ✕, Heading, Camera 📷, Mic 🎙, Delete 🗑 (if editing)
-                Surface(
-                    color = if (scrollState.value > 0) {
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.94f)
-                    } else {
-                        Color.Transparent
-                    },
-                    shadowElevation = if (scrollState.value > 8) 2.dp else 0.dp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .zIndex(2f)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            isCalculatorVisible = false
-                            focusManager.clearFocus()
-                        }
-                        .testTag("add_transaction_fixed_header")
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier
+                    .fillMaxSize()
+                    .recordFrostedBackdrop(
+                        backdropState = glassLayout.backdropState,
+                        contentLayer = glassLayout.contentGraphicsLayer
+                    )
+                    .verticalScroll(scrollState)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
                     ) {
-                        // Close ✕ button
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 1.5.dp,
-                            modifier = Modifier
-                                .size(38.dp)
-                                .testTag("btn_close_transaction"),
-                            onClick = {
-                                viewModel.clearTransactionDraft()
-                                onBack()
-                            }
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = if (isBn) "বন্ধ করুন" else "Close",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-
-                        // Compact, consistent Heading
-                        val headingText = if (txToEdit != null) {
-                            when (selectedType) {
-                                TransactionType.EXPENSE -> if (isBn) "ব্যয় সম্পাদনা" else "Edit Expense"
-                                TransactionType.INCOME -> if (isBn) "আয় সম্পাদনা" else "Edit Income"
-                                TransactionType.TRANSFER -> if (isBn) "স্থানান্তর সম্পাদনা" else "Edit Transfer"
-                                else -> if (isBn) "লেনদেন সম্পাদনা" else "Edit Transaction"
-                            }
-                        } else {
-                            when (selectedType) {
-                                TransactionType.EXPENSE -> if (isBn) "নতুন ব্যয়" else "New Expense"
-                                TransactionType.INCOME -> if (isBn) "নতুন আয়" else "New Income"
-                                TransactionType.TRANSFER -> if (isBn) "নতুন স্থানান্তর" else "New Transfer"
-                                else -> if (isBn) "নতুন লেনদেন" else "New Transaction"
-                            }
-                        }
-                        Text(
-                            text = headingText,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 19.sp,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                        )
-
-                        // Right action icons
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            // Camera for receipt OCR
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 1.5.dp,
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .testTag("receipt_camera_button"),
-                                onClick = {
-                                    isCalculatorVisible = false
-                                    focusManager.clearFocus()
-                                    launchCameraFlow()
-                                }
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.PhotoCamera,
-                                        contentDescription = if (isBn) "রশিদ স্ক্যান করুন" else "Scan Receipt",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-
-                            // Mic for voice input
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 1.5.dp,
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .testTag("voice_input_button"),
-                                onClick = {
-                                    isCalculatorVisible = false
-                                    focusManager.clearFocus()
-                                    showVoiceDialog = true
-                                }
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Mic,
-                                        contentDescription = if (isBn) "ভয়েস ইনপুট" else "Voice Input",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-
-                            // Delete button if editing
-                            if (txToEdit != null) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = ExpenseRed.copy(alpha = 0.12f),
-                                    modifier = Modifier.size(38.dp),
-                                    onClick = {
-                                        isCalculatorVisible = false
-                                        focusManager.clearFocus()
-                                        showDeleteConfirm = true
-                                    }
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete Transaction",
-                                            tint = ExpenseRed,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        isCalculatorVisible = false
+                        focusManager.clearFocus()
                     }
-                }
-
-                // Scrollable Content Below Pinned Header
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(scrollState)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            isCalculatorVisible = false
-                            focusManager.clearFocus()
-                        }
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 4.dp, bottom = 24.dp)
-                        .imePadding()
-                        .testTag("add_transaction_scroll_content")
-                ) {
+                    .padding(horizontal = 16.dp)
+                    .padding(
+                        top = glassLayout.contentPadding.calculateTopPadding(),
+                        bottom = glassLayout.contentPadding.calculateBottomPadding()
+                    )
+                    .imePadding()
+                    .testTag("add_transaction_scroll_content")
+            ) {
                     // Voice or Receipt Feedback Banner
                 AnimatedVisibility(
                     visible = voiceOrReceiptNotice != null || isScanningReceipt || receiptScanError != null,
@@ -1166,7 +1038,14 @@ fun AddTransactionScreen(
                             excludeFromBudgets = excludeFromBudgets,
                             editingTransactionId = txToEdit?.id,
                             currencySymbol = currencySymbol,
-                            language = language
+                            language = language,
+                            assignedBudgetIds = assignedBudgetIds,
+                            onClick = {
+                                isCalculatorVisible = false
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                                showAssignedBudgetsSheet = true
+                            }
                         )
                     }
                 }
@@ -1513,7 +1392,8 @@ fun AddTransactionScreen(
                             timestamp = selectedDateTimestamp,
                             notes = notes,
                             debtId = txToEdit?.debtId,
-                            excludeFromBudgets = if (selectedType == TransactionType.EXPENSE) excludeFromBudgets else false
+                            excludeFromBudgets = if (selectedType == TransactionType.EXPENSE) excludeFromBudgets else false,
+                            assignedBudgetIds = if (selectedType == TransactionType.EXPENSE && !excludeFromBudgets) assignedBudgetIds else emptySet()
                         )
                         viewModel.clearTransactionDraft()
                         onBack()
@@ -1554,6 +1434,160 @@ fun AddTransactionScreen(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // 1. Pinned Top Header Row: Seamless Transparent at rest, Soft Feathered Frosted Glass on scroll
+            ScrollAwareFixedHeader(
+                layoutState = glassLayout,
+                testTag = "add_transaction_fixed_header",
+                modifier = Modifier
+                    .zIndex(2f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        isCalculatorVisible = false
+                        focusManager.clearFocus()
+                    }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Close ✕ button
+                    Surface(
+                        shape = CircleShape,
+                        color = headerPillBg,
+                        border = headerPillBorder,
+                        shadowElevation = 0.dp,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .testTag("btn_close_transaction"),
+                        onClick = {
+                            viewModel.clearTransactionDraft()
+                            onBack()
+                        }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = if (isBn) "বন্ধ করুন" else "Close",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Compact, consistent Heading
+                    val headingText = if (txToEdit != null) {
+                        when (selectedType) {
+                            TransactionType.EXPENSE -> if (isBn) "ব্যয় সম্পাদনা" else "Edit Expense"
+                            TransactionType.INCOME -> if (isBn) "আয় সম্পাদনা" else "Edit Income"
+                            TransactionType.TRANSFER -> if (isBn) "স্থানান্তর সম্পাদনা" else "Edit Transfer"
+                            else -> if (isBn) "লেনদেন সম্পাদনা" else "Edit Transaction"
+                        }
+                    } else {
+                        when (selectedType) {
+                            TransactionType.EXPENSE -> if (isBn) "নতুন ব্যয়" else "New Expense"
+                            TransactionType.INCOME -> if (isBn) "নতুন আয়" else "New Income"
+                            TransactionType.TRANSFER -> if (isBn) "নতুন স্থানান্তর" else "New Transfer"
+                            else -> if (isBn) "নতুন লেনদেন" else "New Transaction"
+                        }
+                    }
+                    Text(
+                        text = headingText,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 19.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    )
+
+                    // Right action icons
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Camera for receipt OCR
+                        Surface(
+                            shape = CircleShape,
+                            color = headerPillBg,
+                            border = headerPillBorder,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .testTag("receipt_camera_button"),
+                            onClick = {
+                                isCalculatorVisible = false
+                                focusManager.clearFocus()
+                                launchCameraFlow()
+                            }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoCamera,
+                                    contentDescription = if (isBn) "রশিদ স্ক্যান করুন" else "Scan Receipt",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        // Mic for voice input
+                        Surface(
+                            shape = CircleShape,
+                            color = headerPillBg,
+                            border = headerPillBorder,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .testTag("voice_input_button"),
+                            onClick = {
+                                isCalculatorVisible = false
+                                focusManager.clearFocus()
+                                showVoiceDialog = true
+                            }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = if (isBn) "ভয়েস ইনপুট" else "Voice Input",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        // Delete button if editing
+                        if (txToEdit != null) {
+                            Surface(
+                                shape = CircleShape,
+                                color = ExpenseRed.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, ExpenseRed.copy(alpha = 0.22f)),
+                                shadowElevation = 0.dp,
+                                modifier = Modifier.size(38.dp),
+                                onClick = {
+                                    isCalculatorVisible = false
+                                    focusManager.clearFocus()
+                                    showDeleteConfirm = true
+                                }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete Transaction",
+                                        tint = ExpenseRed,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1834,11 +1868,35 @@ fun AddTransactionScreen(
                     accountId = confirmedDraft.accountId.ifBlank { selectedAccountId },
                     toAccountId = null,
                     timestamp = confirmedDraft.dateMillis ?: selectedDateTimestamp,
-                    notes = confirmedDraft.notes
+                    notes = confirmedDraft.notes,
+                    excludeFromBudgets = excludeFromBudgets,
+                    assignedBudgetIds = if (!excludeFromBudgets) assignedBudgetIds else emptySet()
                 )
                 onBack()
             },
             onDismiss = { pendingReceiptReview = null }
+        )
+    }
+
+    if (showAssignedBudgetsSheet) {
+        AssignedBudgetsPickerSheet(
+            budgets = budgets,
+            transactions = transactions,
+            selectedCategoryName = selectedCategoryName,
+            selectedSubcategoryName = selectedSubcategoryName,
+            selectedDateTimestamp = selectedDateTimestamp,
+            editingTransactionId = txToEdit?.id,
+            assignedBudgetIds = assignedBudgetIds,
+            currencySymbol = currencySymbol,
+            language = language,
+            onToggleBudgetId = { budgetId ->
+                assignedBudgetIds = if (assignedBudgetIds.contains(budgetId)) {
+                    assignedBudgetIds - budgetId
+                } else {
+                    assignedBudgetIds + budgetId
+                }
+            },
+            onDismiss = { showAssignedBudgetsSheet = false }
         )
     }
 

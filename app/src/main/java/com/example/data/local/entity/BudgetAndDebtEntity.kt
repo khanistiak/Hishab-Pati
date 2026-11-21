@@ -17,8 +17,47 @@ data class BudgetEntity(
     val subcategoryName: String = "",
     val iconName: String = "",
     val colorHex: String = "",
-    val alertPercentage: Int = 80
-)
+    val alertPercentage: Int = 80,
+    val isManual: Boolean = false,
+    val recurrence: String = "MONTHLY", // "MONTHLY", "WEEKLY", "YEARLY", "ONE_TIME"
+    val startDateMillis: Long = 0L,
+    val description: String = "",
+    val selectedCategories: String = "", // pipe-separated category names for multi-category automatic budgets
+    val selectedSubcategories: String = "" // pipe-separated "Category::Subcategory" entries
+) {
+    fun parsedCategories(): List<String> {
+        val fromMulti = selectedCategories
+            .split("|")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (fromMulti.isNotEmpty()) return fromMulti.distinct()
+        return if (categoryName.isNotBlank() && !isOverall && !categoryName.equals("Overall", ignoreCase = true) && !categoryName.equals("Manual", ignoreCase = true)) {
+            listOf(categoryName.trim())
+        } else {
+            emptyList()
+        }
+    }
+
+    fun parsedSubcategoryPairs(): List<Pair<String, String>> {
+        val fromMulti = selectedSubcategories
+            .split("|")
+            .mapNotNull { entry ->
+                val trimmed = entry.trim()
+                val sepIdx = trimmed.indexOf("::")
+                if (sepIdx > 0 && sepIdx < trimmed.length - 2) {
+                    val cat = trimmed.substring(0, sepIdx).trim()
+                    val sub = trimmed.substring(sepIdx + 2).trim()
+                    if (cat.isNotEmpty() && sub.isNotEmpty()) cat to sub else null
+                } else null
+            }
+        if (fromMulti.isNotEmpty()) return fromMulti.distinct()
+        return if (subcategoryName.isNotBlank() && categoryName.isNotBlank()) {
+            listOf(categoryName.trim() to subcategoryName.trim())
+        } else {
+            emptyList()
+        }
+    }
+}
 
 @Entity(tableName = "debts")
 data class DebtEntity(

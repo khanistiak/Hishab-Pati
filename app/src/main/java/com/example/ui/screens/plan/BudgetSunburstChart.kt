@@ -93,7 +93,8 @@ fun BudgetSunburstCard(
     language: AppLanguage,
     cardColor: Color,
     borderColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    budgetedSpent: Double = totalMonthSpent
 ) {
     val isBn = language == AppLanguage.BANGLA
 
@@ -157,7 +158,7 @@ fun BudgetSunburstCard(
                 if (selectedSlice != null) {
                     Surface(
                         shape = CircleShape,
-                        color = Color(0xFF0284C7).copy(alpha = 0.12f),
+                        color = Color(0xFF4F46E5).copy(alpha = 0.14f),
                         onClick = {
                             selectedKey = null
                             selectedSubLabel = null
@@ -168,7 +169,7 @@ fun BudgetSunburstCard(
                             text = AppStrings.t("all", language),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0284C7),
+                            color = Color(0xFF4F46E5),
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
@@ -424,16 +425,23 @@ fun BudgetSunburstCard(
                                 textAlign = TextAlign.Center
                             )
                         } else {
+                            val displaySpent = if (totalBudgetLimit > 0.0) budgetedSpent else totalMonthSpent
                             Text(
-                                text = AppStrings.t("total_spent", language),
-                                fontSize = 10.5.sp,
+                                text = if (totalBudgetLimit > 0.0) {
+                                    AppStrings.t("budgeted_spent", language)
+                                } else {
+                                    AppStrings.t("total_spent", language)
+                                },
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                maxLines = 1
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = CurrencyFormatter.format(totalMonthSpent, currencySymbol, language = language),
+                                text = CurrencyFormatter.format(displaySpent, currencySymbol, language = language),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -441,7 +449,7 @@ fun BudgetSunburstCard(
                                 overflow = TextOverflow.Ellipsis
                             )
                             if (totalBudgetLimit > 0.0) {
-                                val overallPct = ((totalMonthSpent / totalBudgetLimit) * 100.0).roundToInt()
+                                val overallPct = ((budgetedSpent / totalBudgetLimit) * 100.0).roundToInt()
                                 val pctStr = if (isBn) {
                                     CurrencyFormatter.convertToBanglaDigits(overallPct.toString())
                                 } else {
@@ -453,7 +461,7 @@ fun BudgetSunburstCard(
                                     fontWeight = FontWeight.Bold,
                                     color = when {
                                         overallPct > 100 -> ExpenseRed
-                                        overallPct > 80 -> Color(0xFFF59E0B)
+                                        overallPct >= 80 -> Color(0xFFF59E0B)
                                         else -> IncomeGreen
                                     }
                                 )

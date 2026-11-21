@@ -58,6 +58,18 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE budgets ADD COLUMN isManual INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE budgets ADD COLUMN recurrence TEXT NOT NULL DEFAULT 'MONTHLY'")
+        db.execSQL("ALTER TABLE budgets ADD COLUMN startDateMillis INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE budgets ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE budgets ADD COLUMN selectedCategories TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE budgets ADD COLUMN selectedSubcategories TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE transactions ADD COLUMN assignedBudgetIds TEXT NOT NULL DEFAULT ''")
+    }
+}
+
 @Database(
     entities = [
         AccountEntity::class,
@@ -69,7 +81,7 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
         SavingsGoalEntity::class,
         AppSettingsEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -93,7 +105,14 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "my_wallet_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7,
+                        MIGRATION_7_8,
+                        MIGRATION_8_9
+                    )
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

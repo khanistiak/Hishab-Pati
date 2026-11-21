@@ -111,6 +111,7 @@ enum class SubScreen {
     EDIT_ACCOUNT,
     ADJUST_BALANCE,
     BUDGET_DASHBOARD,
+    BUDGET_DETAILS,
     ADD_BUDGET,
     CURRENCY_SELECTION,
     MANAGE_DEBTS,
@@ -140,6 +141,19 @@ data class FilteredReportArgs(
     val accountId: String? = null,
     val searchQuery: String = ""
 )
+
+data class BudgetDetailsArgs(
+    val budgetId: String? = null,
+    val categoryName: String,
+    val subcategoryName: String = "",
+    val year: Int,
+    val month: Int,
+    val iconName: String = "category",
+    val colorHex: String = "#4F46E5"
+) {
+    val uniqueKey: String
+        get() = if (subcategoryName.isNotBlank()) "$categoryName::$subcategoryName" else categoryName
+}
 
 enum class InsightsPeriod(val label: String, val bnLabel: String) {
     DAILY("Daily", "দৈনিক"),
@@ -242,7 +256,8 @@ data class TransactionDraftState(
     val newlyCreatedCategoryName: String? = null,
     val voiceOrReceiptNotice: String? = null,
     val isReceiptNotice: Boolean = false,
-    val excludeFromBudgets: Boolean = false
+    val excludeFromBudgets: Boolean = false,
+    val assignedBudgetIds: Set<String> = emptySet()
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -617,6 +632,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             SubScreen.ADJUST_BALANCE -> accountForAdjustBalance.value?.id ?: "default"
             SubScreen.ADD_EDIT_TRANSACTION -> transactionToEdit.value?.id ?: "new_${newTransactionInitialType.value.name}"
             SubScreen.ADD_BUDGET -> budgetToEdit.value?.id ?: "new"
+            SubScreen.BUDGET_DETAILS -> selectedBudgetDetailsArgs.value?.let { "${it.uniqueKey}_${it.year}_${it.month}" } ?: "default"
             SubScreen.DEBT_DETAILS -> selectedDebt.value?.id ?: "default"
             SubScreen.ADD_DEBT -> debtToEdit.value?.id ?: "new_${debtFilterType.value.name}"
             SubScreen.ADD_DEBT_TRANSACTION -> "${selectedDebtForTransaction.value?.id ?: "default"}_${debtTransactionType.value}"
@@ -830,9 +846,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val addBudgetDefaultIsOverall = MutableStateFlow(false)
     val addBudgetDefaultCategory = MutableStateFlow<String?>(null)
     val addBudgetDefaultMonthKey = MutableStateFlow<String?>(null)
+    val selectedBudgetDetailsArgs = MutableStateFlow<BudgetDetailsArgs?>(null)
+
+    private val _pinnedBudgetKeys = MutableStateFlow(UserSettingsPreferences.loadPinnedBudgetKeys(application))
+    val pinnedBudgetKeys: StateFlow<Set<String>> = _pinnedBudgetKeys.asStateFlow()
+
+    fun togglePinnedBudget(key: String) {
+        val current = _pinnedBudgetKeys.value
+        val updated = if (current.contains(key)) current - key else current + key
+        _pinnedBudgetKeys.value = updated
+        UserSettingsPreferences.savePinnedBudgetKeys(getApplication(), updated)
+    }
 
     fun openBudgetDashboard() {
         openSubScreen(SubScreen.BUDGET_DASHBOARD)
+    }
+
+    fun openBudgetDetails(args: BudgetDetailsArgs) {
+        selectedBudgetDetailsArgs.value = args
+        openSubScreen(SubScreen.BUDGET_DETAILS)
+    }
+
+    fun openEditTransaction(transaction: TransactionEntity) {
+        clearTransactionDraft()
+        transactionToEdit.value = transaction
+        newTransactionInitialType.value = transaction.type
+        openSubScreen(SubScreen.ADD_EDIT_TRANSACTION)
     }
 
     fun openAddBudget(
@@ -1023,6 +1062,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     addBudgetDefaultMonthKey.value = null
                 }
             }
+            SubScreen.BUDGET_DETAILS -> {
+                if (!remainingScreens.contains(SubScreen.BUDGET_DETAILS)) {
+                    selectedBudgetDetailsArgs.value = null
+                }
+            }
             SubScreen.ADD_EDIT_TRANSACTION -> {
                 if (!remainingScreens.contains(SubScreen.ADD_EDIT_TRANSACTION)) {
                     transactionToEdit.value = null
@@ -1174,7 +1218,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         timestamp: Long = System.currentTimeMillis(),
         notes: String? = null,
         debtId: String? = null,
-        excludeFromBudgets: Boolean = false
+        excludeFromBudgets: Boolean = false,
+        assignedBudgetIds: Set<String> = emptySet()
     ) {
         viewModelScope.launch {
             val existing = if (id != null) {
@@ -1206,6 +1251,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repository.getDebtById(dId) ?: debts.value.firstOrNull { it.id == dId }
             }
 
+            val resolvedAssignedBudgetIds = assignedBudgetIds
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .joinToString(",")
+
             val tx = TransactionEntity(
                 id = resolvedId,
                 type = type,
@@ -1221,7 +1272,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ?: parentDebt?.personName
                     ?: "",
                 debtId = resolvedDebtId,
-                excludeFromBudgets = excludeFromBudgets
+                excludeFromBudgets = excludeFromBudgets,
+                assignedBudgetIds = resolvedAssignedBudgetIds
             )
 
             if (existing != null) {
@@ -1515,22 +1567,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         name: String = categoryName,
         subcategoryName: String? = null,
         iconName: String = "Category",
-        colorHex: String = "#0EA5E9",
-        alertPercentage: Int = 80
+        colorHex: String = "#4F46E5",
+        alertPercentage: Int = 80,
+        isManual: Boolean = false,
+        recurrence: String = "MONTHLY",
+        startDateMillis: Long = 0L,
+        description: String = "",
+        selectedCategories: String = "",
+        selectedSubcategories: String = ""
     ) {
         viewModelScope.launch {
             val entity = BudgetEntity(
                 id = id ?: "b_${UUID.randomUUID().toString().take(8)}",
-                name = name,
-                categoryName = categoryName,
-                subcategoryName = subcategoryName ?: "",
+                name = name.trim(),
+                categoryName = categoryName.trim(),
+                subcategoryName = (subcategoryName ?: "").trim(),
                 iconName = iconName,
                 colorHex = colorHex,
                 monthlyLimit = limit,
                 monthYear = monthYear,
                 isOverall = isOverall,
                 rolloverEnabled = rolloverEnabled,
-                alertPercentage = alertPercentage
+                alertPercentage = alertPercentage,
+                isManual = isManual,
+                recurrence = recurrence,
+                startDateMillis = startDateMillis,
+                description = description.trim(),
+                selectedCategories = selectedCategories,
+                selectedSubcategories = selectedSubcategories
             )
             repository.insertBudget(entity)
         }

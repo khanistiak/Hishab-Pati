@@ -22,5 +22,15 @@ data class TransactionEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val debtId: String? = null,
-    val excludeFromBudgets: Boolean = false
-)
+    val excludeFromBudgets: Boolean = false,
+    val assignedBudgetIds: String = ""
+) {
+    fun parsedAssignedBudgetIds(): Set<String> {
+        if (assignedBudgetIds.isBlank()) return emptySet()
+        return assignedBudgetIds
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+    }
+}

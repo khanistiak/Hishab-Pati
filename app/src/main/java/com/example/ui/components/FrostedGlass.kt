@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -219,6 +220,65 @@ fun rememberScrollAwareGlassLayout(
         frostedBackdropState?.targetGlassProgress = targetGlassProgress
         frostedBackdropState?.lazyListState = listState
         frostedBackdropState?.activeContentLayer = tabContentGraphicsLayer
+    }
+
+    return remember(
+        headerHeightPxState,
+        topContentPadding,
+        bottomContentPadding,
+        targetGlassProgress,
+        frostedBackdropState,
+        tabContentGraphicsLayer
+    ) {
+        ScrollAwareGlassLayoutState(
+            headerHeightPxState = headerHeightPxState,
+            contentPadding = PaddingValues(top = topContentPadding, bottom = bottomContentPadding),
+            targetGlassProgress = targetGlassProgress,
+            backdropState = frostedBackdropState,
+            contentGraphicsLayer = tabContentGraphicsLayer
+        )
+    }
+}
+
+@Composable
+fun rememberScrollAwareGlassLayout(
+    scrollState: ScrollState,
+    defaultHeaderHeight: Dp = 56.dp,
+    extraTopGap: Dp = 4.dp,
+    bottomNavClearance: Dp = 24.dp
+): ScrollAwareGlassLayoutState {
+    val frostedBackdropState = LocalFrostedBackdropState.current
+    val tabContentGraphicsLayer = rememberGraphicsLayer()
+    val density = LocalDensity.current
+    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navBarBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    val headerHeightPxState = remember { mutableIntStateOf(0) }
+    val measuredHeaderHeightDp = with(density) {
+        if (headerHeightPxState.intValue > 0) {
+            headerHeightPxState.intValue.toDp()
+        } else {
+            statusBarTopPadding + defaultHeaderHeight
+        }
+    }
+
+    val topContentPadding = measuredHeaderHeightDp + extraTopGap
+    val bottomContentPadding = navBarClearanceValue(navBarBottomPadding, bottomNavClearance)
+
+    val rawScrollPx = scrollState.value.toFloat()
+    val rampDistancePx = with(density) { 48.dp.toPx() }.coerceAtLeast(1f)
+    val scrollFraction = (rawScrollPx / rampDistancePx).coerceIn(0f, 1f)
+    val targetGlassProgress = if (rawScrollPx > 2f) {
+        (scrollFraction * 0.88f + 0.12f).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    LaunchedEffect(targetGlassProgress, scrollState.value, tabContentGraphicsLayer) {
+        frostedBackdropState?.targetGlassProgress = targetGlassProgress
+        frostedBackdropState?.lazyListState = null
+        frostedBackdropState?.activeContentLayer = tabContentGraphicsLayer
+        frostedBackdropState?.scrollTick = ((frostedBackdropState?.scrollTick ?: 0) + 1) % 100000
     }
 
     return remember(

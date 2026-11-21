@@ -429,5 +429,18 @@ object UserSettingsPreferences {
             .putString(KEY_HOME_SECTION_ORDER, normalizedOrder.joinToString(","))
             .apply()
     }
+
+    private const val KEY_PINNED_BUDGET_KEYS = "pinned_budget_keys"
+
+    fun loadPinnedBudgetKeys(context: Context): Set<String> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY_PINNED_BUDGET_KEYS, emptySet())?.toSet() ?: emptySet()
+    }
+
+    fun savePinnedBudgetKeys(context: Context, keys: Set<String>) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putStringSet(KEY_PINNED_BUDGET_KEYS, keys).apply()
+    }
 }
+
 

@@ -104,17 +104,30 @@ fun PlanScreen(
         ToolItemData(AppStrings.t("calendar", language), Icons.Default.CalendarMonth, Color(0xFFF3E8FF), Color(0xFF9333EA), "calendar")
     )
 
-    // Precompute budget & spending totals for smooth scrolling with double-counting prevention
+    // Precompute budget & spending totals for smooth scrolling with budgeted vs unbudgeted separation
     val (totalBudget, totalSpent) = remember(budgets, transactions) {
         val (refYear, refMonth) = com.example.data.backup.FinancialIntegrityValidator.resolveReferenceYearMonth(transactions, budgets)
         val monthKey = String.format(java.util.Locale.US, "%04d-%02d", refYear, refMonth + 1)
+        val monthBudgets = budgets.filter { it.monthYear == monthKey || it.monthYear == "ALL" }
+        val activeCategoryBudgets = monthBudgets.filter {
+            !it.isOverall && !it.categoryName.equals("Overall", ignoreCase = true) && it.monthlyLimit > 0.0
+        }
         val budget = com.example.data.backup.FinancialIntegrityValidator.computeTotalMonthlyBudget(budgets, monthKey)
-        val spent = transactions.filter { tx ->
+        val monthExpenses = transactions.filter { tx ->
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = tx.timestamp }
             cal.get(java.util.Calendar.YEAR) == refYear &&
                 cal.get(java.util.Calendar.MONTH) == refMonth &&
                 com.example.data.backup.FinancialIntegrityValidator.isEligibleExpense(tx)
-        }.sumOf { it.amount }
+        }
+        val spent = if (activeCategoryBudgets.isNotEmpty()) {
+            monthExpenses.filter { tx ->
+                activeCategoryBudgets.any { b ->
+                    com.example.data.backup.FinancialIntegrityValidator.isMatchingBudgetTransaction(tx, b)
+                }
+            }.sumOf { it.amount }
+        } else {
+            monthExpenses.sumOf { it.amount }
+        }
         Pair(budget, spent)
     }
 

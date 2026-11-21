@@ -687,7 +687,13 @@ fun MyWalletApp(viewModel: MainViewModel) {
                 SubScreen.BUDGET_DASHBOARD -> {
                     com.example.ui.screens.plan.BudgetDashboardScreen(
                         viewModel = viewModel,
-                        onBack = { viewModel.closeSubScreen() }
+                        onBack = { viewModel.closeSubScreen(SubScreen.BUDGET_DASHBOARD) }
+                    )
+                }
+                SubScreen.BUDGET_DETAILS -> {
+                    com.example.ui.screens.plan.BudgetDetailsScreen(
+                        viewModel = viewModel,
+                        onBack = { viewModel.closeSubScreen(SubScreen.BUDGET_DETAILS) }
                     )
                 }
                 SubScreen.ADD_BUDGET -> {
@@ -695,7 +701,7 @@ fun MyWalletApp(viewModel: MainViewModel) {
                     val defaultIsOverall by viewModel.addBudgetDefaultIsOverall.collectAsState()
                     val defaultCategory by viewModel.addBudgetDefaultCategory.collectAsState()
                     val defaultMonthKey by viewModel.addBudgetDefaultMonthKey.collectAsState()
-                    com.example.ui.screens.plan.AddBudgetScreen(
+                    com.example.ui.screens.plan.AddEditBudgetScreen(
                         viewModel = viewModel,
                         initialBudget = budgetToEdit,
                         defaultIsOverall = defaultIsOverall,

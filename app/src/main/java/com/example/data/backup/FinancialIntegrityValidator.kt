@@ -63,11 +63,40 @@ object FinancialIntegrityValidator {
 
     fun isMatchingBudgetTransaction(tx: TransactionEntity, budget: BudgetEntity): Boolean {
         if (!isEligibleExpense(tx)) return false
+        val assignedIds = tx.parsedAssignedBudgetIds()
+        if (budget.isManual) {
+            return assignedIds.contains(budget.id)
+        }
+        if (assignedIds.contains(budget.id)) return true
         if (budget.isOverall || budget.categoryName.equals("Overall", ignoreCase = true)) return true
-        val catMatches = tx.category.trim().equals(budget.categoryName.trim(), ignoreCase = true)
+
+        val txCat = tx.category.trim()
+        val txSub = tx.subcategory.trim()
+        val multiCategories = budget.parsedCategories()
+        val multiSubPairs = budget.parsedSubcategoryPairs()
+
+        if (multiSubPairs.isNotEmpty()) {
+            // Match if exact (category, subcategory) pair is selected
+            val matchesPair = multiSubPairs.any { (cat, sub) ->
+                txCat.equals(cat, ignoreCase = true) && txSub.equals(sub, ignoreCase = true)
+            }
+            if (matchesPair) return true
+            // Also match if tx's category is selected as a whole category (i.e., in multiCategories with no sub-filters for that category)
+            val categoriesWithSubFilters = multiSubPairs.map { it.first.lowercase(Locale.US) }.toSet()
+            val matchesWholeCategory = multiCategories.any { cat ->
+                txCat.equals(cat, ignoreCase = true) && !categoriesWithSubFilters.contains(cat.lowercase(Locale.US))
+            }
+            return matchesWholeCategory
+        }
+
+        if (multiCategories.isNotEmpty()) {
+            return multiCategories.any { cat -> txCat.equals(cat, ignoreCase = true) }
+        }
+
+        val catMatches = txCat.equals(budget.categoryName.trim(), ignoreCase = true)
         if (!catMatches) return false
         return budget.subcategoryName.isBlank() ||
-            tx.subcategory.trim().equals(budget.subcategoryName.trim(), ignoreCase = true)
+            txSub.equals(budget.subcategoryName.trim(), ignoreCase = true)
     }
 
     fun isEligibleIncome(tx: TransactionEntity): Boolean {
@@ -130,15 +159,25 @@ object FinancialIntegrityValidator {
         val monthBudgets = budgets.filter { it.monthYear == monthKey || it.monthYear == "ALL" }
         val overallBudgetEntity = monthBudgets.firstOrNull { it.isOverall }
         val nonOverallBudgets = monthBudgets.filter { !it.isOverall && !it.categoryName.equals("Overall", ignoreCase = true) }
-        val budgetsByCategory = nonOverallBudgets.groupBy { it.categoryName }
-        val applicableCategoryLimitsSum = budgetsByCategory.values.sumOf { catBudgets ->
-            val subBudgets = catBudgets.filter { it.subcategoryName.isNotBlank() }
+
+        // Manual & multi-category custom budgets each contribute their own limit cleanly
+        val manualAndCustomBudgets = nonOverallBudgets.filter {
+            it.isManual || it.parsedCategories().size > 1 || it.parsedSubcategoryPairs().size > 1
+        }
+        val standardSingleCatBudgets = nonOverallBudgets.filter {
+            !it.isManual && it.parsedCategories().size <= 1 && it.parsedSubcategoryPairs().size <= 1
+        }
+
+        val budgetsByCategory = standardSingleCatBudgets.groupBy { it.categoryName }
+        val applicableStandardSum = budgetsByCategory.values.sumOf { catBudgets ->
+            val subBudgets = catBudgets.filter { it.subcategoryName.isNotBlank() || it.parsedSubcategoryPairs().isNotEmpty() }
             if (subBudgets.isNotEmpty()) {
                 subBudgets.sumOf { it.monthlyLimit }
             } else {
-                catBudgets.firstOrNull { it.subcategoryName.isBlank() }?.monthlyLimit ?: 0.0
+                catBudgets.sumOf { it.monthlyLimit }
             }
         }
+        val applicableCategoryLimitsSum = applicableStandardSum + manualAndCustomBudgets.sumOf { it.monthlyLimit }
         return if (overallBudgetEntity != null && overallBudgetEntity.monthlyLimit > 0.0 && applicableCategoryLimitsSum == 0.0) {
             overallBudgetEntity.monthlyLimit
         } else if (applicableCategoryLimitsSum > 0.0) {
