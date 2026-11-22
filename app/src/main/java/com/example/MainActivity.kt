@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SizeTransform
@@ -133,6 +135,7 @@ import com.example.data.model.AppLanguage
 import com.example.ui.util.AppStrings
 import com.example.ui.screens.plan.AddDebtScreen
 import com.example.ui.screens.plan.DebtDetailsScreen
+import com.example.ui.screens.plan.GoalDetailsScreen
 import com.example.ui.screens.plan.ManageDebtsScreen
 import com.example.ui.screens.plan.NewSavingsGoalScreen
 import com.example.ui.screens.plan.CalendarScreen
@@ -484,7 +487,10 @@ fun MyWalletApp(viewModel: MainViewModel) {
         }
     }
 
-    val showBottomBar = currentSubScreen == SubScreen.NONE
+    // SaveableStateHolder + currentSubScreenEntry so switching between Home, Activity, Plan, Insights,
+    // and nested SubScreens preserves each screen instance's exact scroll position and state atomically.
+    val currentSubScreenEntry by viewModel.currentSubScreenEntry.collectAsState()
+    val showBottomBar = currentSubScreenEntry == null
     CurrencyFormatter.currentLanguage = settings?.language ?: AppLanguage.ENGLISH
 
     val existingBackdropState = LocalFrostedBackdropState.current
@@ -497,9 +503,6 @@ fun MyWalletApp(viewModel: MainViewModel) {
         )
     }
 
-    // SaveableStateHolder + currentSubScreenEntry so switching between Home, Activity, Plan, Insights,
-    // and nested SubScreens preserves each screen instance's exact scroll position and state.
-    val currentSubScreenEntry by viewModel.currentSubScreenEntry.collectAsState()
     val navSaveableStateHolder = rememberSaveableStateHolder()
 
     CompositionLocalProvider(
@@ -512,7 +515,11 @@ fun MyWalletApp(viewModel: MainViewModel) {
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { CrystalLiquidSnackbarHost(snackbarHostState) },
             bottomBar = {
-                if (showBottomBar) {
+                AnimatedVisibility(
+                    visible = showBottomBar,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 220, delayMillis = 180)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 180))
+                ) {
                     MyWalletBottomNavigationBar(
                         currentTab = currentTab,
                         language = settings?.language ?: AppLanguage.ENGLISH,
@@ -531,12 +538,8 @@ fun MyWalletApp(viewModel: MainViewModel) {
                 modifier = Modifier.fillMaxSize()
             ) {
                 val reducedMotion = rememberReducedMotionEnabled()
-                val rootHostKey = remember(currentSubScreen, currentSubScreenEntry) {
-                    if (currentSubScreen == SubScreen.NONE) {
-                        "MAIN_TABS"
-                    } else {
-                        currentSubScreenEntry?.stateKey ?: "SUB:0:${currentSubScreen.name}:root"
-                    }
+                val rootHostKey = remember(currentSubScreenEntry) {
+                    currentSubScreenEntry?.stateKey ?: "MAIN_TABS"
                 }
                 @OptIn(ExperimentalSharedTransitionApi::class)
                 SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
@@ -547,13 +550,26 @@ fun MyWalletApp(viewModel: MainViewModel) {
                                 targetState.contains(SubScreen.ACCOUNT_DETAIL.name) ||
                                     initialState.contains(SubScreen.ACCOUNT_DETAIL.name)
                             if (reducedMotion) {
-                                fadeIn(tween(1)) togetherWith fadeOut(tween(1))
+                                ContentTransform(
+                                    targetContentEnter = fadeIn(tween(1)),
+                                    initialContentExit = fadeOut(tween(1)),
+                                    targetContentZIndex = 1f,
+                                    sizeTransform = null
+                                )
                             } else if (isAccountDetailTransition) {
-                                (fadeIn(tween(durationMillis = 300)) togetherWith
-                                    fadeOut(tween(durationMillis = 220))) using SizeTransform(clip = false)
+                                (fadeIn(tween(durationMillis = 220)) togetherWith
+                                    fadeOut(tween(durationMillis = 180))) using SizeTransform(clip = false)
                             } else {
-                                (fadeIn(tween(durationMillis = 200)) togetherWith
-                                    fadeOut(tween(durationMillis = 160))) using SizeTransform(clip = false)
+                                ContentTransform(
+                                    targetContentEnter = fadeIn(
+                                        animationSpec = tween(durationMillis = 200)
+                                    ),
+                                    initialContentExit = fadeOut(
+                                        animationSpec = tween(durationMillis = 200)
+                                    ),
+                                    targetContentZIndex = 1f,
+                                    sizeTransform = null
+                                )
                             }
                         },
                         label = "root_shared_transition_host",
@@ -568,26 +584,24 @@ fun MyWalletApp(viewModel: MainViewModel) {
                                     targetState = currentTab,
                                     transitionSpec = {
                                         if (reducedMotion) {
-                                            fadeIn(tween(1)) togetherWith fadeOut(tween(1))
-                                        } else if (targetState.ordinal > initialState.ordinal) {
-                                            (slideInHorizontally(
-                                                animationSpec = tween(durationMillis = 240),
-                                                initialOffsetX = { it / 12 }
-                                            ) + fadeIn(animationSpec = tween(durationMillis = 240))) togetherWith
-                                                (slideOutHorizontally(
-                                                    animationSpec = tween(durationMillis = 180),
-                                                    targetOffsetX = { -it / 12 }
-                                                ) + fadeOut(animationSpec = tween(durationMillis = 180)))
+                                            ContentTransform(
+                                                targetContentEnter = fadeIn(tween(1)),
+                                                initialContentExit = fadeOut(tween(1)),
+                                                targetContentZIndex = 1f,
+                                                sizeTransform = null
+                                            )
                                         } else {
-                                            (slideInHorizontally(
-                                                animationSpec = tween(durationMillis = 240),
-                                                initialOffsetX = { -it / 12 }
-                                            ) + fadeIn(animationSpec = tween(durationMillis = 240))) togetherWith
-                                                (slideOutHorizontally(
-                                                    animationSpec = tween(durationMillis = 180),
-                                                    targetOffsetX = { it / 12 }
-                                                ) + fadeOut(animationSpec = tween(durationMillis = 180)))
-                                        } using SizeTransform(clip = false)
+                                            ContentTransform(
+                                                targetContentEnter = fadeIn(
+                                                    animationSpec = tween(durationMillis = 220, delayMillis = 180)
+                                                ),
+                                                initialContentExit = fadeOut(
+                                                    animationSpec = tween(durationMillis = 180)
+                                                ),
+                                                targetContentZIndex = 1f,
+                                                sizeTransform = null
+                                            )
+                                        }
                                     },
                                     label = "main_tab_directional_transition",
                                     modifier = Modifier.fillMaxSize()
@@ -614,7 +628,7 @@ fun MyWalletApp(viewModel: MainViewModel) {
                                 val resolvedSubScreen = remember(hostKey) {
                                     SubScreen.entries.firstOrNull { entry ->
                                         entry != SubScreen.NONE && hostKey.contains(":${entry.name}:")
-                                    } ?: currentSubScreen
+                                    } ?: SubScreen.NONE
                                 }
                                 navSaveableStateHolder.SaveableStateProvider(hostKey) {
                                     when (resolvedSubScreen) {
@@ -728,10 +742,16 @@ fun MyWalletApp(viewModel: MainViewModel) {
                         onBack = { viewModel.closeSubScreen(SubScreen.ADD_DEBT) }
                     )
                 }
+                SubScreen.GOAL_DETAILS -> {
+                    GoalDetailsScreen(
+                        viewModel = viewModel,
+                        onBack = { viewModel.closeSubScreen(SubScreen.GOAL_DETAILS) }
+                    )
+                }
                 SubScreen.NEW_SAVINGS_GOAL -> {
                     NewSavingsGoalScreen(
                         viewModel = viewModel,
-                        onBack = { viewModel.closeSubScreen() }
+                        onBack = { viewModel.closeSubScreen(SubScreen.NEW_SAVINGS_GOAL) }
                     )
                 }
                 SubScreen.CURRENCY_CONVERTER -> {
@@ -1144,7 +1164,7 @@ internal fun MyWalletBottomNavigationBar(
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Circular 56.dp "+" quick-add orb with translucent Royal Indigo-to-Violet Liquid Crystal Glass & live backdrop blur
+        // Circular 56.dp "+" quick-add FAB with rich opaque Royal Indigo-to-Electric Violet gradient
         val fabInteractionSource = remember { MutableInteractionSource() }
         val isFabPressed by fabInteractionSource.collectIsPressedAsState()
         val fabScale by animateFloatAsState(
@@ -1155,33 +1175,27 @@ internal fun MyWalletBottomNavigationBar(
             ),
             label = "quick_add_fab_press_scale"
         )
-        val fabGlassAlpha = if (isDark) 0.68f else 0.72f
-        val fabGlassTintBrush = remember(fabGlassAlpha) {
+        val fabGradientBrush = remember {
             Brush.linearGradient(
                 colors = listOf(
-                    Color(0xFF4F46E5).copy(alpha = fabGlassAlpha),
-                    Color(0xFF7C3AED).copy(alpha = fabGlassAlpha)
+                    Color(0xFF4F46E5),
+                    Color(0xFF7C3AED)
                 )
             )
         }
-        val fabCrystalRim = remember {
+        val fabRimBorder = remember(isDark) {
             BorderStroke(
-                width = 1.2.dp,
+                width = 1.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.65f),
-                        Color(0xFFC4B5FD).copy(alpha = 0.30f)
+                        Color.White.copy(alpha = if (isDark) 0.32f else 0.48f),
+                        Color(0xFFC4B5FD).copy(alpha = if (isDark) 0.16f else 0.24f)
                     )
                 )
             )
         }
-        val fabBackdropFallback = if (isDark) {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        } else {
-            Color.White
-        }
 
-        FrostedGlassSurface(
+        Box(
             modifier = Modifier
                 .size(56.dp)
                 .graphicsLayer {
@@ -1191,10 +1205,12 @@ internal fun MyWalletBottomNavigationBar(
                 .shadow(
                     elevation = 8.dp,
                     shape = CircleShape,
-                    ambientColor = Color(0xFF5B21B6).copy(alpha = 0.24f),
-                    spotColor = Color(0xFF5B21B6).copy(alpha = 0.32f)
+                    ambientColor = Color(0xFF4F46E5).copy(alpha = 0.30f),
+                    spotColor = Color(0xFF7C3AED).copy(alpha = 0.38f)
                 )
                 .clip(CircleShape)
+                .background(fabGradientBrush)
+                .border(fabRimBorder, CircleShape)
                 .clickable(
                     interactionSource = fabInteractionSource,
                     indication = ripple(bounded = true, color = Color.White),
@@ -1204,25 +1220,14 @@ internal fun MyWalletBottomNavigationBar(
                     }
                 )
                 .testTag("floating_add_transaction_button"),
-            shape = CircleShape,
-            baseBackgroundColor = fabBackdropFallback,
-            overlayBrush = fabGlassTintBrush,
-            restingTintBrush = fabGlassTintBrush,
-            blurRadius = 14.dp,
-            glassProgressOverride = 1f,
-            border = fabCrystalRim
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Add,
-                    contentDescription = "Add Transaction",
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
+            Icon(
+                imageVector = Icons.Rounded.Add,
+                contentDescription = "Add Transaction",
+                tint = Color.White,
+                modifier = Modifier.size(26.dp)
+            )
         }
     }
 }

@@ -307,7 +307,7 @@ fun FilteredReportsScreen(
         listState = listState,
         defaultHeaderHeight = 124.dp,
         extraTopGap = 4.dp,
-        bottomNavClearance = 104.dp
+        bottomNavClearance = 32.dp
     )
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -675,16 +675,18 @@ fun FilteredReportsScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        val circleBg = if (isDark) Color(0xFF1E293B).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.80f)
-                        val circleBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color.White
+                        val circleBg = if (isDark) Color(0xFF1E293B).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.75f)
+                        val circleBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.88f)
 
                         Surface(
                             shape = CircleShape,
                             color = circleBg,
                             border = BorderStroke(1.dp, circleBorder),
-                            shadowElevation = 2.dp,
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp,
                             modifier = Modifier
                                 .size(42.dp)
+                                .clip(CircleShape)
                                 .testTag("filtered_reports_back_btn"),
                             onClick = onBack
                         ) {
@@ -722,16 +724,18 @@ fun FilteredReportsScreen(
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val circleBg = if (isDark) Color(0xFF1E293B).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.80f)
-                        val circleBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color.White
+                        val circleBg = if (isDark) Color(0xFF1E293B).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.75f)
+                        val circleBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.88f)
 
                         Surface(
                             shape = CircleShape,
                             color = circleBg,
                             border = BorderStroke(1.dp, circleBorder),
-                            shadowElevation = 2.dp,
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp,
                             modifier = Modifier
                                 .size(40.dp)
+                                .clip(CircleShape)
                                 .testTag("filtered_reports_sort_btn"),
                             onClick = { showSortBottomSheet = true }
                         ) {
@@ -749,9 +753,11 @@ fun FilteredReportsScreen(
                             shape = CircleShape,
                             color = circleBg,
                             border = BorderStroke(1.dp, circleBorder),
-                            shadowElevation = 2.dp,
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp,
                             modifier = Modifier
                                 .size(40.dp)
+                                .clip(CircleShape)
                                 .testTag("filtered_reports_export_btn"),
                             onClick = { showExportDialog = true }
                         ) {
@@ -780,8 +786,11 @@ fun FilteredReportsScreen(
                             shape = CircleShape,
                             color = if (isDark) Color(0xFF1E293B).copy(alpha = 0.8f) else Color.White,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp,
                             modifier = Modifier
                                 .size(36.dp)
+                                .clip(CircleShape)
                                 .testTag("filtered_reports_open_sheet_btn"),
                             onClick = { showFilterBottomSheet = true }
                         ) {
@@ -1107,20 +1116,6 @@ fun FilteredReportsScreen(
                 Spacer(modifier = Modifier.height(4.dp))
             }
         }
-
-        // Sticky Frosted Glass Bottom Summary Pill
-        StickyReportSummaryPill(
-            filterType = filterType,
-            totalAmount = reportTotalAmount,
-            txCount = filteredTransactions.size,
-            currencySymbol = currencySymbol,
-            language = language,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 12.dp)
-        )
     }
 
     // Transaction Details Sheet
@@ -1632,111 +1627,6 @@ private fun InteractiveDailyBarChartCard(
                     }
                 }
             }
-        }
-    }
-}
-
-/**
- * Sticky frosted glass bottom summary pill showing Total Expense / Income / Transfers / Net Savings.
- */
-@Composable
-private fun StickyReportSummaryPill(
-    filterType: ActivityFilterType,
-    totalAmount: Double,
-    txCount: Int,
-    currencySymbol: String,
-    language: AppLanguage,
-    modifier: Modifier = Modifier
-) {
-    val isBn = language == AppLanguage.BANGLA
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-
-    val summaryLabel = when (filterType) {
-        ActivityFilterType.EXPENSES -> if (isBn) "মোট ব্যয়" else "Total Expense"
-        ActivityFilterType.INCOME -> if (isBn) "মোট আয়" else "Total Income"
-        ActivityFilterType.TRANSFERS -> if (isBn) "মোট ট্রান্সফার" else "Total Transfers"
-        ActivityFilterType.ALL -> if (isBn) "নেট সঞ্চয়" else "Net Savings"
-    }
-
-    val amountColor = when (filterType) {
-        ActivityFilterType.EXPENSES -> if (isDark) Color(0xFFFDA4AF) else ExpenseRed
-        ActivityFilterType.INCOME -> if (isDark) Color(0xFF6EE7B7) else IncomeGreen
-        ActivityFilterType.TRANSFERS -> if (isDark) Color(0xFF7DD3FC) else ReportTransferBlue
-        ActivityFilterType.ALL -> if (totalAmount >= 0.0) {
-            if (isDark) Color(0xFF6EE7B7) else IncomeGreen
-        } else {
-            if (isDark) Color(0xFFFDA4AF) else ExpenseRed
-        }
-    }
-
-    val pillBg = if (isDark) Color(0xFF0F172A).copy(alpha = 0.92f) else Color.White.copy(alpha = 0.94f)
-    val pillBorder = if (isDark) Color.White.copy(alpha = 0.16f) else ReportRoyalIndigo.copy(alpha = 0.18f)
-
-    Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = pillBg,
-        border = BorderStroke(1.dp, pillBorder),
-        shadowElevation = if (isDark) 6.dp else 10.dp,
-        modifier = modifier.testTag("filtered_reports_sticky_summary")
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 13.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(listOf(ReportRoyalIndigo, ReportElectricViolet))
-                        )
-                )
-                Column {
-                    Text(
-                        text = summaryLabel,
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 13.sp
-                        )
-                    )
-                    val countStr = if (isBn) {
-                        "${CurrencyFormatter.convertToBanglaDigits(txCount.toString())}টি লেনদেন"
-                    } else {
-                        if (txCount == 1) "1 transaction" else "$txCount transactions"
-                    }
-                    Text(
-                        text = countStr,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 10.5.sp
-                        )
-                    )
-                }
-            }
-
-            Text(
-                text = CurrencyFormatter.format(
-                    totalAmount,
-                    currencySymbol,
-                    filterType == ActivityFilterType.ALL,
-                    language
-                ),
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                    color = amountColor,
-                    fontSize = 17.sp,
-                    fontFeatureSettings = "tnum"
-                ),
-                modifier = Modifier.testTag("filtered_reports_sticky_total")
-            )
         }
     }
 }

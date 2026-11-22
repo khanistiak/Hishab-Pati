@@ -109,6 +109,14 @@ private fun indigoVioletGradient(): Brush = Brush.linearGradient(
     colors = listOf(RoyalIndigo, ElectricViolet)
 )
 
+private data class DonutSliceArc(
+    val startAngle: Float,
+    val sweepAngle: Float,
+    val color: Color,
+    val strokeWidth: Float,
+    val isSelected: Boolean
+)
+
 /**
  * 1. Period Controls: Royal Indigo-to-Electric Violet gradient active chips + Frosted Glass date capsule (< Month >).
  * Highlights a quick-filter chip ONLY when it accurately matches the active calendar range (Last Month, This Month, etc.).
@@ -1298,15 +1306,20 @@ fun CategorySpendingCard(
             }
     }
 
-    // Smooth entry animation for segmented donut arcs
+    // Smooth continuous sweep animation for Donut Ring
     val sweepAnim = remember(dateRange, activeType, categoryItems.size, totalAmount) { Animatable(0f) }
     LaunchedEffect(dateRange, activeType, categoryItems.size, totalAmount) {
         sweepAnim.snapTo(0f)
         sweepAnim.animateTo(
             targetValue = 1f,
-            animationSpec = tween(durationMillis = 580, easing = FastOutSlowInEasing)
+            animationSpec = tween(durationMillis = 660, easing = FastOutSlowInEasing)
         )
     }
+    val selectedStrokeBoost by animateFloatAsState(
+        targetValue = if (activeSelectedItem != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "donut_selected_stroke_boost"
+    )
 
     val centerDisplayAmount = activeSelectedItem?.amount ?: totalAmount
     val centerFormatted = CurrencyFormatter.format(centerDisplayAmount, currencySymbol, language = language)
@@ -1535,10 +1548,11 @@ fun CategorySpendingCard(
                                         var angleDeg = (atan2(dy.toDouble(), dx.toDouble()) * 180.0 / PI).toFloat()
                                         // Convert so -90° (top 12 o'clock) maps to 0°..360° clockwise
                                         angleDeg = (angleDeg + 90f + 360f) % 360f
+                                        val totalPct = categoryItems.sumOf { it.percentage.toDouble() }.toFloat().coerceAtLeast(1f)
                                         var cumulative = 0f
                                         var tappedCat: String? = null
                                         for (item in categoryItems) {
-                                            val sweep = (item.percentage / 100f) * 360f
+                                            val sweep = (item.percentage / totalPct) * 360f
                                             if (angleDeg in cumulative..(cumulative + sweep)) {
                                                 tappedCat = item.categoryName
                                                 break
@@ -1563,14 +1577,16 @@ fun CategorySpendingCard(
 
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val strokePx = 22.dp.toPx()
-                            val inset = strokePx / 2f + 4.dp.toPx()
+                            val selectedExtraPx = 3.dp.toPx() * selectedStrokeBoost
+                            val maxStrokePx = strokePx + 3.dp.toPx()
+                            val inset = maxStrokePx / 2f + 2.dp.toPx()
                             val arcSize = Size(
                                 width = (size.width - inset * 2f).coerceAtLeast(10f),
                                 height = (size.height - inset * 2f).coerceAtLeast(10f)
                             )
                             val topLeft = Offset(inset, inset)
-                            val radius = arcSize.width / 2f
 
+                            // Subtle continuous base track
                             drawArc(
                                 color = trackColor,
                                 startAngle = 0f,
@@ -1581,41 +1597,73 @@ fun CategorySpendingCard(
                                 style = Stroke(width = strokePx, cap = StrokeCap.Butt)
                             )
 
-                            val circumference = (2.0 * Math.PI * radius).toFloat().coerceAtLeast(1f)
-                            val gapDegrees = if (categoryItems.size > 1) {
-                                (((2.dp.toPx() + strokePx * 0.42f) / circumference) * 360f).coerceIn(3f, 16f)
-                            } else {
-                                0f
-                            }
-
-                            var startAngle = -90f
-                            val animFrac = sweepAnim.value
+                            val gapDegrees = if (categoryItems.size > 1) 1.5f else 0f
+                            val totalPct = categoryItems.sumOf { it.percentage.toDouble() }.toFloat().coerceAtLeast(1f)
+                            val totalAnimatedAngle = 360f * sweepAnim.value
                             val hasSelection = activeSelectedItem != null
+
+                            val slicesToDraw = ArrayList<DonutSliceArc>(categoryItems.size)
+                            var cumulativeAngle = 0f
                             categoryItems.forEach { item ->
-                                val rawSweep = (item.percentage / 100f) * 360f
-                                val drawnSweep = ((rawSweep - gapDegrees) * animFrac).coerceAtLeast(
-                                    if (rawSweep > 1.5f) 1.5f * animFrac else 0f
-                                )
+                                val rawSweep = (item.percentage / totalPct) * 360f
+                                val effectiveGap = if (categoryItems.size > 1) {
+                                    minOf(gapDegrees, rawSweep * 0.35f)
+                                } else {
+                                    0f
+                                }
+                                val sliceStart = cumulativeAngle + (effectiveGap / 2f)
+                                val sliceEnd = cumulativeAngle + rawSweep - (effectiveGap / 2f)
+                                val visibleEnd = minOf(sliceEnd, totalAnimatedAngle)
+                                val drawnSweep = (visibleEnd - sliceStart).coerceAtLeast(0f)
+
                                 val isSelected = activeSelectedItem?.categoryName.equals(item.categoryName, ignoreCase = true)
-                                val segStroke = if (isSelected) strokePx + 3.5.dp.toPx() else strokePx
+                                val segStroke = if (isSelected) strokePx + selectedExtraPx else strokePx
                                 val sliceColor = if (hasSelection && !isSelected) {
                                     item.color.copy(alpha = 0.25f)
                                 } else {
                                     item.color
                                 }
 
-                                if (drawnSweep > 0.2f) {
+                                if (drawnSweep > 0.05f) {
+                                    slicesToDraw.add(
+                                        DonutSliceArc(
+                                            startAngle = -90f + sliceStart,
+                                            sweepAngle = drawnSweep,
+                                            color = sliceColor,
+                                            strokeWidth = segStroke,
+                                            isSelected = isSelected
+                                        )
+                                    )
+                                }
+                                cumulativeAngle += rawSweep
+                            }
+
+                            // Draw unselected slices first, then selected slice on top for clean radial edges
+                            slicesToDraw.forEach { slice ->
+                                if (!slice.isSelected) {
                                     drawArc(
-                                        color = sliceColor,
-                                        startAngle = startAngle + (gapDegrees / 2f),
-                                        sweepAngle = drawnSweep,
+                                        color = slice.color,
+                                        startAngle = slice.startAngle,
+                                        sweepAngle = slice.sweepAngle,
                                         useCenter = false,
                                         topLeft = topLeft,
                                         size = arcSize,
-                                        style = Stroke(width = segStroke, cap = StrokeCap.Round)
+                                        style = Stroke(width = slice.strokeWidth, cap = StrokeCap.Butt)
                                     )
                                 }
-                                startAngle += rawSweep
+                            }
+                            slicesToDraw.forEach { slice ->
+                                if (slice.isSelected) {
+                                    drawArc(
+                                        color = slice.color,
+                                        startAngle = slice.startAngle,
+                                        sweepAngle = slice.sweepAngle,
+                                        useCenter = false,
+                                        topLeft = topLeft,
+                                        size = arcSize,
+                                        style = Stroke(width = slice.strokeWidth, cap = StrokeCap.Butt)
+                                    )
+                                }
                             }
                         }
 
@@ -1845,8 +1893,11 @@ fun CategorySpendingCard(
                                 1.dp,
                                 if (isDark) Color.White.copy(alpha = 0.14f) else Color(0xFFE2E8F0)
                             ),
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp,
                             modifier = Modifier
                                 .size(40.dp)
+                                .clip(CircleShape)
                                 .testTag("insights_strip_cat_${item.categoryName}")
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -2043,8 +2094,9 @@ fun CategorySpendingCard(
                     categoryItems.take(5)
                 }
 
-                val tileBg = if (isDark) Color(0xFF1E293B).copy(alpha = 0.56f) else Color.White.copy(alpha = 0.72f)
-                val tileBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.88f)
+                val rowShape = RoundedCornerShape(14.dp)
+                val tileBg = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f)
+                val tileBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.85f)
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -2069,7 +2121,7 @@ fun CategorySpendingCard(
 
                         Surface(
                             onClick = { openFilteredReport(item.categoryName) },
-                            shape = RoundedCornerShape(14.dp),
+                            shape = rowShape,
                             color = if (isHighlighted) {
                                 item.color.copy(alpha = if (isDark) 0.16f else 0.10f)
                             } else {
@@ -2079,10 +2131,11 @@ fun CategorySpendingCard(
                                 width = if (isHighlighted) 1.25.dp else 1.dp,
                                 color = if (isHighlighted) item.color.copy(alpha = 0.45f) else tileBorder
                             ),
-                            shadowElevation = if (isDark) 0.dp else 1.dp,
+                            shadowElevation = 0.dp,
                             tonalElevation = 0.dp,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(rowShape)
                                 .testTag("category_spending_row_${item.categoryName}")
                         ) {
                             Row(

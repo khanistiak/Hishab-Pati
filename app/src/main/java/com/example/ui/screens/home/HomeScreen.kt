@@ -474,7 +474,8 @@ fun HomeScreen(
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
                                 onSeeAllClick = { viewModel.setTab(MainTab.PLAN) },
-                                onAddGoalClick = { viewModel.openSubScreen(SubScreen.NEW_SAVINGS_GOAL) }
+                                onAddGoalClick = { viewModel.openNewSavingsGoal() },
+                                onGoalClick = { goal -> viewModel.openGoalDetails(goal) }
                             )
                         }
                     }
@@ -3182,7 +3183,8 @@ private fun HomeSavingsGoalsSection(
     currencySymbol: String,
     isBangla: Boolean,
     onSeeAllClick: () -> Unit,
-    onAddGoalClick: () -> Unit
+    onAddGoalClick: () -> Unit,
+    onGoalClick: (SavingsGoalEntity) -> Unit = { onSeeAllClick() }
 ) {
     Column(
         modifier = Modifier
@@ -3276,7 +3278,7 @@ private fun HomeSavingsGoalsSection(
                     TranslucentCard(
                         modifier = Modifier.fillMaxWidth(),
                         cornerRadius = 16.dp,
-                        onClick = onSeeAllClick
+                        onClick = { onGoalClick(goal) }
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                             Row(

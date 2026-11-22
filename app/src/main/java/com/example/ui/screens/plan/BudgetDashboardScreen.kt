@@ -10,15 +10,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,7 +38,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -69,8 +66,11 @@ import com.example.data.local.entity.TransactionEntity
 import com.example.data.model.AppLanguage
 import com.example.ui.BudgetDetailsArgs
 import com.example.ui.MainViewModel
+import com.example.ui.SubScreen
+import com.example.ui.components.ScrollAwareFixedHeader
 import com.example.ui.components.getIconForName
-import com.example.ui.navigation.rememberScreenLazyListState
+import com.example.ui.components.recordFrostedBackdrop
+import com.example.ui.components.rememberScrollAwareGlassLayout
 import com.example.ui.theme.CardBackgroundDark
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
@@ -376,160 +376,35 @@ fun BudgetDashboardScreen(
         unbudgetedModels.filter { it.spent <= 0.001 }.sortedBy { it.displayName.lowercase(Locale.ENGLISH) }
     }
 
-    val backgroundBrush = remember(isDark) {
-        if (isDark) {
-            Brush.verticalGradient(
-                listOf(Color(0xFF090D16), Color(0xFF111827), Color(0xFF0B132B))
-            )
-        } else {
-            Brush.verticalGradient(
-                listOf(Color(0xFFEAEFFC), Color(0xFFF3F0FC), Color(0xFFF8FAFC))
-            )
-        }
-    }
-
     val cardColor = if (isDark) CardBackgroundDark else Color.White
     val cardBorderColor = if (isDark) Color(0x28A5B4FC) else Color(0x1A6366F1)
-    val topBarBg = if (isDark) Color(0xEB0E1426) else Color(0xEBFFFFFF)
-    val navBarBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val listState = rememberScreenLazyListState(viewModel = viewModel)
+    val listState = viewModel.rememberScreenLazyListState(
+        subKey = "budget_dashboard_list",
+        screenOverride = SubScreen.BUDGET_DASHBOARD
+    )
+    val scrollLayout = rememberScrollAwareGlassLayout(
+        listState = listState,
+        defaultHeaderHeight = 68.dp,
+        extraTopGap = 6.dp,
+        bottomNavClearance = 96.dp
+    )
 
-    Scaffold(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(backgroundBrush)
-            .testTag("budget_dashboard_screen"),
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            // Proper Scaffold topBar with translucent frosted glass surface so scrolling NEVER overlaps the header
-            Surface(
-                color = topBarBg,
-                shadowElevation = if (isDark) 0.dp else 1.5.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("budget_dashboard_header")
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isDark) {
-                                    Color.White.copy(alpha = 0.08f)
-                                } else {
-                                    BudgetRoyalIndigo.copy(alpha = 0.08f)
-                                },
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .testTag("budget_dashboard_back_button"),
-                                onClick = onBack
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = AppStrings.t("back", language),
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column {
-                                Text(
-                                    text = AppStrings.t("budget_dashboard", language),
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = AppStrings.t("monthly_spending_vs_limit", language),
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 11.5.sp
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Royal Indigo-to-Electric Violet + Add Budget pill button
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(BudgetRoyalIndigo, BudgetElectricViolet)
-                                    )
-                                )
-                                .clickable {
-                                    viewModel.openAddBudget(
-                                        budget = null,
-                                        defaultMonthKey = selectedMonthKey
-                                    )
-                                }
-                                .padding(horizontal = 13.dp, vertical = 9.dp)
-                                .testTag("add_budget_button"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = AppStrings.t("add_budget_btn", language),
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = AppStrings.t("add_budget_btn", language),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(
-                        thickness = 1.dp,
-                        color = if (isDark) Color(0x20A5B4FC) else Color(0x164F46E5)
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
+            .testTag("budget_dashboard_screen")
+    ) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(
-                top = 12.dp,
-                bottom = navBarBottomPadding + 28.dp
-            ),
+            contentPadding = scrollLayout.contentPadding,
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = innerPadding.calculateTopPadding())
+                .recordFrostedBackdrop(
+                    scrollLayout.backdropState,
+                    listState,
+                    scrollLayout.contentGraphicsLayer
+                )
         ) {
             // 1. Period Selector Bar (< November 2026 > + Current Month pill)
             item(key = "budget_period_bar") {
@@ -983,6 +858,108 @@ fun BudgetDashboardScreen(
                     }
                 }
             }
+        }
+
+        // Fixed scroll-aware frosted liquid-glass header (matches PlanScreen exactly)
+        ScrollAwareFixedHeader(
+            layoutState = scrollLayout,
+            testTag = "budget_dashboard_header"
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (isDark) {
+                        Color.White.copy(alpha = 0.08f)
+                    } else {
+                        Color.White.copy(alpha = 0.72f)
+                    },
+                    border = BorderStroke(
+                        1.dp,
+                        if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.85f)
+                    ),
+                    shadowElevation = 0.dp,
+                    tonalElevation = 0.dp,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .testTag("budget_dashboard_back_button"),
+                    onClick = onBack
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = AppStrings.t("back", language),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = AppStrings.t("budget_dashboard", language),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = AppStrings.t("monthly_spending_vs_limit", language),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.5.sp
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        // Bottom-right Royal Indigo-to-Electric Violet circular + FAB
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 16.dp, bottom = 16.dp)
+                .shadow(
+                    elevation = 8.dp,
+                    shape = CircleShape,
+                    ambientColor = BudgetRoyalIndigo,
+                    spotColor = BudgetElectricViolet
+                )
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(BudgetRoyalIndigo, BudgetElectricViolet)
+                    )
+                )
+                .clickable {
+                    viewModel.openAddBudget(
+                        budget = null,
+                        defaultMonthKey = selectedMonthKey
+                    )
+                }
+                .testTag("add_budget_button"),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = AppStrings.t("add_budget_btn", language),
+                tint = Color.White,
+                modifier = Modifier.size(26.dp)
+            )
         }
     }
 }

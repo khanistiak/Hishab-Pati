@@ -2,6 +2,7 @@ package com.example.ui.screens.activity
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -277,17 +279,19 @@ fun TransactionDetailsSheetContent(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .wrapContentHeight()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 16.dp)
             .navigationBarsPadding()
-            .padding(top = 4.dp, bottom = 24.dp)
-            .testTag("transaction_details_sheet")
+            .padding(top = 4.dp, bottom = 12.dp)
+            .testTag("transaction_details_sheet"),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // 1. Sheet Header Row: Title + High-Contrast Close Button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 14.dp),
+                .padding(top = 4.dp, bottom = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -295,7 +299,7 @@ fun TransactionDetailsSheetContent(
                 text = if (isBn) "লেনদেনের বিবরণ" else "Transaction Details",
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Bold,
-                    fontSize = 19.sp,
+                    fontSize = 18.sp,
                     color = textPrimary
                 )
             )
@@ -309,9 +313,9 @@ fun TransactionDetailsSheetContent(
             )
         }
 
-        // 2. Hero Summary Card: Category Icon, Type Pill, Transaction Title, and Prominent Amount
+        // 2. Premium Compact Hero Summary Card (Horizontal-or-compact Bento header card)
         Surface(
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(20.dp),
             color = cardSurfaceColor,
             border = BorderStroke(1.dp, cardBorderColor),
             shadowElevation = if (isDark) 0.dp else 1.dp,
@@ -319,89 +323,91 @@ fun TransactionDetailsSheetContent(
                 .fillMaxWidth()
                 .testTag("tx_details_hero_card")
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+                CategoryIcon(
+                    iconName = categoryIconName,
+                    colorHex = categoryColorHex,
+                    size = 44.dp
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    CategoryIcon(
-                        iconName = categoryIconName,
-                        colorHex = categoryColorHex,
-                        size = 48.dp
-                    )
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    // Transaction Type Pill Badge
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = typeBadgeBgColor,
-                        border = BorderStroke(1.dp, typeAccentColor.copy(alpha = 0.28f)),
-                        modifier = Modifier.testTag("tx_details_type_badge")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Text(
+                            text = displayTitle,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = textPrimary
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .testTag("tx_details_title")
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Transaction Type Pill Badge
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = typeBadgeBgColor,
+                            border = BorderStroke(1.dp, typeAccentColor.copy(alpha = 0.3f)),
+                            modifier = Modifier.testTag("tx_details_type_badge")
                         ) {
-                            Icon(
-                                imageVector = typeIcon,
-                                contentDescription = null,
-                                tint = typeAccentColor,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = typeDisplayLabel,
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.5.sp,
-                                    color = typeAccentColor
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = typeIcon,
+                                    contentDescription = null,
+                                    tint = typeAccentColor,
+                                    modifier = Modifier.size(13.dp)
                                 )
-                            )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = typeDisplayLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.5.sp,
+                                        color = typeAccentColor
+                                    )
+                                )
+                            }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = formattedAmount,
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 22.sp,
+                            color = typeAccentColor
+                        ),
+                        modifier = Modifier.testTag("tx_details_amount")
+                    )
                 }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Transaction Name / Title
-                Text(
-                    text = displayTitle,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = textPrimary
-                    ),
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("tx_details_title")
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Prominent Formatted Amount
-                Text(
-                    text = formattedAmount,
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 28.sp,
-                        color = typeAccentColor
-                    ),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("tx_details_amount")
-                )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // 3. Prominent Wallet / Account Section Card (Single Wallet or Transfer Source -> Destination)
+        // 3. Streamlined Wallet / Account Section Card (Remove Double-Nested Box)
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = cardSurfaceColor,
@@ -434,8 +440,6 @@ fun TransactionDetailsSheetContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
         // 4. Structured Transaction Details Card (Category, Subcategory when present, Date & Time, Payee when present)
         Surface(
             shape = RoundedCornerShape(20.dp),
@@ -449,7 +453,7 @@ fun TransactionDetailsSheetContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
             ) {
                 if (showCategoryRow) {
                     DetailInfoRow(
@@ -506,10 +510,8 @@ fun TransactionDetailsSheetContent(
             }
         }
 
-        // 5. Note / Description Card — ONLY rendered when a note actually exists
+        // 5. Smart Note Card — ONLY rendered when a note actually exists, with minHeight removed
         if (transaction.notes.isNotBlank()) {
-            Spacer(modifier = Modifier.height(12.dp))
-
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = cardSurfaceColor,
@@ -522,13 +524,13 @@ fun TransactionDetailsSheetContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(30.dp)
-                                .clip(RoundedCornerShape(9.dp))
+                                .size(26.dp)
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.18f else 0.10f)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -536,27 +538,27 @@ fun TransactionDetailsSheetContent(
                                 imageVector = Icons.AutoMirrored.Filled.Notes,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (isBn) "নোট" else "Note",
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
+                                fontSize = 12.5.sp,
                                 color = textSecondary
                             )
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
                         text = transaction.notes,
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            fontSize = 14.5.sp,
-                            lineHeight = 20.sp,
+                            fontSize = 14.sp,
+                            lineHeight = 19.sp,
                             color = textPrimary
                         ),
                         modifier = Modifier.testTag("tx_details_notes_text")
@@ -565,14 +567,13 @@ fun TransactionDetailsSheetContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
-
-        // 6. Action Buttons Row: Duplicate, Edit, and Visually Distinct Delete
+        // 6. Sticky / Grounded Action Bar (Duplicate, Edit, Delete)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(top = 2.dp)
                 .testTag("tx_details_actions_row"),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Duplicate Button
@@ -580,16 +581,16 @@ fun TransactionDetailsSheetContent(
             val duplicateBorder = if (isDark) Color(0xFF3B4666) else Color(0xFFCBD5E1)
             Surface(
                 onClick = { onDuplicate(transaction) },
-                shape = RoundedCornerShape(15.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = duplicateBg,
                 border = BorderStroke(1.dp, duplicateBorder),
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 48.dp)
+                    .heightIn(min = 46.dp)
                     .testTag("tx_details_duplicate_button")
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -597,14 +598,14 @@ fun TransactionDetailsSheetContent(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = null,
                         tint = textPrimary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = if (isBn) "ডুপ্লিকেট" else "Duplicate",
                         style = MaterialTheme.typography.labelLarge.copy(
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp,
+                            fontSize = 13.sp,
                             color = textPrimary
                         ),
                         maxLines = 1,
@@ -613,7 +614,7 @@ fun TransactionDetailsSheetContent(
                 }
             }
 
-            // Edit Button
+            // Edit Button (Primary tinted accent)
             val primaryColor = MaterialTheme.colorScheme.primary
             val editBg = primaryColor.copy(alpha = if (isDark) 0.22f else 0.12f)
             val editBorder = primaryColor.copy(alpha = if (isDark) 0.48f else 0.32f)
@@ -623,16 +624,16 @@ fun TransactionDetailsSheetContent(
 
             Surface(
                 onClick = { onEdit(transaction) },
-                shape = RoundedCornerShape(15.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = editBg,
                 border = BorderStroke(1.dp, editBorder),
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 48.dp)
+                    .heightIn(min = 46.dp)
                     .testTag("tx_details_edit_button")
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -640,14 +641,14 @@ fun TransactionDetailsSheetContent(
                         imageVector = Icons.Default.Edit,
                         contentDescription = null,
                         tint = editTint,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = if (isBn) "সম্পাদনা" else "Edit",
                         style = MaterialTheme.typography.labelLarge.copy(
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.5.sp,
+                            fontSize = 13.sp,
                             color = editTint
                         ),
                         maxLines = 1,
@@ -656,23 +657,23 @@ fun TransactionDetailsSheetContent(
                 }
             }
 
-            // Delete Button (Visually distinct destructive style)
+            // Delete Button (Soft crimson accent)
             val deleteTint = if (isDark) Color(0xFFF87171) else ExpenseRed
             val deleteBg = ExpenseRed.copy(alpha = if (isDark) 0.18f else 0.10f)
             val deleteBorder = ExpenseRed.copy(alpha = if (isDark) 0.42f else 0.28f)
 
             Surface(
                 onClick = { onDelete(transaction) },
-                shape = RoundedCornerShape(15.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = deleteBg,
                 border = BorderStroke(1.dp, deleteBorder),
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 48.dp)
+                    .heightIn(min = 46.dp)
                     .testTag("tx_details_delete_button")
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -680,14 +681,14 @@ fun TransactionDetailsSheetContent(
                         imageVector = Icons.Default.DeleteOutline,
                         contentDescription = null,
                         tint = deleteTint,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(5.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = if (isBn) "মুছুন" else "Delete",
                         style = MaterialTheme.typography.labelLarge.copy(
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.5.sp,
+                            fontSize = 13.sp,
                             color = deleteTint
                         ),
                         maxLines = 1,
@@ -716,7 +717,7 @@ private fun SingleWalletCardContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
         Text(
             text = if (isBn) "ওয়ালেট / অ্যাকাউন্ট" else "Wallet / Account",
@@ -727,7 +728,7 @@ private fun SingleWalletCardContent(
             )
         )
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         WalletEndpointRow(
             account = account,
@@ -763,7 +764,7 @@ private fun TransferWalletsCardContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
             .testTag("tx_details_transfer_wallets_section")
     ) {
         // Source Wallet
@@ -775,7 +776,7 @@ private fun TransferWalletsCardContent(
                 color = textSecondary
             )
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         WalletEndpointRow(
             account = sourceAccount,
             fallbackName = fromWalletName,
@@ -792,7 +793,7 @@ private fun TransferWalletsCardContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 10.dp),
+                .padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             HorizontalDivider(
@@ -805,15 +806,15 @@ private fun TransferWalletsCardContent(
                 color = TransferBlue.copy(alpha = if (isDark) 0.22f else 0.12f),
                 border = BorderStroke(1.dp, TransferBlue.copy(alpha = 0.30f)),
                 modifier = Modifier
-                    .padding(horizontal = 10.dp)
-                    .size(28.dp)
+                    .padding(horizontal = 8.dp)
+                    .size(26.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
                         contentDescription = if (isBn) "স্থানান্তর" else "Transferred to",
                         tint = if (isDark) Color(0xFF60A5FA) else TransferBlue,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
@@ -833,7 +834,7 @@ private fun TransferWalletsCardContent(
                 color = textSecondary
             )
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         WalletEndpointRow(
             account = destinationAccount,
             fallbackName = toWalletName,
@@ -864,100 +865,95 @@ private fun WalletEndpointRow(
     val rowBg = if (isDark) Color(0xFF161B29) else Color(0xFFF8FAFC)
     val rowBorder = if (isDark) Color(0xFF2A324B) else Color(0xFFE2E8F0)
 
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = rowBg,
-        border = BorderStroke(1.dp, rowBorder),
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag(testTag)
+            .clip(RoundedCornerShape(12.dp))
+            .background(rowBg)
+            .border(BorderStroke(1.dp, rowBorder), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (account != null) {
-                CategoryIcon(
-                    iconName = account.iconName.ifBlank { defaultAccountIconName(account.type) },
-                    colorHex = account.colorHex.ifBlank { "#4F46E5" },
-                    size = 40.dp
+        if (account != null) {
+            CategoryIcon(
+                iconName = account.iconName.ifBlank { defaultAccountIconName(account.type) },
+                colorHex = account.colorHex.ifBlank { "#4F46E5" },
+                size = 38.dp
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountBalanceWallet,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
                 )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AccountBalanceWallet,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = account?.name?.takeIf { it.isNotBlank() } ?: fallbackName,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.5.sp,
+                        color = textPrimary
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (!typeBadgeLabel.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isDark) Color(0xFF283149) else Color(0xFFE2E8F0)
+                    ) {
+                        Text(
+                            text = typeBadgeLabel,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 10.5.sp,
+                                color = if (isDark) Color(0xFFCBD5E1) else Color(0xFF475569)
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = account?.name?.takeIf { it.isNotBlank() } ?: fallbackName,
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = textPrimary
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    if (!typeBadgeLabel.isNullOrBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isDark) Color(0xFF283149) else Color(0xFFE2E8F0)
-                        ) {
-                            Text(
-                                text = typeBadgeLabel,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 11.sp,
-                                    color = if (isDark) Color(0xFFCBD5E1) else Color(0xFF475569)
-                                ),
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
+            if (account != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                val balancePrefix = if (account.type == AccountType.CREDIT_CARD) {
+                    if (isBn) "বকেয়া ব্যালেন্স: " else "Balance: "
+                } else {
+                    if (isBn) "বর্তমান ব্যালেন্স: " else "Balance: "
                 }
-
-                if (account != null) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    val balancePrefix = if (account.type == AccountType.CREDIT_CARD) {
-                        if (isBn) "বকেয়া ব্যালেন্স: " else "Balance: "
-                    } else {
-                        if (isBn) "বর্তমান ব্যালেন্স: " else "Balance: "
-                    }
-                    Text(
-                        text = balancePrefix + CurrencyFormatter.format(
-                            account.balance,
-                            currencySymbol,
-                            language = language
-                        ),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 12.sp,
-                            color = textSecondary
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Text(
+                    text = balancePrefix + CurrencyFormatter.format(
+                        account.balance,
+                        currencySymbol,
+                        language = language
+                    ),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 11.5.sp,
+                        color = textSecondary
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -976,7 +972,7 @@ private fun DetailInfoRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 11.dp)
+            .padding(vertical = 10.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -987,8 +983,8 @@ private fun DetailInfoRow(
         ) {
             Box(
                 modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(9.dp))
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(iconTint.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -996,27 +992,27 @@ private fun DetailInfoRow(
                     imageVector = icon,
                     contentDescription = null,
                     tint = iconTint,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(15.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = FontWeight.Medium,
-                    fontSize = 13.5.sp,
+                    fontSize = 13.sp,
                     color = textSecondary
                 )
             )
         }
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium.copy(
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
+                fontSize = 13.5.sp,
                 color = textPrimary
             ),
             textAlign = TextAlign.End,

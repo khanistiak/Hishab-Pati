@@ -16,15 +16,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -71,7 +73,10 @@ import com.example.ui.MainViewModel
 import com.example.ui.components.CalculatorEvaluator
 import com.example.ui.components.CalculatorKeypad
 import com.example.ui.components.HishabPatiDatePickerDialog
+import com.example.ui.components.ScrollAwareFixedHeader
 import com.example.ui.components.getIconForName
+import com.example.ui.components.recordFrostedBackdrop
+import com.example.ui.components.rememberScrollAwareGlassLayout
 import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
 import com.example.ui.util.DateFormatter
@@ -245,11 +250,9 @@ fun AddEditBudgetScreen(
 
     val accentColor = parseBudgetHexColor(selectedColorHex)
 
-    // Theme tokens (strictly preserving Hishab Pati Light/Dark Royal Indigo-to-Electric Violet Bento)
-    val screenBg = MaterialTheme.colorScheme.background
     val cardBg = if (isDark) Color(0xFF17192D) else Color.White
     val subtleBg = if (isDark) Color(0xFF1F223B) else Color(0xFFF4F5FB)
-    val headerBg = if (isDark) Color(0xFF121426).copy(alpha = 0.94f) else Color(0xFFF9FAFF).copy(alpha = 0.94f)
+    val bottomBarBg = if (isDark) Color(0xFF121426).copy(alpha = 0.94f) else Color(0xFFF9FAFF).copy(alpha = 0.94f)
     val borderCol = if (isDark) Color.White.copy(alpha = 0.08f) else RoyalIndigoBrand.copy(alpha = 0.12f)
 
     BackHandler {
@@ -343,57 +346,18 @@ fun AddEditBudgetScreen(
         onBack()
     }
 
+    val listState = rememberLazyListState()
+    val scrollLayout = rememberScrollAwareGlassLayout(
+        listState = listState,
+        defaultHeaderHeight = 64.dp,
+        extraTopGap = 6.dp,
+        bottomNavClearance = 16.dp
+    )
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = screenBg,
-        topBar = {
-            Surface(
-                color = headerBg,
-                shadowElevation = 0.dp,
-                border = BorderStroke(0.8.dp, borderCol)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("add_edit_budget_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = AppStrings.t("back", language),
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (isEditing) {
-                                AppStrings.t("edit_budget_screen_title", language)
-                            } else {
-                                AppStrings.t("create_budget_title", language)
-                            },
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (isOverallMode) {
-                            Text(
-                                text = AppStrings.t("overall_budget_mode_banner", language),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isDark) Color(0xFFA5B4FC) else RoyalIndigoBrand
-                            )
-                        }
-                    }
-                }
-            }
-        },
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (showCalculator) {
                 CalculatorKeypad(
@@ -418,7 +382,7 @@ fun AddEditBudgetScreen(
                 )
             } else {
                 Surface(
-                    color = headerBg,
+                    color = bottomBarBg,
                     border = BorderStroke(0.8.dp, borderCol)
                 ) {
                     Column(
@@ -466,13 +430,24 @@ fun AddEditBudgetScreen(
             }
         }
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .recordFrostedBackdrop(
+                        scrollLayout.backdropState,
+                        listState,
+                        scrollLayout.contentGraphicsLayer
+                    ),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = scrollLayout.contentPadding.calculateTopPadding(),
+                    bottom = innerPadding.calculateBottomPadding() + 16.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             // Optional Overall Mode Banner
             if (isOverallMode) {
                 item {
@@ -533,40 +508,46 @@ fun AddEditBudgetScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Clickable squircle icon & accent badge
+                        // Clickable 48.dp squircle icon with anchored bottom-end pencil edit badge
                         Box(
                             modifier = Modifier
-                                .size(62.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(
-                                            accentColor.copy(alpha = if (isDark) 0.30f else 0.18f),
-                                            accentColor.copy(alpha = if (isDark) 0.14f else 0.08f)
-                                        )
-                                    )
-                                )
-                                .border(1.5.dp, accentColor.copy(alpha = 0.50f), RoundedCornerShape(20.dp))
+                                .size(48.dp)
                                 .clickable {
                                     showCalculator = false
                                     showIconColorSheet = true
                                 }
-                                .testTag("budget_icon_picker_button"),
-                            contentAlignment = Alignment.Center
+                                .testTag("budget_icon_picker_button")
                         ) {
-                            Icon(
-                                imageVector = getIconForName(selectedIcon),
-                                contentDescription = AppStrings.t("pick_icon_color_title", language),
-                                tint = accentColor,
-                                modifier = Modifier.size(28.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clip(RoundedCornerShape(15.dp))
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(
+                                                accentColor.copy(alpha = if (isDark) 0.30f else 0.18f),
+                                                accentColor.copy(alpha = if (isDark) 0.14f else 0.08f)
+                                            )
+                                        )
+                                    )
+                                    .border(1.5.dp, accentColor.copy(alpha = 0.50f), RoundedCornerShape(15.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = getIconForName(selectedIcon),
+                                    contentDescription = AppStrings.t("pick_icon_color_title", language),
+                                    tint = accentColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
-                                    .padding(4.dp)
+                                    .offset(x = 2.dp, y = 2.dp)
                                     .size(18.dp)
                                     .clip(CircleShape)
-                                    .background(accentColor),
+                                    .background(accentColor)
+                                    .border(1.5.dp, cardBg, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1125,8 +1106,73 @@ fun AddEditBudgetScreen(
                     }
                 }
             }
+            }
 
-            item { Spacer(modifier = Modifier.height(16.dp)) }
+            // Fixed scroll-aware frosted liquid-glass header (matches PlanScreen exactly)
+            ScrollAwareFixedHeader(
+                layoutState = scrollLayout,
+                testTag = "add_edit_budget_fixed_header"
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isDark) {
+                            Color.White.copy(alpha = 0.08f)
+                        } else {
+                            Color.White.copy(alpha = 0.72f)
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.85f)
+                        ),
+                        shadowElevation = 0.dp,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .testTag("add_edit_budget_back_button"),
+                        onClick = onBack
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = AppStrings.t("back", language),
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isEditing) {
+                                AppStrings.t("edit_budget_screen_title", language)
+                            } else {
+                                AppStrings.t("create_budget_title", language)
+                            },
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (isOverallMode) {
+                            Text(
+                                text = AppStrings.t("overall_budget_mode_banner", language),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isDark) Color(0xFFA5B4FC) else RoyalIndigoBrand
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 

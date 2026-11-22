@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import com.example.data.model.AppLanguage
@@ -217,7 +218,7 @@ fun InsightsScreen(
                     }
 
                     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-                    val glassCircleBg = if (isDark) Color(0xFF1E293B).copy(alpha = 0.65f) else Color.White.copy(alpha = 0.70f)
+                    val glassCircleBg = if (isDark) Color(0xFF1E293B).copy(alpha = 0.65f) else Color.White.copy(alpha = 0.72f)
                     val glassCircleBorder = if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.85f)
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -226,9 +227,11 @@ fun InsightsScreen(
                             shape = CircleShape,
                             color = glassCircleBg,
                             border = BorderStroke(1.dp, glassCircleBorder),
-                            shadowElevation = 2.dp,
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp,
                             modifier = Modifier
                                 .size(40.dp)
+                                .clip(CircleShape)
                                 .testTag("insights_calendar_btn"),
                             onClick = { showCustomDateDialog = true }
                         ) {
@@ -236,7 +239,7 @@ fun InsightsScreen(
                                 Icon(
                                     imageVector = Icons.Default.CalendarMonth,
                                     contentDescription = "Select Date Range",
-                                    tint = Color(0xFF4F46E5),
+                                    tint = if (isDark) Color(0xFFA5B4FC) else Color(0xFF4F46E5),
                                     modifier = Modifier.size(19.dp)
                                 )
                             }
@@ -247,9 +250,11 @@ fun InsightsScreen(
                             shape = CircleShape,
                             color = glassCircleBg,
                             border = BorderStroke(1.dp, glassCircleBorder),
-                            shadowElevation = 2.dp,
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp,
                             modifier = Modifier
                                 .size(40.dp)
+                                .clip(CircleShape)
                                 .testTag("insights_export_btn"),
                             onClick = { showExportDialog = true }
                         ) {

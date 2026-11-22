@@ -221,7 +221,7 @@ fun PlanScreen(
                     goal = goal,
                     currencySymbol = currencySymbol,
                     language = language,
-                    onAddContribution = { viewModel.addSavingsContribution(goal.id, 500.0) }
+                    onClick = { viewModel.openGoalDetails(goal.id) }
                 )
             }
         }
@@ -510,7 +510,7 @@ fun SavingsGoalCard(
     goal: SavingsGoalEntity,
     currencySymbol: String,
     language: AppLanguage = CurrencyFormatter.currentLanguage,
-    onAddContribution: () -> Unit
+    onClick: () -> Unit
 ) {
     val progress = if (goal.targetAmount > 0) (goal.savedAmount / goal.targetAmount).toFloat().coerceIn(0f, 1f) else 0f
     val pct = (progress * 100).toInt()
@@ -523,8 +523,9 @@ fun SavingsGoalCard(
     TranslucentCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp),
-        onClick = onAddContribution
+            .padding(horizontal = 20.dp, vertical = 4.dp)
+            .testTag("savings_goal_card_${goal.id}"),
+        onClick = onClick
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(

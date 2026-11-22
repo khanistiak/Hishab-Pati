@@ -441,6 +441,64 @@ object UserSettingsPreferences {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putStringSet(KEY_PINNED_BUDGET_KEYS, keys).apply()
     }
+
+    private const val KEY_SAVINGS_GOAL_CONTRIBUTIONS = "savings_goal_contributions_json"
+
+    fun loadSavingsGoalContributions(context: Context): List<com.example.data.local.entity.SavingsGoalContribution> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val raw = prefs.getString(KEY_SAVINGS_GOAL_CONTRIBUTIONS, null).orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return try {
+            val array = org.json.JSONArray(raw)
+            val result = mutableListOf<com.example.data.local.entity.SavingsGoalContribution>()
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id", "").trim()
+                val goalId = obj.optString("goalId", "").trim()
+                val amount = obj.optDouble("amount", 0.0)
+                if (id.isNotEmpty() && goalId.isNotEmpty() && amount > 0.0) {
+                    result.add(
+                        com.example.data.local.entity.SavingsGoalContribution(
+                            id = id,
+                            goalId = goalId,
+                            amount = amount,
+                            isWithdrawal = obj.optBoolean("isWithdrawal", false),
+                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                            note = obj.optString("note", ""),
+                            walletId = obj.optString("walletId", ""),
+                            walletName = obj.optString("walletName", "")
+                        )
+                    )
+                }
+            }
+            result.sortedByDescending { it.timestamp }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveSavingsGoalContributions(
+        context: Context,
+        entries: List<com.example.data.local.entity.SavingsGoalContribution>
+    ) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val array = org.json.JSONArray()
+        entries.forEach { entry ->
+            val obj = org.json.JSONObject().apply {
+                put("id", entry.id)
+                put("goalId", entry.goalId)
+                put("amount", entry.amount)
+                put("isWithdrawal", entry.isWithdrawal)
+                put("timestamp", entry.timestamp)
+                put("note", entry.note)
+                put("walletId", entry.walletId)
+                put("walletName", entry.walletName)
+            }
+            array.put(obj)
+        }
+        prefs.edit().putString(KEY_SAVINGS_GOAL_CONTRIBUTIONS, array.toString()).apply()
+    }
 }
+
 
 

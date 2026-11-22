@@ -15,15 +15,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -52,7 +48,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,8 +74,11 @@ import com.example.data.backup.FinancialIntegrityValidator
 import com.example.data.local.entity.TransactionEntity
 import com.example.data.model.AppLanguage
 import com.example.ui.MainViewModel
+import com.example.ui.SubScreen
 import com.example.ui.components.CategoryIcon
-import com.example.ui.navigation.rememberScreenLazyListState
+import com.example.ui.components.ScrollAwareFixedHeader
+import com.example.ui.components.recordFrostedBackdrop
+import com.example.ui.components.rememberScrollAwareGlassLayout
 import com.example.ui.theme.CardBackgroundDark
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
@@ -121,7 +120,11 @@ fun BudgetDetailsScreen(
     val settings by viewModel.settings.collectAsState()
     val pinnedKeys by viewModel.pinnedBudgetKeys.collectAsState()
 
-    val currentArgs = args
+    val lastValidArgs = remember { mutableStateOf(args) }
+    if (args != null) {
+        lastValidArgs.value = args
+    }
+    val currentArgs = args ?: lastValidArgs.value
     if (currentArgs == null) {
         Box(modifier = modifier.fillMaxSize())
         return
@@ -149,7 +152,7 @@ fun BudgetDetailsScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showInsightsSheet by remember { mutableStateOf(false) }
-    var isSpendingHistoryExpanded by remember { mutableStateOf(true) }
+    var isSpendingHistoryExpanded by rememberSaveable(currentArgs.uniqueKey) { mutableStateOf(true) }
     var selectedTransactionForDetails by remember { mutableStateOf<TransactionEntity?>(null) }
 
     val isViewingHistorical = viewingYear != presentYear || viewingMonth != presentMonth
@@ -390,210 +393,35 @@ fun BudgetDetailsScreen(
         else -> IncomeGreen.copy(alpha = if (isDark) 0.18f else 0.12f)
     }
 
-    val backgroundBrush = remember(isDark) {
-        if (isDark) {
-            Brush.verticalGradient(
-                listOf(Color(0xFF090D16), Color(0xFF111827), Color(0xFF0B132B))
-            )
-        } else {
-            Brush.verticalGradient(
-                listOf(Color(0xFFEAEFFC), Color(0xFFF3F0FC), Color(0xFFF8FAFC))
-            )
-        }
-    }
-
     val cardColor = if (isDark) CardBackgroundDark else Color.White
     val cardBorderColor = if (isDark) Color(0x28A5B4FC) else Color(0x1A6366F1)
-    val topBarBg = if (isDark) Color(0xEB0E1426) else Color(0xEBFFFFFF)
-    val navBarBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val listState = rememberScreenLazyListState(viewModel = viewModel)
+    val listState = viewModel.rememberScreenLazyListState(
+        subKey = "budget_details_list",
+        screenOverride = SubScreen.BUDGET_DETAILS
+    )
+    val scrollLayout = rememberScrollAwareGlassLayout(
+        listState = listState,
+        defaultHeaderHeight = 64.dp,
+        extraTopGap = 8.dp,
+        bottomNavClearance = 28.dp
+    )
 
-    Scaffold(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(backgroundBrush)
-            .testTag("budget_details_screen"),
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            Surface(
-                color = topBarBg,
-                shadowElevation = if (isDark) 0.dp else 1.5.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("budget_details_fixed_header")
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isDark) {
-                                    Color.White.copy(alpha = 0.08f)
-                                } else {
-                                    DetailsRoyalIndigo.copy(alpha = 0.08f)
-                                },
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .testTag("budget_details_back_button"),
-                                onClick = onBack
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = AppStrings.t("back", language),
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column {
-                                Text(
-                                    text = AppStrings.t("budget_details", language),
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = viewingMonthName,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 11.5.sp
-                                    ),
-                                    maxLines = 1
-                                )
-                            }
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            IconButton(
-                                onClick = { viewModel.togglePinnedBudget(effectivePinKey) },
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .testTag("budget_details_favorite_button")
-                            ) {
-                                Icon(
-                                    imageVector = if (isPinned) Icons.Default.Star else Icons.Default.StarBorder,
-                                    contentDescription = AppStrings.t("pinned_badge", language),
-                                    tint = if (isPinned) DetailsAmber else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(23.dp)
-                                )
-                            }
-
-                            Box {
-                                IconButton(
-                                    onClick = { showMenu = true },
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .testTag("budget_details_more_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "More Options",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-
-                                DropdownMenu(
-                                    expanded = showMenu,
-                                    onDismissRequest = { showMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = if (hasDefinedBudget) {
-                                                    AppStrings.t("edit_budget", language)
-                                                } else {
-                                                    AppStrings.t("set_budget", language)
-                                                }
-                                            )
-                                        },
-                                        onClick = {
-                                            showMenu = false
-                                            viewModel.openAddBudget(
-                                                budget = activeBudget,
-                                                defaultCategory = currentArgs.categoryName,
-                                                defaultMonthKey = presentMonthKey
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Default.Edit,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    )
-
-                                    if (activeBudget != null) {
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = AppStrings.t("delete_budget", language),
-                                                    color = ExpenseRed
-                                                )
-                                            },
-                                            onClick = {
-                                                showMenu = false
-                                                showDeleteConfirm = true
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    Icons.Default.Delete,
-                                                    contentDescription = null,
-                                                    tint = ExpenseRed,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(
-                        thickness = 1.dp,
-                        color = if (isDark) Color(0x20A5B4FC) else Color(0x164F46E5)
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
+            .testTag("budget_details_screen")
+    ) {
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = innerPadding.calculateTopPadding())
+                .recordFrostedBackdrop(
+                    scrollLayout.backdropState,
+                    listState,
+                    scrollLayout.contentGraphicsLayer
+                )
                 .testTag("budget_details_lazy_column"),
-            contentPadding = PaddingValues(
-                top = 12.dp,
-                bottom = navBarBottomPadding + 28.dp
-            ),
+            contentPadding = scrollLayout.contentPadding,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // 0. Historical Data Banner
@@ -873,25 +701,27 @@ fun BudgetDetailsScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                        // Two Tappable Bento Analytics Tiles: Projected Total & Status -> Open Insights Modal Sheet
+                        // Two Compact Tappable Bento Analytics Tiles: Projected Total & Status -> Open Insights Modal Sheet
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             // Left Tile: Projected Total
                             Surface(
-                                shape = RoundedCornerShape(16.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 color = if (isDark) Color(0xFF161D33) else Color(0xFFF3F4FE),
                                 border = BorderStroke(1.dp, DetailsRoyalIndigo.copy(alpha = if (isDark) 0.30f else 0.18f)),
+                                shadowElevation = 0.dp,
+                                tonalElevation = 0.dp,
                                 onClick = { showInsightsSheet = true },
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("budget_projected_total_tile")
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -901,7 +731,8 @@ fun BudgetDetailsScreen(
                                         Text(
                                             text = CurrencyFormatter.format(projectedTotal, currencySymbol, language = language),
                                             fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 16.5.sp,
+                                            fontSize = 15.sp,
+                                            lineHeight = 18.sp,
                                             color = MaterialTheme.colorScheme.onSurface,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -911,13 +742,14 @@ fun BudgetDetailsScreen(
                                             imageVector = Icons.Default.Info,
                                             contentDescription = AppStrings.t("budget_insights", language),
                                             tint = if (isDark) Color(0xFFA5B4FC) else DetailsRoyalIndigo,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(14.dp)
                                         )
                                     }
-                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = AppStrings.t("projected_total", language),
-                                        fontSize = 11.5.sp,
+                                        fontSize = 11.sp,
+                                        lineHeight = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -928,16 +760,18 @@ fun BudgetDetailsScreen(
 
                             // Right Tile: Status
                             Surface(
-                                shape = RoundedCornerShape(16.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 color = statusTileBg,
                                 border = BorderStroke(1.dp, statusColor.copy(alpha = if (isDark) 0.35f else 0.25f)),
+                                shadowElevation = 0.dp,
+                                tonalElevation = 0.dp,
                                 onClick = { showInsightsSheet = true },
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("budget_status_tile")
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -947,7 +781,8 @@ fun BudgetDetailsScreen(
                                         Text(
                                             text = statusLabel,
                                             fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 16.sp,
+                                            fontSize = 15.sp,
+                                            lineHeight = 18.sp,
                                             color = statusColor,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -957,13 +792,14 @@ fun BudgetDetailsScreen(
                                             imageVector = Icons.Default.Info,
                                             contentDescription = AppStrings.t("budget_insights", language),
                                             tint = statusColor,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(14.dp)
                                         )
                                     }
-                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = AppStrings.t("status_label", language),
-                                        fontSize = 11.5.sp,
+                                        fontSize = 11.sp,
+                                        lineHeight = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -973,7 +809,7 @@ fun BudgetDetailsScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = AppStrings.t("tap_for_insights", language),
                             fontSize = 11.sp,
@@ -1447,6 +1283,167 @@ fun BudgetDetailsScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fixed scroll-aware frosted liquid-glass header (matches PlanScreen exactly)
+        ScrollAwareFixedHeader(
+            layoutState = scrollLayout,
+            testTag = "budget_details_fixed_header"
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isDark) {
+                            Color.White.copy(alpha = 0.08f)
+                        } else {
+                            Color.White.copy(alpha = 0.72f)
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (isDark) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.85f)
+                        ),
+                        shadowElevation = 0.dp,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .testTag("budget_details_back_button"),
+                        onClick = onBack
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = AppStrings.t("back", language),
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            text = AppStrings.t("budget_details", language),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = viewingMonthName,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.5.sp
+                            ),
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    IconButton(
+                        onClick = { viewModel.togglePinnedBudget(effectivePinKey) },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .testTag("budget_details_favorite_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isPinned) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = AppStrings.t("pinned_badge", language),
+                            tint = if (isPinned) DetailsAmber else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(23.dp)
+                        )
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("budget_details_more_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More Options",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (hasDefinedBudget) {
+                                            AppStrings.t("edit_budget", language)
+                                        } else {
+                                            AppStrings.t("set_budget", language)
+                                        }
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    viewModel.openAddBudget(
+                                        budget = activeBudget,
+                                        defaultCategory = currentArgs.categoryName,
+                                        defaultMonthKey = presentMonthKey
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            )
+
+                            if (activeBudget != null) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = AppStrings.t("delete_budget", language),
+                                            color = ExpenseRed
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        showDeleteConfirm = true
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = null,
+                                            tint = ExpenseRed,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                )
                             }
                         }
                     }

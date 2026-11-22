@@ -32,6 +32,7 @@ import com.example.data.local.entity.AppSettingsEntity
 import com.example.data.local.entity.BudgetEntity
 import com.example.data.local.entity.CategoryEntity
 import com.example.data.local.entity.DebtEntity
+import com.example.data.local.entity.SavingsGoalContribution
 import com.example.data.local.entity.SavingsGoalEntity
 import com.example.data.local.entity.SubcategoryEntity
 import com.example.data.local.entity.TransactionEntity
@@ -117,6 +118,7 @@ enum class SubScreen {
     MANAGE_DEBTS,
     DEBT_DETAILS,
     ADD_DEBT,
+    GOAL_DETAILS,
     NEW_SAVINGS_GOAL,
     CURRENCY_CONVERTER,
     MONTHLY_RECAP,
@@ -324,6 +326,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedDebtForTransaction = MutableStateFlow<DebtEntity?>(null)
     val debtTransactionType = MutableStateFlow("REPAYMENT")
     val showSettledDebts = MutableStateFlow(false)
+
+    val selectedSavingsGoal = MutableStateFlow<SavingsGoalEntity?>(null)
+    val selectedGoalId: StateFlow<String?> = combine(selectedSavingsGoal) { args ->
+        (args[0] as? SavingsGoalEntity)?.id
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val savingsGoalToEdit = MutableStateFlow<SavingsGoalEntity?>(null)
+    private val _savingsGoalContributions = MutableStateFlow(
+        UserSettingsPreferences.loadSavingsGoalContributions(getApplication())
+    )
+    val savingsGoalContributions: StateFlow<List<SavingsGoalContribution>> =
+        _savingsGoalContributions.asStateFlow()
 
     private val _currentTab = MutableStateFlow(MainTab.HOME)
     val currentTab: StateFlow<MainTab> = _currentTab.asStateFlow()
@@ -636,6 +649,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             SubScreen.DEBT_DETAILS -> selectedDebt.value?.id ?: "default"
             SubScreen.ADD_DEBT -> debtToEdit.value?.id ?: "new_${debtFilterType.value.name}"
             SubScreen.ADD_DEBT_TRANSACTION -> "${selectedDebtForTransaction.value?.id ?: "default"}_${debtTransactionType.value}"
+            SubScreen.GOAL_DETAILS -> selectedSavingsGoal.value?.id ?: "default"
+            SubScreen.NEW_SAVINGS_GOAL -> savingsGoalToEdit.value?.id ?: "new"
             SubScreen.FILTERED_REPORTS -> "${filteredReportArgs.value?.category ?: "all"}_${filteredReportArgs.value?.filterType?.name ?: "EXPENSES"}"
             else -> "root"
         }
@@ -903,8 +918,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         openSubScreen(SubScreen.ADD_DEBT)
     }
 
+    fun openGoalDetails(goal: SavingsGoalEntity) {
+        selectedSavingsGoal.value = goal
+        openSubScreen(SubScreen.GOAL_DETAILS)
+    }
+
+    fun openGoalDetails(goalId: String) {
+        viewModelScope.launch {
+            val goal = savingsGoals.value.firstOrNull { it.id == goalId }
+            if (goal != null) {
+                selectedSavingsGoal.value = goal
+                openSubScreen(SubScreen.GOAL_DETAILS)
+            }
+        }
+    }
+
     fun openNewSavingsGoal() {
+        savingsGoalToEdit.value = null
         openSubScreen(SubScreen.NEW_SAVINGS_GOAL)
+    }
+
+    fun openEditSavingsGoal(goal: SavingsGoalEntity) {
+        savingsGoalToEdit.value = goal
+        openSubScreen(SubScreen.NEW_SAVINGS_GOAL)
+    }
+
+    fun openEditGoal(goal: SavingsGoalEntity) {
+        openEditSavingsGoal(goal)
     }
 
     fun openCurrencyConverter() {
@@ -1065,6 +1105,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             SubScreen.BUDGET_DETAILS -> {
                 if (!remainingScreens.contains(SubScreen.BUDGET_DETAILS)) {
                     selectedBudgetDetailsArgs.value = null
+                }
+            }
+            SubScreen.GOAL_DETAILS -> {
+                if (!remainingScreens.contains(SubScreen.GOAL_DETAILS)) {
+                    selectedSavingsGoal.value = null
+                }
+            }
+            SubScreen.NEW_SAVINGS_GOAL -> {
+                if (!remainingScreens.contains(SubScreen.NEW_SAVINGS_GOAL)) {
+                    savingsGoalToEdit.value = null
                 }
             }
             SubScreen.ADD_EDIT_TRANSACTION -> {
@@ -1949,27 +1999,91 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSavingsGoal(goal: SavingsGoalEntity) {
         viewModelScope.launch {
-            repository.updateGoal(goal)
+            val normalized = goal.copy(
+                savedAmount = goal.savedAmount.coerceAtLeast(0.0),
+                targetAmount = goal.targetAmount.coerceAtLeast(0.0),
+                isCompleted = goal.targetAmount > 0.0 && goal.savedAmount >= goal.targetAmount
+            )
+            repository.updateGoal(normalized)
+            if (selectedSavingsGoal.value?.id == normalized.id) {
+                selectedSavingsGoal.value = normalized
+            }
+            val lang = settings.value?.language ?: AppLanguage.ENGLISH
+            userNotificationMessage.value = AppStrings.t("goal_updated_toast", lang)
         }
     }
 
     fun deleteSavingsGoal(id: String) {
         viewModelScope.launch {
             repository.deleteGoal(id)
+            val remainingContributions = _savingsGoalContributions.value.filterNot { it.goalId == id }
+            _savingsGoalContributions.value = remainingContributions
+            UserSettingsPreferences.saveSavingsGoalContributions(getApplication(), remainingContributions)
+            if (selectedSavingsGoal.value?.id == id) {
+                selectedSavingsGoal.value = null
+            }
+            val lang = settings.value?.language ?: AppLanguage.ENGLISH
+            userNotificationMessage.value = AppStrings.t("goal_deleted_toast", lang)
+        }
+    }
+
+    fun recordSavingsGoalEntry(
+        goalId: String,
+        amount: Double,
+        isWithdrawal: Boolean = false,
+        note: String = "",
+        account: AccountEntity? = null
+    ) {
+        if (amount <= 0.0) return
+        viewModelScope.launch {
+            val existing = savingsGoals.value.firstOrNull { it.id == goalId }
+                ?: selectedSavingsGoal.value?.takeIf { it.id == goalId }
+                ?: return@launch
+            val effectiveAmount = if (isWithdrawal) {
+                amount.coerceAtMost(existing.savedAmount)
+            } else {
+                amount
+            }
+            if (effectiveAmount <= 0.0) return@launch
+
+            val newSaved = if (isWithdrawal) {
+                (existing.savedAmount - effectiveAmount).coerceAtLeast(0.0)
+            } else {
+                existing.savedAmount + effectiveAmount
+            }
+            val updated = existing.copy(
+                savedAmount = newSaved,
+                isCompleted = existing.targetAmount > 0.0 && newSaved >= existing.targetAmount
+            )
+            repository.updateGoal(updated)
+            if (selectedSavingsGoal.value?.id == goalId) {
+                selectedSavingsGoal.value = updated
+            }
+
+            val entry = SavingsGoalContribution(
+                id = "sgc_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}",
+                goalId = goalId,
+                amount = effectiveAmount,
+                isWithdrawal = isWithdrawal,
+                timestamp = System.currentTimeMillis(),
+                note = note.trim(),
+                walletId = account?.id ?: "",
+                walletName = account?.name ?: ""
+            )
+            val updatedList = listOf(entry) + _savingsGoalContributions.value
+            _savingsGoalContributions.value = updatedList
+            UserSettingsPreferences.saveSavingsGoalContributions(getApplication(), updatedList)
+
+            val lang = settings.value?.language ?: AppLanguage.ENGLISH
+            userNotificationMessage.value = AppStrings.t(
+                if (isWithdrawal) "savings_withdrawn_toast" else "savings_added_toast",
+                lang
+            )
         }
     }
 
     fun addSavingsContribution(goalId: String, amount: Double) {
-        viewModelScope.launch {
-            val existing = savingsGoals.value.firstOrNull { it.id == goalId } ?: return@launch
-            val newSaved = existing.savedAmount + amount
-            repository.updateGoal(
-                existing.copy(
-                    savedAmount = newSaved,
-                    isCompleted = newSaved >= existing.targetAmount
-                )
-            )
-        }
+        recordSavingsGoalEntry(goalId = goalId, amount = amount, isWithdrawal = false)
     }
 
     fun prepareBackupPreview(jsonString: String, fileName: String = "backup.json", fileSizeBytes: Long = 0L) {
@@ -2104,6 +2218,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun eraseAllData(preserveCloud: Boolean = true) {
         viewModelScope.launch {
             repository.eraseAllData()
+            _savingsGoalContributions.value = emptyList()
+            UserSettingsPreferences.saveSavingsGoalContributions(getApplication(), emptyList())
             if (!preserveCloud) {
                 firestoreRepository.deleteCloudAllData()
             }

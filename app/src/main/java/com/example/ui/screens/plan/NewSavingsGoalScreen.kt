@@ -99,11 +99,17 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.window.Dialog
 import com.example.data.local.entity.SavingsGoalEntity
+import com.example.data.model.AppLanguage
 import com.example.ui.MainViewModel
+import com.example.ui.SubScreen
 import com.example.ui.components.FrostedGlassSurface
 import com.example.ui.components.TranslucentCard
+import com.example.ui.util.AppStrings
+import com.example.ui.util.CurrencyFormatter
+import com.example.ui.util.DateFormatter
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -198,6 +204,15 @@ fun isValidGoalDeadline(candidateMillis: Long, nowMillis: Long = System.currentT
     return candidateMillis >= minAllowedMillis
 }
 
+private fun formatGoalEditableAmount(amount: Double, allowZero: Boolean = false): String {
+    if (amount <= 0.0) return if (allowZero) "0" else ""
+    return if (amount % 1.0 == 0.0) {
+        amount.toLong().toString()
+    } else {
+        String.format(Locale.US, "%.2f", amount)
+    }
+}
+
 @Composable
 fun NewSavingsGoalScreen(
     viewModel: MainViewModel,
@@ -205,23 +220,37 @@ fun NewSavingsGoalScreen(
     modifier: Modifier = Modifier,
     initialCustomPickerDateMillis: Long? = null
 ) {
+    val currentSubScreen by viewModel.currentSubScreen.collectAsState()
+    BackHandler(
+        enabled = currentSubScreen == SubScreen.NEW_SAVINGS_GOAL,
+        onBack = onBack
+    )
+
     val settings by viewModel.settings.collectAsState()
+    val goalToEdit by viewModel.savingsGoalToEdit.collectAsState()
     val currencySymbol = settings?.currencySymbol ?: "৳"
+    val language = settings?.language ?: AppLanguage.ENGLISH
 
     val scrollState = viewModel.rememberScreenScrollState(
-        screenOverride = com.example.ui.SubScreen.NEW_SAVINGS_GOAL
+        screenOverride = SubScreen.NEW_SAVINGS_GOAL
     )
 
     NewSavingsGoalContent(
         currencySymbol = currencySymbol,
         onBack = onBack,
-        onCreateGoal = { newGoal ->
-            viewModel.insertSavingsGoal(newGoal)
+        onCreateGoal = { goal ->
+            if (goalToEdit != null) {
+                viewModel.updateSavingsGoal(goal)
+            } else {
+                viewModel.insertSavingsGoal(goal)
+            }
             onBack()
         },
         modifier = modifier,
         initialCustomPickerDateMillis = initialCustomPickerDateMillis,
-        scrollState = scrollState
+        scrollState = scrollState,
+        initialGoal = goalToEdit,
+        language = language
     )
 }
 
@@ -233,27 +262,60 @@ fun NewSavingsGoalContent(
     onCreateGoal: (SavingsGoalEntity) -> Unit,
     modifier: Modifier = Modifier,
     initialCustomPickerDateMillis: Long? = null,
-    scrollState: androidx.compose.foundation.ScrollState = rememberScrollState()
+    scrollState: androidx.compose.foundation.ScrollState = rememberScrollState(),
+    initialGoal: SavingsGoalEntity? = null,
+    language: AppLanguage = AppLanguage.ENGLISH
 ) {
+    val isEditMode = initialGoal != null
+    val initialDeadlineMillis = remember(initialGoal?.id, initialGoal?.targetDeadline, initialGoal?.targetDeadlineStr) {
+        initialGoal?.let { resolveGoalDeadlineMillis(it) }
+    }
 
-    var goalName by remember { mutableStateOf("") }
-    var targetAmountStr by remember { mutableStateOf("") }
+    var goalName by remember(initialGoal?.id) {
+        mutableStateOf(initialGoal?.name ?: "")
+    }
+    var targetAmountStr by remember(initialGoal?.id) {
+        mutableStateOf(
+            initialGoal?.let { formatGoalEditableAmount(it.targetAmount) } ?: ""
+        )
+    }
+    var savedAmountStr by remember(initialGoal?.id) {
+        mutableStateOf(
+            initialGoal?.let { formatGoalEditableAmount(it.savedAmount, allowZero = true) } ?: ""
+        )
+    }
 
     val themeColors = DefaultGoalThemeColors
-    var selectedColorIndex by remember { mutableIntStateOf(0) }
+    var selectedColorIndex by remember(initialGoal?.id) {
+        val matched = initialGoal?.let { goal ->
+            themeColors.indexOfFirst { it.hex.equals(goal.themeColorHex, ignoreCase = true) }
+        } ?: -1
+        mutableIntStateOf(if (matched >= 0) matched else 0)
+    }
     var showAllColorsSheet by remember { mutableStateOf(false) }
 
     val goalIcons = DefaultGoalIcons
-    var selectedIconIndex by remember { mutableIntStateOf(0) }
+    var selectedIconIndex by remember(initialGoal?.id) {
+        val matched = initialGoal?.let { goal ->
+            goalIcons.indexOfFirst { it.name.equals(goal.iconName, ignoreCase = true) }
+        } ?: -1
+        mutableIntStateOf(if (matched >= 0) matched else 0)
+    }
     var showAllIconsSheet by remember { mutableStateOf(false) }
 
-    var selectedDeadlineMillis by remember { mutableStateOf<Long?>(null) }
-    var selectedPresetLabel by remember { mutableStateOf<String?>(null) }
+    var selectedDeadlineMillis by remember(initialGoal?.id) {
+        mutableStateOf<Long?>(initialDeadlineMillis)
+    }
+    var selectedPresetLabel by remember(initialGoal?.id) {
+        mutableStateOf<String?>(if (initialDeadlineMillis != null) "Custom date" else null)
+    }
     var deadlineError by remember { mutableStateOf<String?>(null) }
     var showDatePickerDialog by remember { mutableStateOf(false) }
 
     val deadlineFormatter = remember { SimpleDateFormat("MMMM d, yyyy", Locale.US) }
-    val deadlineDisplay = selectedDeadlineMillis?.let { deadlineFormatter.format(Date(it)) } ?: "Set target date"
+    val deadlineDisplay = selectedDeadlineMillis?.let {
+        DateFormatter.localizeText(deadlineFormatter.format(Date(it)), language)
+    } ?: AppStrings.t("set_target_date", language)
 
     val activeColor = themeColors[selectedColorIndex].color
     val activeColorHex = themeColors[selectedColorIndex].hex
@@ -550,26 +612,64 @@ fun NewSavingsGoalContent(
 
     ScaffoldWithBottomAction(
         onBack = onBack,
-        title = "New savings goal",
+        title = if (isEditMode) {
+            AppStrings.t("edit_savings_goal", language)
+        } else {
+            AppStrings.t("new_savings_goal", language)
+        },
         bottomAction = {
             Button(
                 onClick = {
-                    val amount = targetAmountStr.toDoubleOrNull() ?: 0.0
-                    val name = if (goalName.isBlank()) "My Savings Goal" else goalName.trim()
-                    val validDeadline = selectedDeadlineMillis?.takeIf { isValidGoalDeadline(it) }
-                    val validDeadlineStr = if (validDeadline != null) deadlineFormatter.format(Date(validDeadline)) else ""
-                    val newGoal = SavingsGoalEntity(
-                        id = "goal_${System.currentTimeMillis()}",
-                        name = name,
-                        targetAmount = amount,
-                        savedAmount = 0.0,
-                        themeColorHex = activeColorHex,
-                        iconName = activeIconName,
-                        targetDeadline = validDeadline,
-                        targetDeadlineStr = validDeadlineStr,
-                        createdAt = System.currentTimeMillis()
-                    )
-                    onCreateGoal(newGoal)
+                    val amount = (CurrencyFormatter.parseLocalizedDouble(targetAmountStr) ?: 0.0).coerceAtLeast(0.0)
+                    val saved = if (isEditMode) {
+                        (CurrencyFormatter.parseLocalizedDouble(savedAmountStr) ?: initialGoal!!.savedAmount)
+                            .coerceAtLeast(0.0)
+                    } else {
+                        0.0
+                    }
+                    val name = if (goalName.isBlank()) {
+                        initialGoal?.name ?: "My Savings Goal"
+                    } else {
+                        goalName.trim()
+                    }
+                    val isUnchangedExistingDeadline = isEditMode &&
+                        selectedDeadlineMillis != null &&
+                        selectedDeadlineMillis == initialDeadlineMillis
+                    val validDeadline = selectedDeadlineMillis?.takeIf {
+                        isUnchangedExistingDeadline || isValidGoalDeadline(it)
+                    }
+                    val validDeadlineStr = when {
+                        validDeadline == null -> ""
+                        isUnchangedExistingDeadline && !initialGoal?.targetDeadlineStr.isNullOrBlank() ->
+                            initialGoal!!.targetDeadlineStr
+                        else -> deadlineFormatter.format(Date(validDeadline))
+                    }
+                    val resultGoal = if (initialGoal != null) {
+                        initialGoal.copy(
+                            name = name,
+                            targetAmount = amount,
+                            savedAmount = saved,
+                            themeColorHex = activeColorHex,
+                            iconName = activeIconName,
+                            targetDeadline = validDeadline,
+                            targetDeadlineStr = validDeadlineStr,
+                            isCompleted = amount > 0.0 && saved >= amount
+                        )
+                    } else {
+                        SavingsGoalEntity(
+                            id = "goal_${System.currentTimeMillis()}",
+                            name = name,
+                            targetAmount = amount,
+                            savedAmount = 0.0,
+                            themeColorHex = activeColorHex,
+                            iconName = activeIconName,
+                            targetDeadline = validDeadline,
+                            targetDeadlineStr = validDeadlineStr,
+                            createdAt = System.currentTimeMillis(),
+                            isCompleted = false
+                        )
+                    }
+                    onCreateGoal(resultGoal)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -582,7 +682,11 @@ fun NewSavingsGoalContent(
                 )
             ) {
                 Text(
-                    text = "Create goal",
+                    text = if (isEditMode) {
+                        AppStrings.t("save_changes", language)
+                    } else {
+                        AppStrings.t("create_goal", language)
+                    },
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -626,7 +730,7 @@ fun NewSavingsGoalContent(
 
             // Section 1: GOAL DETAILS
             Text(
-                text = "GOAL DETAILS",
+                text = AppStrings.t("goal_details_section", language),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
@@ -645,7 +749,7 @@ fun NewSavingsGoalContent(
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
                     Text(
-                        text = "Goal name",
+                        text = AppStrings.t("goal_name_label", language),
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                             fontWeight = FontWeight.Medium,
@@ -671,7 +775,7 @@ fun NewSavingsGoalContent(
                             Box(contentAlignment = Alignment.CenterStart) {
                                 if (goalName.isEmpty()) {
                                     Text(
-                                        text = "e.g. Dream Vacation",
+                                        text = if (language == AppLanguage.BANGLA) "যেমন: জরুরি তহবিল" else "e.g. Dream Vacation",
                                         style = MaterialTheme.typography.bodyMedium.copy(
                                             fontSize = 15.sp,
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
@@ -685,72 +789,205 @@ fun NewSavingsGoalContent(
                 }
             }
 
-            TranslucentCard(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 14.dp
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
+            if (isEditMode) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "Target amount",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 11.sp
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                    TranslucentCard(
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 14.dp
                     ) {
-                        Text(
-                            text = "$currencySymbol ",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        BasicTextField(
-                            value = targetAmountStr,
-                            onValueChange = { targetAmountStr = it },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            textStyle = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 2.dp)
-                                .testTag("goal_amount_input"),
-                            decorationBox = { innerTextField ->
-                                Box(contentAlignment = Alignment.CenterStart) {
-                                    if (targetAmountStr.isEmpty()) {
-                                        Text(
-                                            text = "0.00",
-                                            style = MaterialTheme.typography.titleMedium.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 16.sp,
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                            )
-                                        )
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = AppStrings.t("target_amount_label", language),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 11.sp
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "$currencySymbol ",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                BasicTextField(
+                                    value = targetAmountStr,
+                                    onValueChange = { targetAmountStr = it },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                        .testTag("goal_amount_input"),
+                                    decorationBox = { innerTextField ->
+                                        Box(contentAlignment = Alignment.CenterStart) {
+                                            if (targetAmountStr.isEmpty()) {
+                                                Text(
+                                                    text = "0.00",
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 15.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                                    )
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
                                     }
-                                    innerTextField()
-                                }
+                                )
                             }
+                        }
+                    }
+
+                    TranslucentCard(
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 14.dp
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = AppStrings.t("saved_amount_label", language),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 11.sp
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "$currencySymbol ",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                BasicTextField(
+                                    value = savedAmountStr,
+                                    onValueChange = { savedAmountStr = it },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                        .testTag("goal_saved_amount_input"),
+                                    decorationBox = { innerTextField ->
+                                        Box(contentAlignment = Alignment.CenterStart) {
+                                            if (savedAmountStr.isEmpty()) {
+                                                Text(
+                                                    text = "0.00",
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 15.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                                    )
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                TranslucentCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 14.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = AppStrings.t("target_amount_label", language),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 11.sp
+                            )
                         )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "$currencySymbol ",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            BasicTextField(
+                                value = targetAmountStr,
+                                onValueChange = { targetAmountStr = it },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                textStyle = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                                    .testTag("goal_amount_input"),
+                                decorationBox = { innerTextField ->
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (targetAmountStr.isEmpty()) {
+                                            Text(
+                                                text = "0.00",
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 16.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                                )
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
 
             // Section 2: CUSTOMIZATION
             Text(
-                text = "CUSTOMIZATION",
+                text = AppStrings.t("customization_section", language),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
@@ -767,7 +1004,7 @@ fun NewSavingsGoalContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Theme color",
+                        text = AppStrings.t("theme_color_label", language),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp,
@@ -775,7 +1012,7 @@ fun NewSavingsGoalContent(
                         )
                     )
                     Text(
-                        text = "Show all",
+                        text = AppStrings.t("show_all", language),
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 12.sp,
@@ -843,7 +1080,7 @@ fun NewSavingsGoalContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Goal icon",
+                        text = AppStrings.t("goal_icon_label", language),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp,
@@ -851,7 +1088,7 @@ fun NewSavingsGoalContent(
                         )
                     )
                     Text(
-                        text = "Show all",
+                        text = AppStrings.t("show_all", language),
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 12.sp,
@@ -911,7 +1148,7 @@ fun NewSavingsGoalContent(
 
             // Section 3: TIMELINE
             Text(
-                text = "TIMELINE",
+                text = AppStrings.t("timeline_section", language),
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
@@ -952,7 +1189,7 @@ fun NewSavingsGoalContent(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Target deadline (optional)",
+                            text = AppStrings.t("target_deadline_optional", language),
                             style = MaterialTheme.typography.labelSmall.copy(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                 fontWeight = FontWeight.Medium,

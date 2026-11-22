@@ -97,3 +97,15 @@ data class SavingsGoalEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val isCompleted: Boolean = false
 )
+
+data class SavingsGoalContribution(
+    val id: String,
+    val goalId: String,
+    val amount: Double,
+    val isWithdrawal: Boolean = false,
+    val timestamp: Long = System.currentTimeMillis(),
+    val note: String = "",
+    val walletId: String = "",
+    val walletName: String = ""
+)
+

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -41,7 +42,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -579,6 +579,9 @@ fun BudgetMultiCategoryPickerCard(
 
         // Multi-Select Category & Subcategory Checklist Bento Card
         Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight(),
             shape = RoundedCornerShape(22.dp),
             color = cardBg,
             border = BorderStroke(1.dp, borderCol)
@@ -586,11 +589,13 @@ fun BudgetMultiCategoryPickerCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .wrapContentHeight()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -618,7 +623,7 @@ fun BudgetMultiCategoryPickerCard(
                     }
                 }
 
-                expenseCategories.forEachIndexed { index, cat ->
+                expenseCategories.forEach { cat ->
                     val isCatSelected = selectedCategoryNames.any { it.equals(cat.name, ignoreCase = true) }
                     val catSubs = subByCatId[cat.id].orEmpty()
                     val selectedSubsForCat = selectedSubcategoryPairs.filter {
@@ -630,14 +635,12 @@ fun BudgetMultiCategoryPickerCard(
                     )
                     val catColor = parseBudgetHexColor(cat.colorHex.ifBlank { "#4F46E5" })
 
-                    if (index > 0) {
-                        HorizontalDivider(
-                            thickness = 0.8.dp,
-                            color = borderCol.copy(alpha = 0.7f)
-                        )
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -648,7 +651,7 @@ fun BudgetMultiCategoryPickerCard(
                                         expandedCatIds = expandedCatIds + cat.id
                                     }
                                 }
-                                .padding(vertical = 6.dp)
+                                .padding(vertical = 8.dp)
                                 .testTag("budget_category_row_${cat.name.lowercase(Locale.US)}"),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -660,12 +663,14 @@ fun BudgetMultiCategoryPickerCard(
                                         expandedCatIds = expandedCatIds + cat.id
                                     }
                                 },
+                                modifier = Modifier.size(36.dp),
                                 colors = CheckboxDefaults.colors(
                                     checkedColor = RoyalIndigoBrand,
                                     uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                     checkmarkColor = Color.White
                                 )
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
                             Box(
                                 modifier = Modifier
                                     .size(36.dp)
