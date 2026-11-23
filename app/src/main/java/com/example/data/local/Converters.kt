@@ -67,7 +67,7 @@ class Converters {
     fun toThemeColor(value: String): ThemeColorOption = try {
         ThemeColorOption.valueOf(value)
     } catch (_: Exception) {
-        ThemeColorOption.SKY_CYAN
+        ThemeColorOption.ROYAL_INDIGO
     }
 
     @TypeConverter

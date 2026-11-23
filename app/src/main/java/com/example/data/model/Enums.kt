@@ -34,6 +34,7 @@ enum class ThemeMode(val displayName: String, val displayNameBn: String) {
 }
 
 enum class ThemeColorOption(val displayName: String, val primaryHex: Long, val secondaryHex: Long) {
+    ROYAL_INDIGO("Royal Indigo", 0xFF4F46E5, 0xFF6366F1),
     INDIGO_NIGHT("Indigo Night", 0xFF4F46E5, 0xFF6366F1),
     ROYAL_VIOLET("Royal Violet", 0xFF7C3AED, 0xFF8B5CF6),
     EMERALD_GREEN("Emerald Green", 0xFF059669, 0xFF10B981),

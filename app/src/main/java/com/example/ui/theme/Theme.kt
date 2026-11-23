@@ -8,6 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -19,10 +20,14 @@ import com.example.ui.components.FrostedBackdropState
 import com.example.ui.components.LocalFrostedBackdropState
 import com.example.ui.components.recordFrostedBackground
 
+val LocalPrimaryCtaGradient = staticCompositionLocalOf<Brush> {
+    Brush.linearGradient(colors = RoyalIndigoGradientColors)
+}
+
 @Composable
 fun MyWalletTheme(
     themeMode: ThemeMode = ThemeMode.AUTO,
-    themeColor: ThemeColorOption = ThemeColorOption.SKY_CYAN,
+    themeColor: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO,
     content: @Composable () -> Unit
 ) {
     val isDark = when (themeMode) {
@@ -33,10 +38,13 @@ fun MyWalletTheme(
 
     val primary = Color(themeColor.primaryHex)
     val secondary = Color(themeColor.secondaryHex)
+    val primaryCtaGradient = Brush.linearGradient(colors = listOf(primary, secondary))
 
     val colorScheme = if (isDark) {
         darkColorScheme(
             primary = primary,
+            primaryContainer = primary.copy(alpha = 0.28f),
+            onPrimaryContainer = Color.White,
             secondary = secondary,
             tertiary = IncomeGreen,
             background = Color(0xFF0B132B),
@@ -53,6 +61,8 @@ fun MyWalletTheme(
     } else {
         lightColorScheme(
             primary = primary,
+            primaryContainer = primary.copy(alpha = 0.14f),
+            onPrimaryContainer = primary,
             secondary = secondary,
             tertiary = IncomeGreen,
             background = Color(0xFFF8FAFC),
@@ -73,7 +83,8 @@ fun MyWalletTheme(
         typography = Typography
     ) {
         androidx.compose.runtime.CompositionLocalProvider(
-            androidx.compose.material3.LocalContentColor provides colorScheme.onBackground
+            androidx.compose.material3.LocalContentColor provides colorScheme.onBackground,
+            LocalPrimaryCtaGradient provides primaryCtaGradient
         ) {
             content()
         }
@@ -84,7 +95,7 @@ fun MyWalletTheme(
 fun MyWalletBackground(
     modifier: Modifier = Modifier,
     texture: BackgroundTextureOption = BackgroundTextureOption.AURORA,
-    themeColor: ThemeColorOption = ThemeColorOption.SKY_CYAN,
+    themeColor: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO,
     isDark: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
@@ -160,22 +171,22 @@ fun MyWalletBackground(
             ) {
                 drawRect(brush = bgGradient)
 
-                // Draw subtle decorative ambient glows matching the screenshots
+                // Draw subtle decorative ambient glows matching the theme accent
                 if (!isDark) {
-                    // Top-right soft pastel magenta/violet glow
+                    // Top-right soft secondary accent glow
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(Color(0x28EC4899), Color.Transparent),
+                            colors = listOf(secondary.copy(alpha = 0.16f), Color.Transparent),
                             center = Offset(size.width * 0.9f, size.height * 0.05f),
                             radius = size.width * 0.6f
                         ),
                         radius = size.width * 0.6f,
                         center = Offset(size.width * 0.9f, size.height * 0.05f)
                     )
-                    // Top-left soft sky/cyan glow
+                    // Top-left soft primary accent glow
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(Color(0x3238BDF8), Color.Transparent),
+                            colors = listOf(primary.copy(alpha = 0.16f), Color.Transparent),
                             center = Offset(size.width * 0.1f, size.height * 0.08f),
                             radius = size.width * 0.7f
                         ),

@@ -23,7 +23,7 @@ data class AppSettingsEntity(
     val profilePhotoUri: String = "",
     val language: AppLanguage = AppLanguage.ENGLISH,
     val themeMode: ThemeMode = ThemeMode.AUTO,
-    val themeColor: ThemeColorOption = ThemeColorOption.SKY_CYAN,
+    val themeColor: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO,
     val backgroundTexture: BackgroundTextureOption = BackgroundTextureOption.AURORA,
     val appLockEnabled: Boolean = false,
     val screenshotProtectionEnabled: Boolean = false,

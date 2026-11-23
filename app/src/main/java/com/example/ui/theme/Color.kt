@@ -1,7 +1,14 @@
 package com.example.ui.theme
 
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.example.data.model.ThemeColorOption
+
+val RoyalIndigo = Color(0xFF4F46E5)
+val ElectricViolet = Color(0xFF6366F1)
+val RoyalIndigoDark = Color(0xFF4338CA)
+val RoyalIndigoLight = Color(0xFFE0E7FF)
+val RoyalIndigoGradientColors = listOf(RoyalIndigo, ElectricViolet)
 
 val IncomeGreen = Color(0xFF10B981)
 val IncomeGreenLight = Color(0xFFD1FAE5)
@@ -21,10 +28,15 @@ val CrystalSkyCyanBright = Color(0xFF38BDF8)
 val CrystalAquaDeep = Color(0xFF0EA5E9)
 val CrystalSkyCyanLightText = Color(0xFF7DD3FC)
 
-fun getPrimaryColor(option: ThemeColorOption): Color = Color(option.primaryHex)
-fun getSecondaryColor(option: ThemeColorOption): Color = Color(option.secondaryHex)
+fun getPrimaryColor(option: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO): Color = Color(option.primaryHex)
+fun getSecondaryColor(option: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO): Color = Color(option.secondaryHex)
+fun getPrimaryCtaGradientColors(option: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO): List<Color> =
+    listOf(Color(option.primaryHex), Color(option.secondaryHex))
+fun getPrimaryCtaGradientBrush(option: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO): Brush =
+    Brush.linearGradient(colors = getPrimaryCtaGradientColors(option))
 
 val AppGradients = object {
+    val PrimaryCtaGradient = RoyalIndigoGradientColors
     val AuroraLight = listOf(
         Color(0xFFE0E7FF),
         Color(0xFFF3E8FF),

@@ -154,8 +154,8 @@ fun PlanScreen(
         item(key = "savings_goals_header") {
             SectionHeader(
                 title = AppStrings.t("savings_goals", language),
-                actionText = if (savingsGoals.isNotEmpty()) AppStrings.t("add_goal", language) else null,
-                onActionClick = { viewModel.openNewSavingsGoal() }
+                actionText = AppStrings.t("explore_all", language),
+                onActionClick = { viewModel.openAllSavingsGoals() }
             )
         }
 
@@ -216,7 +216,7 @@ fun PlanScreen(
                 }
             }
         } else {
-            items(savingsGoals, key = { it.id }) { goal ->
+            items(savingsGoals.take(3), key = { it.id }) { goal ->
                 SavingsGoalCard(
                     goal = goal,
                     currencySymbol = currencySymbol,

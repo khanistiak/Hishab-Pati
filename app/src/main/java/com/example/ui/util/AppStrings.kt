@@ -593,7 +593,7 @@ object AppStrings {
             "due_today" -> if (isBn) "আজ মেয়াদ শেষ" else "Due today"
             "overdue_by" -> if (isBn) "মেয়াদ অতিক্রান্ত" else "Overdue by"
             "days_label" -> if (isBn) "দিন" else "days"
-            "suggested_pace" -> if (isBn) "প্রস্তাবিত সঞ্চয়ের গতি" else "Suggested Saving Pace"
+            "suggested_pace" -> if (isBn) "সঞ্চয়ের গতি" else "Saving Pace"
             "per_month_short" -> if (isBn) "/ মাস" else "/ mo"
             "per_week_short" -> if (isBn) "/ সপ্তাহ" else "/ wk"
             "set_deadline_for_pace" -> if (isBn) "সঞ্চয়ের গতি দেখতে তারিখ সেট করুন" else "Set a target date to calculate pace"

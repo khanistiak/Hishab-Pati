@@ -131,7 +131,8 @@ enum class SubScreen {
     USER_PROFILE,
     BACKUP_RESTORE,
     ABOUT,
-    FILTERED_REPORTS
+    FILTERED_REPORTS,
+    ALL_SAVINGS_GOALS
 }
 
 data class FilteredReportArgs(
@@ -936,6 +937,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openNewSavingsGoal() {
         savingsGoalToEdit.value = null
         openSubScreen(SubScreen.NEW_SAVINGS_GOAL)
+    }
+
+    fun openAllSavingsGoals() {
+        openSubScreen(SubScreen.ALL_SAVINGS_GOALS)
     }
 
     fun openEditSavingsGoal(goal: SavingsGoalEntity) {

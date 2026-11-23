@@ -134,6 +134,7 @@ import androidx.activity.compose.BackHandler
 import com.example.data.model.AppLanguage
 import com.example.ui.util.AppStrings
 import com.example.ui.screens.plan.AddDebtScreen
+import com.example.ui.screens.plan.AllSavingsGoalsScreen
 import com.example.ui.screens.plan.DebtDetailsScreen
 import com.example.ui.screens.plan.GoalDetailsScreen
 import com.example.ui.screens.plan.ManageDebtsScreen
@@ -157,6 +158,7 @@ import com.example.ui.screens.transaction.AddTransactionScreen
 import com.example.ui.screens.backup.BackupRestoreScreen
 import com.example.ui.components.BackupRestoreModal
 import com.example.ui.components.UpdateDialog
+import com.example.ui.theme.LocalPrimaryCtaGradient
 import com.example.ui.theme.MyWalletBackground
 import com.example.ui.theme.MyWalletTheme
 import com.example.ui.util.AppHaptics
@@ -265,7 +267,7 @@ class MainActivity : ComponentActivity() {
                 val settings by mainViewModel.settings.collectAsState()
 
                 val themeMode = settings?.themeMode ?: ThemeMode.AUTO
-                val themeColor = settings?.themeColor ?: ThemeColorOption.SKY_CYAN
+                val themeColor = settings?.themeColor ?: ThemeColorOption.ROYAL_INDIGO
                 val backgroundTexture = settings?.backgroundTexture ?: BackgroundTextureOption.AURORA
 
                 val isDark = when (themeMode) {
@@ -754,6 +756,12 @@ fun MyWalletApp(viewModel: MainViewModel) {
                         onBack = { viewModel.closeSubScreen(SubScreen.NEW_SAVINGS_GOAL) }
                     )
                 }
+                SubScreen.ALL_SAVINGS_GOALS -> {
+                    AllSavingsGoalsScreen(
+                        viewModel = viewModel,
+                        onBack = { viewModel.closeSubScreen(SubScreen.ALL_SAVINGS_GOALS) }
+                    )
+                }
                 SubScreen.CURRENCY_CONVERTER -> {
                     CurrencyConverterScreen(
                         viewModel = viewModel,
@@ -883,21 +891,26 @@ fun MyWalletApp(viewModel: MainViewModel) {
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(28.dp))
+                        val unlockCtaGradient = LocalPrimaryCtaGradient.current
                         Button(
                             onClick = { promptDeviceUnlock() },
                             shape = RoundedCornerShape(24.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
+                                containerColor = Color.Transparent,
+                                contentColor = Color.White
                             ),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
                             modifier = Modifier
                                 .height(48.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(unlockCtaGradient)
                                 .testTag("screen_lock_unlock_button")
                         ) {
                             Text(
                                 text = "Unlock App",
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 15.sp,
-                                modifier = Modifier.padding(horizontal = 16.dp)
+                                modifier = Modifier.padding(horizontal = 24.dp)
                             )
                         }
                     }
@@ -1175,14 +1188,7 @@ internal fun MyWalletBottomNavigationBar(
             ),
             label = "quick_add_fab_press_scale"
         )
-        val fabGradientBrush = remember {
-            Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFF4F46E5),
-                    Color(0xFF7C3AED)
-                )
-            )
-        }
+        val fabGradientBrush = LocalPrimaryCtaGradient.current
         val fabRimBorder = remember(isDark) {
             BorderStroke(
                 width = 1.dp,
@@ -1205,8 +1211,8 @@ internal fun MyWalletBottomNavigationBar(
                 .shadow(
                     elevation = 8.dp,
                     shape = CircleShape,
-                    ambientColor = Color(0xFF4F46E5).copy(alpha = 0.30f),
-                    spotColor = Color(0xFF7C3AED).copy(alpha = 0.38f)
+                    ambientColor = primary.copy(alpha = 0.30f),
+                    spotColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.38f)
                 )
                 .clip(CircleShape)
                 .background(fabGradientBrush)

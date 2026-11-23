@@ -266,22 +266,23 @@ fun NewSavingsGoalContent(
     initialGoal: SavingsGoalEntity? = null,
     language: AppLanguage = AppLanguage.ENGLISH
 ) {
-    val isEditMode = initialGoal != null
-    val initialDeadlineMillis = remember(initialGoal?.id, initialGoal?.targetDeadline, initialGoal?.targetDeadlineStr) {
-        initialGoal?.let { resolveGoalDeadlineMillis(it) }
+    val rememberedInitialGoal = remember { initialGoal }
+    val isEditMode = remember { initialGoal != null }
+    val initialDeadlineMillis = remember(rememberedInitialGoal?.id, rememberedInitialGoal?.targetDeadline, rememberedInitialGoal?.targetDeadlineStr) {
+        rememberedInitialGoal?.let { resolveGoalDeadlineMillis(it) }
     }
 
-    var goalName by remember(initialGoal?.id) {
-        mutableStateOf(initialGoal?.name ?: "")
+    var goalName by remember(rememberedInitialGoal?.id) {
+        mutableStateOf(rememberedInitialGoal?.name ?: "")
     }
-    var targetAmountStr by remember(initialGoal?.id) {
+    var targetAmountStr by remember(rememberedInitialGoal?.id) {
         mutableStateOf(
-            initialGoal?.let { formatGoalEditableAmount(it.targetAmount) } ?: ""
+            rememberedInitialGoal?.let { formatGoalEditableAmount(it.targetAmount) } ?: ""
         )
     }
-    var savedAmountStr by remember(initialGoal?.id) {
+    var savedAmountStr by remember(rememberedInitialGoal?.id) {
         mutableStateOf(
-            initialGoal?.let { formatGoalEditableAmount(it.savedAmount, allowZero = true) } ?: ""
+            rememberedInitialGoal?.let { formatGoalEditableAmount(it.savedAmount, allowZero = true) } ?: ""
         )
     }
 
@@ -640,12 +641,12 @@ fun NewSavingsGoalContent(
                     }
                     val validDeadlineStr = when {
                         validDeadline == null -> ""
-                        isUnchangedExistingDeadline && !initialGoal?.targetDeadlineStr.isNullOrBlank() ->
-                            initialGoal!!.targetDeadlineStr
+                        isUnchangedExistingDeadline && !rememberedInitialGoal?.targetDeadlineStr.isNullOrBlank() ->
+                            rememberedInitialGoal!!.targetDeadlineStr
                         else -> deadlineFormatter.format(Date(validDeadline))
                     }
-                    val resultGoal = if (initialGoal != null) {
-                        initialGoal.copy(
+                    val resultGoal = if (rememberedInitialGoal != null) {
+                        rememberedInitialGoal.copy(
                             name = name,
                             targetAmount = amount,
                             savedAmount = saved,
