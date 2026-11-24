@@ -2,25 +2,31 @@ package com.example.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -78,12 +84,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.CategoryEntity
@@ -91,7 +100,10 @@ import com.example.data.local.entity.SubcategoryEntity
 import com.example.data.model.AppLanguage
 import com.example.ui.MainViewModel
 import com.example.ui.components.CategoryIcon
+import com.example.ui.components.ScrollAwareFixedHeader
 import com.example.ui.components.getIconForName
+import com.example.ui.components.recordFrostedBackdrop
+import com.example.ui.components.rememberScrollAwareGlassLayout
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -810,9 +822,23 @@ fun CategoriesScreen(
                             sortType = CategorySortType.DEFAULT
                             showRestoreDialog = false
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        shape = RoundedCornerShape(20.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
                     ) {
-                        Text(if (isBangla) "পুনরুদ্ধার করুন" else "Restore", color = Color.White)
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    brush = Brush.horizontalGradient(
+                                        listOf(Color(0xFF4F46E5), Color(0xFF6366F1))
+                                    ),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .padding(horizontal = 20.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(if (isBangla) "পুনরুদ্ধার করুন" else "Restore", color = Color.White)
+                        }
                     }
                 },
                 dismissButton = {
@@ -1040,6 +1066,13 @@ fun AddEditCategoryPanel(
         }
     }
 
+    val glassLayout = rememberScrollAwareGlassLayout(
+        scrollState = scrollState,
+        defaultHeaderHeight = 56.dp,
+        extraTopGap = 6.dp,
+        bottomNavClearance = 16.dp
+    )
+
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1050,6 +1083,7 @@ fun AddEditCategoryPanel(
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
+                val canSave = name.isNotBlank()
                 Button(
                     onClick = {
                         if (name.isNotBlank()) {
@@ -1078,10 +1112,11 @@ fun AddEditCategoryPanel(
                             )
                         }
                     },
-                    enabled = name.isNotBlank(),
+                    enabled = canSave,
                     shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(0.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isDark) Color(0xFF3B82F6) else Color(0xFF2563EB),
+                        containerColor = Color.Transparent,
                         disabledContainerColor = if (isDark) Color(0xFF262B3D) else Color(0xFFE2E8F0)
                     ),
                     modifier = Modifier
@@ -1089,107 +1124,61 @@ fun AddEditCategoryPanel(
                         .height(50.dp)
                         .testTag("save_category_button")
                 ) {
-                    Text(
-                        text = if (isEditing) {
-                            if (isBangla) "ক্যাটাগরি সংরক্ষণ করুন" else "Save category"
-                        } else {
-                            if (isBangla) "ক্যাটাগরি তৈরি করুন" else "Create category"
-                        },
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = Color.White
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (canSave) {
+                                    Modifier.background(
+                                        brush = Brush.horizontalGradient(
+                                            listOf(Color(0xFF4F46E5), Color(0xFF6366F1))
+                                        ),
+                                        shape = RoundedCornerShape(24.dp)
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isEditing) {
+                                if (isBangla) "ক্যাটাগরি সংরক্ষণ করুন" else "Save category"
+                            } else {
+                                if (isBangla) "ক্যাটাগরি তৈরি করুন" else "Create category"
+                            },
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(scrollState)
-                .padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 12.dp)
         ) {
-            // Header Row: Compact Back Button + Title + Top Delete Action
-            Row(
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxSize()
+                    .recordFrostedBackdrop(
+                        backdropState = glassLayout.backdropState,
+                        contentLayer = glassLayout.contentGraphicsLayer
+                    )
+                    .verticalScroll(scrollState)
+                    .padding(
+                        start = 20.dp,
+                        end = 20.dp,
+                        top = glassLayout.contentPadding.calculateTopPadding(),
+                        bottom = 12.dp
+                    )
             ) {
-                // Reduced back-arrow button size (36dp visual) with 48dp effortless touch area
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onBack)
-                        .testTag("category_back_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (isDark) Color(0xFF262B3D) else Color.White,
-                        shadowElevation = 1.5.dp,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Text(
-                    text = if (isEditing) {
-                        if (isBangla) "ক্যাটাগরি সম্পাদনা" else "Edit category"
-                    } else {
-                        if (isBangla) "নতুন ক্যাটাগরি" else "New category"
-                    },
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-
-                if (isEditing && categoryToEdit != null && onDeleteCategory != null) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .clickable { showDeleteCategoryDialog = true }
-                            .testTag("delete_category_top_btn"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete Category",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Compact Category Preview Box:
+                // Compact Category Preview Box:
             // Compact colored box on the left, category name and type on the right, no excessive blank space
             Surface(
                 shape = RoundedCornerShape(20.dp),
@@ -1256,30 +1245,64 @@ fun AddEditCategoryPanel(
                     .fillMaxWidth()
                     .height(44.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalAlignment = Alignment.CenterVertically
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(3.dp)
                 ) {
-                    // Income Pill
-                    val isInc = selectedTypeIndex == 0
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = if (isInc) (if (isDark) Color(0xFF1E2230) else Color.White) else Color.Transparent,
-                        shadowElevation = if (isInc) 2.dp else 0.dp,
+                    val tabWidth = maxWidth / 3f
+                    val clampedTabIndex = selectedTypeIndex.coerceIn(0, 2)
+                    val indicatorOffsetX by animateDpAsState(
+                        targetValue = tabWidth * clampedTabIndex.toFloat(),
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "new_category_type_sliding_pill_offset"
+                    )
+                    val pillShape = RoundedCornerShape(20.dp)
+                    val activeAccentColor = if (isDark) Color(0xFF818CF8) else Color(0xFF4F46E5)
+                    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+                    // Single shared sliding capsule pill underlay behind the 3 tabs
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(3.dp)
-                            .fillMaxSize(),
-                        onClick = { selectedTypeIndex = 0 }
+                            .offset { IntOffset(indicatorOffsetX.roundToPx(), 0) }
+                            .width(tabWidth)
+                            .fillMaxHeight()
+                            .shadow(elevation = 2.dp, shape = pillShape)
+                            .clip(pillShape)
+                            .background(if (isDark) Color(0xFF1E2230) else Color.White)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Income Tab
+                        val isInc = selectedTypeIndex == 0
+                        val incomeTint by animateColorAsState(
+                            targetValue = if (isInc) activeAccentColor else inactiveColor,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "new_category_income_tab_tint"
+                        )
                         Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(pillShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { selectedTypeIndex = 0 }
+                                ),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ArrowDownward,
                                 contentDescription = null,
-                                tint = if (isInc) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = incomeTint,
                                 modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -1288,32 +1311,35 @@ fun AddEditCategoryPanel(
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = if (isInc) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 13.sp,
-                                    color = if (isInc) (if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = incomeTint
                                 )
                             )
                         }
-                    }
 
-                    // Expense Pill
-                    val isExp = selectedTypeIndex == 1
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = if (isExp) (if (isDark) Color(0xFF1E2230) else Color.White) else Color.Transparent,
-                        shadowElevation = if (isExp) 2.dp else 0.dp,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(3.dp)
-                            .fillMaxSize(),
-                        onClick = { selectedTypeIndex = 1 }
-                    ) {
+                        // Expense Tab
+                        val isExp = selectedTypeIndex == 1
+                        val expenseTint by animateColorAsState(
+                            targetValue = if (isExp) activeAccentColor else inactiveColor,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "new_category_expense_tab_tint"
+                        )
                         Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(pillShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { selectedTypeIndex = 1 }
+                                ),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ArrowUpward,
                                 contentDescription = null,
-                                tint = if (isExp) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = expenseTint,
                                 modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -1322,32 +1348,35 @@ fun AddEditCategoryPanel(
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = if (isExp) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 13.sp,
-                                    color = if (isExp) (if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = expenseTint
                                 )
                             )
                         }
-                    }
 
-                    // Transfer Pill
-                    val isTrf = selectedTypeIndex == 2
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = if (isTrf) (if (isDark) Color(0xFF1E2230) else Color.White) else Color.Transparent,
-                        shadowElevation = if (isTrf) 2.dp else 0.dp,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(3.dp)
-                            .fillMaxSize(),
-                        onClick = { selectedTypeIndex = 2 }
-                    ) {
+                        // Transfer Tab
+                        val isTrf = selectedTypeIndex == 2
+                        val transferTint by animateColorAsState(
+                            targetValue = if (isTrf) activeAccentColor else inactiveColor,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "new_category_transfer_tab_tint"
+                        )
                         Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(pillShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { selectedTypeIndex = 2 }
+                                ),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SwapHoriz,
                                 contentDescription = null,
-                                tint = if (isTrf) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = transferTint,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -1356,7 +1385,7 @@ fun AddEditCategoryPanel(
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = if (isTrf) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 13.sp,
-                                    color = if (isTrf) (if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = transferTint
                                 )
                             )
                         }
@@ -1582,12 +1611,12 @@ fun AddEditCategoryPanel(
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = if (isSelected) {
-                                if (isDark) Color(0xFF263354) else Color(0xFFEFF4FF)
+                                if (isDark) Color(0xFF312E81).copy(alpha = 0.45f) else Color(0xFFEEF2FF)
                             } else {
                                 if (isDark) Color(0xFF222638) else Color(0xFFF8FAFC)
                             },
                             border = if (isSelected) {
-                                BorderStroke(1.5.dp, Color(0xFF3B82F6))
+                                BorderStroke(1.5.dp, Color(0xFF4F46E5))
                             } else {
                                 BorderStroke(1.dp, if (isDark) Color(0x15FFFFFF) else Color(0x0C000000))
                             },
@@ -1600,7 +1629,7 @@ fun AddEditCategoryPanel(
                                     imageVector = getIconForName(iconKey),
                                     contentDescription = iconKey,
                                     tint = if (isSelected) {
-                                        Color(0xFF3B82F6)
+                                        if (isDark) Color(0xFF818CF8) else Color(0xFF4F46E5)
                                     } else {
                                         if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
                                     },
@@ -1751,6 +1780,7 @@ fun AddEditCategoryPanel(
                                 .testTag("new_subcategory_input")
                         )
                         Spacer(modifier = Modifier.width(8.dp))
+                        val canAddSub = newSubcategoryInput.isNotBlank()
                         Button(
                             onClick = {
                                 if (newSubcategoryInput.isNotBlank()) {
@@ -1763,23 +1793,125 @@ fun AddEditCategoryPanel(
                                     newSubcategoryInput = ""
                                 }
                             },
-                            enabled = newSubcategoryInput.isNotBlank(),
+                            enabled = canAddSub,
                             shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(0.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isDark) Color(0xFF3B82F6) else Color(0xFF2563EB),
+                                containerColor = Color.Transparent,
                                 disabledContainerColor = if (isDark) Color(0xFF262B3D) else Color(0xFFE2E8F0)
                             ),
                             modifier = Modifier
                                 .height(48.dp)
                                 .testTag("add_subcategory_button")
                         ) {
-                            Text(if (isBangla) "যোগ করুন" else "Add", color = Color.White)
+                            Box(
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .then(
+                                        if (canAddSub) {
+                                            Modifier.background(
+                                                brush = Brush.horizontalGradient(
+                                                    listOf(Color(0xFF4F46E5), Color(0xFF6366F1))
+                                                ),
+                                                shape = RoundedCornerShape(14.dp)
+                                            )
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .padding(horizontal = 20.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(if (isBangla) "যোগ করুন" else "Add", color = Color.White)
+                            }
                         }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            // Fixed Frosted/Liquid Glass Top Header Bar
+            ScrollAwareFixedHeader(
+                layoutState = glassLayout,
+                testTag = "new_category_fixed_header"
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Reduced back-arrow button size (36dp visual) with effortless touch area
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onBack)
+                            .testTag("category_back_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isDark) Color(0xFF262B3D) else Color.White,
+                            shadowElevation = 1.5.dp,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Text(
+                        text = if (isEditing) {
+                            if (isBangla) "ক্যাটাগরি সম্পাদনা" else "Edit category"
+                        } else {
+                            if (isBangla) "নতুন ক্যাটাগরি" else "New category"
+                        },
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    if (isEditing && categoryToEdit != null && onDeleteCategory != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .clickable { showDeleteCategoryDialog = true }
+                                .testTag("delete_category_top_btn"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete Category",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Dedicated Color Palette Modal Bottom Sheet
@@ -1928,12 +2060,12 @@ fun AddEditCategoryPanel(
                             Surface(
                                 shape = RoundedCornerShape(16.dp),
                                 color = if (isSelected) {
-                                    if (isDark) Color(0xFF263354) else Color(0xFFEFF4FF)
+                                    if (isDark) Color(0xFF312E81).copy(alpha = 0.45f) else Color(0xFFEEF2FF)
                                 } else {
                                     if (isDark) Color(0xFF222638) else Color(0xFFF8FAFC)
                                 },
                                 border = if (isSelected) {
-                                    BorderStroke(2.dp, Color(0xFF3B82F6))
+                                    BorderStroke(2.dp, Color(0xFF4F46E5))
                                 } else {
                                     BorderStroke(1.dp, if (isDark) Color(0x15FFFFFF) else Color(0x0C000000))
                                 },
@@ -1949,7 +2081,7 @@ fun AddEditCategoryPanel(
                                         imageVector = getIconForName(iconKey),
                                         contentDescription = iconKey,
                                         tint = if (isSelected) {
-                                            Color(0xFF3B82F6)
+                                            if (isDark) Color(0xFF818CF8) else Color(0xFF4F46E5)
                                         } else {
                                             if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
                                         },

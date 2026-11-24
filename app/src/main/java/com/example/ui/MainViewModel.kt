@@ -23,6 +23,7 @@ import com.example.data.backup.RestoreProgress
 import com.example.data.backup.RestoreStage
 import com.example.data.backup.RestoreUiState
 import com.example.data.backup.SampleDataGenerator
+import com.example.data.firebase.CloudBackupInfo
 import com.example.data.firebase.FirestoreWalletRepository
 import com.example.data.local.AppDatabase
 import com.example.data.local.ExtendedSettingsState
@@ -497,6 +498,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val isBackingUpCloud = MutableStateFlow(false)
     val isRestoringCloud = MutableStateFlow(false)
+    val isCheckingCloudBackup = MutableStateFlow(false)
+    val cloudBackupInfo = MutableStateFlow<CloudBackupInfo?>(null)
 
     private val backupPrefs: SharedPreferences by lazy {
         getApplication<Application>().getSharedPreferences("hishab_pati_backup_prefs", Context.MODE_PRIVATE)
@@ -517,19 +520,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val updatePermissionNotice = MutableStateFlow<String?>(null)
     private var updateDownloadJob: Job? = null
+    private var lastObservedAuthUid: String? = currentUser.value?.uid
 
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
-        currentUser.value = auth.currentUser
+        val user = auth.currentUser
+        val newUid = user?.uid
+        val uidChanged = newUid != lastObservedAuthUid
+        lastObservedAuthUid = newUid
+        currentUser.value = user
+        if (user != null) {
+            if (uidChanged) {
+                refreshCloudBackupMetadata()
+                AutoBackupScheduler.schedule(getApplication(), autoBackupFrequency.value)
+            }
+        } else if (uidChanged) {
+            clearCachedCloudBackupUiState()
+        }
     }
 
     init {
+        loadPersistedBackupPrefs()
         runCatching {
             Firebase.auth.addAuthStateListener(authListener)
         }
         viewModelScope.launch {
             repository.initializeIfNeeded()
         }
+        if (currentUser.value != null) {
+            refreshCloudBackupMetadata()
+            AutoBackupScheduler.schedule(getApplication(), autoBackupFrequency.value)
+        }
         checkForUpdatesOnLaunch()
+    }
+
+    private fun loadPersistedBackupPrefs() {
+        isCloudSyncEnabled.value = backupPrefs.getBoolean("cloud_sync_enabled", true)
+        val savedFreq = backupPrefs.getString("auto_backup_frequency", null)
+        autoBackupFrequency.value = savedFreq?.let {
+            runCatching { AutoBackupFrequency.valueOf(it) }.getOrNull()
+        } ?: AutoBackupFrequency.DAILY
+        lastCloudBackupTimestamp.value = backupPrefs.getLong("last_cloud_backup_time", 0L)
+        lastCloudBackupSize.value = backupPrefs.getLong("last_cloud_backup_size", 0L)
+        lastCloudSyncTimestamp.value = backupPrefs.getLong("last_cloud_sync_time", 0L)
+    }
+
+    private fun persistCloudBackupMetadata(timestamp: Long, sizeBytes: Long, syncTimestamp: Long? = null) {
+        lastCloudBackupTimestamp.value = timestamp
+        lastCloudBackupSize.value = sizeBytes
+        val editor = backupPrefs.edit()
+            .putLong("last_cloud_backup_time", timestamp)
+            .putLong("last_cloud_backup_size", sizeBytes)
+        if (syncTimestamp != null) {
+            lastCloudSyncTimestamp.value = syncTimestamp
+            editor.putLong("last_cloud_sync_time", syncTimestamp)
+        }
+        editor.apply()
+    }
+
+    private fun clearCachedCloudBackupUiState() {
+        cloudBackupInfo.value = null
+        lastCloudBackupTimestamp.value = 0L
+        lastCloudBackupSize.value = 0L
+        lastCloudSyncTimestamp.value = 0L
+        backupPrefs.edit()
+            .remove("last_cloud_backup_time")
+            .remove("last_cloud_backup_size")
+            .remove("last_cloud_sync_time")
+            .apply()
     }
 
     override fun onCleared() {
@@ -545,45 +602,106 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         AutoBackupScheduler.schedule(getApplication(), frequency)
     }
 
+    fun refreshCloudBackupMetadata() {
+        val user = currentUser.value ?: runCatching { Firebase.auth.currentUser }.getOrNull()
+        if (user == null) {
+            cloudBackupInfo.value = null
+            return
+        }
+        if (isCheckingCloudBackup.value) return
+        viewModelScope.launch {
+            isCheckingCloudBackup.value = true
+            try {
+                val res = firestoreRepository.fetchLatestCloudBackupMetadata()
+                if (res.isSuccess) {
+                    val info = res.getOrNull()
+                    cloudBackupInfo.value = info
+                    if (info != null) {
+                        persistCloudBackupMetadata(
+                            timestamp = info.uploadedAtTimestamp,
+                            sizeBytes = info.fileSizeBytes
+                        )
+                    } else {
+                        lastCloudBackupTimestamp.value = 0L
+                        lastCloudBackupSize.value = 0L
+                        backupPrefs.edit()
+                            .remove("last_cloud_backup_time")
+                            .remove("last_cloud_backup_size")
+                            .apply()
+                    }
+                }
+            } catch (_: Exception) {
+                // Keep last known local metadata if offline
+            } finally {
+                isCheckingCloudBackup.value = false
+            }
+        }
+    }
+
     fun onUserSignedIn() {
-        currentUser.value = runCatching { Firebase.auth.currentUser }.getOrNull()
-        if (isCloudSyncEnabled.value) {
+        val user = runCatching { Firebase.auth.currentUser }.getOrNull()
+        currentUser.value = user
+        lastObservedAuthUid = user?.uid
+        refreshCloudBackupMetadata()
+        AutoBackupScheduler.schedule(getApplication(), autoBackupFrequency.value)
+        if (isCloudSyncEnabled.value && (accounts.value.isNotEmpty() || transactions.value.isNotEmpty())) {
             syncWithCloud(force = false)
         }
     }
 
     fun onUserSignedOut() {
+        lastObservedAuthUid = null
         currentUser.value = null
+        clearCachedCloudBackupUiState()
+        AutoBackupScheduler.cancel(getApplication())
     }
 
     fun setCloudSyncEnabled(enabled: Boolean) {
         isCloudSyncEnabled.value = enabled
         backupPrefs.edit().putBoolean("cloud_sync_enabled", enabled).apply()
+        if (enabled && currentUser.value != null) {
+            syncWithCloud(force = false)
+        }
     }
 
     fun backupToCloud() {
+        if (isBackingUpCloud.value) return
+        val isBangla = settings.value?.language == AppLanguage.BANGLA
         viewModelScope.launch {
             isBackingUpCloud.value = true
             try {
-                val json = backupManager.createBackupJson()
+                val snapshot = backupManager.createBackupSnapshot(prettyPrint = false)
                 val res = firestoreRepository.saveCloudBackup(
-                    jsonString = json,
-                    accountsCount = accounts.value.size,
-                    transactionsCount = transactions.value.size,
-                    categoriesCount = categories.value.size,
-                    debtsCount = debts.value.size
+                    jsonString = snapshot.json,
+                    accountsCount = snapshot.accountsCount,
+                    transactionsCount = snapshot.transactionsCount,
+                    categoriesCount = snapshot.categoriesCount,
+                    debtsCount = snapshot.debtsCount,
+                    subcategoriesCount = snapshot.subcategoriesCount,
+                    budgetsCount = snapshot.budgetsCount,
+                    savingsGoalsCount = snapshot.savingsGoalsCount,
+                    backupDate = snapshot.backupDate
                 )
                 if (res.isSuccess) {
-                    val now = System.currentTimeMillis()
-                    lastCloudBackupTimestamp.value = now
-                    lastCloudBackupSize.value = json.toByteArray(Charsets.UTF_8).size.toLong()
-                    lastCloudSyncTimestamp.value = now
-                    userNotificationMessage.value = "Cloud backup completed successfully!"
+                    val info = res.getOrThrow()
+                    cloudBackupInfo.value = info
+                    persistCloudBackupMetadata(
+                        timestamp = info.uploadedAtTimestamp,
+                        sizeBytes = info.fileSizeBytes,
+                        syncTimestamp = info.uploadedAtTimestamp
+                    )
+                    userNotificationMessage.value = if (isBangla) {
+                        "ক্লাউড ব্যাকআপ সফলভাবে সম্পন্ন হয়েছে!"
+                    } else {
+                        "Cloud backup completed successfully!"
+                    }
                 } else {
-                    userNotificationMessage.value = res.exceptionOrNull()?.localizedMessage ?: "Cloud backup failed."
+                    userNotificationMessage.value = res.exceptionOrNull()?.localizedMessage
+                        ?: if (isBangla) "ক্লাউড ব্যাকআপ ব্যর্থ হয়েছে।" else "Cloud backup failed."
                 }
             } catch (e: Exception) {
-                userNotificationMessage.value = e.localizedMessage ?: "Cloud backup failed."
+                userNotificationMessage.value = e.localizedMessage
+                    ?: if (isBangla) "ক্লাউড ব্যাকআপ ব্যর্থ হয়েছে।" else "Cloud backup failed."
             } finally {
                 isBackingUpCloud.value = false
             }
@@ -591,22 +709,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun restoreFromCloud() {
+        if (isRestoringCloud.value) return
+        val isBangla = settings.value?.language == AppLanguage.BANGLA
         viewModelScope.launch {
             isRestoringCloud.value = true
             try {
                 val fetched = firestoreRepository.fetchLatestCloudBackup()
                 if (fetched.isSuccess) {
                     val (json, info) = fetched.getOrThrow()
+                    cloudBackupInfo.value = info
+                    persistCloudBackupMetadata(
+                        timestamp = info.uploadedAtTimestamp,
+                        sizeBytes = info.fileSizeBytes
+                    )
                     prepareBackupPreview(
                         jsonString = json,
                         fileName = "cloud_backup.json",
                         fileSizeBytes = info.fileSizeBytes
                     )
                 } else {
-                    userNotificationMessage.value = fetched.exceptionOrNull()?.localizedMessage ?: "No cloud backup found."
+                    val err = fetched.exceptionOrNull()
+                    userNotificationMessage.value = if (err is NoSuchElementException) {
+                        if (isBangla) {
+                            "এই গুগল অ্যাকাউন্টে কোনো ক্লাউড ব্যাকআপ পাওয়া যায়নি।"
+                        } else {
+                            "No cloud backup found for this Google account."
+                        }
+                    } else {
+                        err?.localizedMessage
+                            ?: if (isBangla) "ক্লাউড ব্যাকআপ পাওয়া যায়নি।" else "No cloud backup found."
+                    }
                 }
             } catch (e: Exception) {
-                userNotificationMessage.value = e.localizedMessage ?: "Could not restore from cloud."
+                userNotificationMessage.value = e.localizedMessage
+                    ?: if (isBangla) "ক্লাউড থেকে রিস্টোর করা যায়নি।" else "Could not restore from cloud."
             } finally {
                 isRestoringCloud.value = false
             }
@@ -615,11 +751,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun syncWithCloud(force: Boolean = false) {
         viewModelScope.launch {
-            if (currentUser.value == null) return@launch
+            if (currentUser.value == null || isSyncingCloud.value) return@launch
             isSyncingCloud.value = true
             try {
-                firestoreRepository.syncLocalToCloud(accounts.value, transactions.value)
-                lastCloudSyncTimestamp.value = System.currentTimeMillis()
+                val localAccounts = accounts.value
+                val localTransactions = transactions.value
+                if (localAccounts.isNotEmpty() || localTransactions.isNotEmpty()) {
+                    firestoreRepository.syncLocalToCloud(localAccounts, localTransactions)
+                    val now = System.currentTimeMillis()
+                    lastCloudSyncTimestamp.value = now
+                    backupPrefs.edit().putLong("last_cloud_sync_time", now).apply()
+                }
+                val metaRes = firestoreRepository.fetchLatestCloudBackupMetadata()
+                if (metaRes.isSuccess) {
+                    val info = metaRes.getOrNull()
+                    cloudBackupInfo.value = info
+                    if (info != null) {
+                        persistCloudBackupMetadata(
+                            timestamp = info.uploadedAtTimestamp,
+                            sizeBytes = info.fileSizeBytes
+                        )
+                        if (force && localAccounts.isEmpty() && localTransactions.isEmpty()) {
+                            val isBangla = settings.value?.language == AppLanguage.BANGLA
+                            userNotificationMessage.value = if (isBangla) {
+                                "ক্লাউড ব্যাকআপ পাওয়া গেছে। রিস্টোর করতে 'ক্লাউড রিস্টোর' ট্যাপ করুন।"
+                            } else {
+                                "Cloud backup found. Tap Restore Cloud to restore your data."
+                            }
+                        }
+                    }
+                }
             } catch (_: Exception) {
             } finally {
                 isSyncingCloud.value = false
@@ -2227,6 +2388,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             UserSettingsPreferences.saveSavingsGoalContributions(getApplication(), emptyList())
             if (!preserveCloud) {
                 firestoreRepository.deleteCloudAllData()
+                clearCachedCloudBackupUiState()
             }
             refreshAllApplicationStates()
         }
@@ -2238,6 +2400,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openBackupRestoreScreen() {
         openSubScreen(SubScreen.BACKUP_RESTORE)
+        if (currentUser.value != null) {
+            refreshCloudBackupMetadata()
+        }
     }
 
     fun clearNotificationMessage() {

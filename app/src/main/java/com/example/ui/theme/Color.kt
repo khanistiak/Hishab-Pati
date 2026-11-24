@@ -31,7 +31,7 @@ val CrystalSkyCyanLightText = Color(0xFF7DD3FC)
 fun getPrimaryColor(option: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO): Color = Color(option.primaryHex)
 fun getSecondaryColor(option: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO): Color = Color(option.secondaryHex)
 fun getPrimaryCtaGradientColors(option: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO): List<Color> =
-    listOf(Color(option.primaryHex), Color(option.secondaryHex))
+    option.gradientHexes.map { Color(it) }
 fun getPrimaryCtaGradientBrush(option: ThemeColorOption = ThemeColorOption.ROYAL_INDIGO): Brush =
     Brush.linearGradient(colors = getPrimaryCtaGradientColors(option))
 

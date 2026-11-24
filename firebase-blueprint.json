@@ -15,6 +15,7 @@
         "colorHex": { "type": "string" },
         "iconName": { "type": "string" },
         "isHidden": { "type": "boolean" },
+        "includeInTotal": { "type": "boolean" },
         "sortOrder": { "type": "integer" },
         "creditLimit": { "type": "number" },
         "billingDate": { "type": "string" },
@@ -47,6 +48,48 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "type", "amount", "title", "accountId", "createdAt", "updatedAt"]
+    },
+    "CloudBackupManifest": {
+      "title": "CloudBackupManifest",
+      "description": "Latest full wallet backup manifest (inline GZIP+Base64 or chunked manifest pointing to latest_chunk_* sibling docs)",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Google UID" },
+        "docType": { "type": "string", "enum": ["manifest"] },
+        "schemaVersion": { "type": "integer" },
+        "payloadEncoding": { "type": "string", "enum": ["gzip_base64", "gzip_base64_chunked"] },
+        "backupJsonCompressed": { "type": "string", "description": "GZIP+Base64 encoded full JSON backup when inline" },
+        "revisionId": { "type": "string", "description": "Revision token matching sibling chunks when chunked" },
+        "chunkCount": { "type": "integer" },
+        "backupDate": { "type": "string" },
+        "accountsCount": { "type": "integer" },
+        "transactionsCount": { "type": "integer" },
+        "categoriesCount": { "type": "integer" },
+        "subcategoriesCount": { "type": "integer" },
+        "budgetsCount": { "type": "integer" },
+        "debtsCount": { "type": "integer" },
+        "savingsGoalsCount": { "type": "integer" },
+        "fileSizeBytes": { "type": "integer" },
+        "compressedSizeBytes": { "type": "integer" },
+        "uploadedAt": { "type": "string", "format": "date-time" },
+        "uploadedAtMillis": { "type": "integer" }
+      },
+      "required": ["userId", "accountsCount", "transactionsCount", "categoriesCount", "debtsCount", "fileSizeBytes", "uploadedAt", "uploadedAtMillis"]
+    },
+    "CloudBackupChunk": {
+      "title": "CloudBackupChunk",
+      "description": "Sibling payload chunk (latest_chunk_0, latest_chunk_1, ...) for large multi-month backups",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Google UID" },
+        "docType": { "type": "string", "enum": ["chunk"] },
+        "revisionId": { "type": "string" },
+        "chunkIndex": { "type": "integer" },
+        "totalChunks": { "type": "integer" },
+        "data": { "type": "string" },
+        "uploadedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "docType", "revisionId", "chunkIndex", "totalChunks", "data", "uploadedAt"]
     }
   },
   "firestore": {
@@ -57,6 +100,10 @@
     "/users/{userId}/transactions/{transactionId}": {
       "schema": { "$ref": "#/entities/Transaction" },
       "description": "User transactions collection"
+    },
+    "/users/{userId}/backups/{backupId}": {
+      "schema": { "$ref": "#/entities/CloudBackupManifest" },
+      "description": "User cloud backup manifest ('latest') and sibling chunks ('latest_chunk_*')"
     }
   }
 }

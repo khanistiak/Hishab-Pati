@@ -22,6 +22,7 @@ service cloud.firestore {
         && (!('colorHex' in data) || (data.colorHex is string && data.colorHex.size() <= 20))
         && (!('iconName' in data) || (data.iconName is string && data.iconName.size() <= 50))
         && (!('isHidden' in data) || data.isHidden is bool)
+        && (!('includeInTotal' in data) || data.includeInTotal is bool)
         && (!('sortOrder' in data) || data.sortOrder is int)
         && (!('creditLimit' in data) || data.creditLimit is number)
         && (!('billingDate' in data) || (data.billingDate is string && data.billingDate.size() <= 30))
@@ -50,6 +51,49 @@ service cloud.firestore {
         && data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidBackupManifest(data) {
+      return data.keys().hasAll(['userId', 'accountsCount', 'transactionsCount', 'categoriesCount', 'debtsCount', 'fileSizeBytes', 'uploadedAt', 'uploadedAtMillis'])
+        && data.userId is string && data.userId == request.auth.uid
+        && data.accountsCount is int && data.accountsCount >= 0
+        && data.transactionsCount is int && data.transactionsCount >= 0
+        && data.categoriesCount is int && data.categoriesCount >= 0
+        && data.debtsCount is int && data.debtsCount >= 0
+        && (!('subcategoriesCount' in data) || (data.subcategoriesCount is int && data.subcategoriesCount >= 0))
+        && (!('budgetsCount' in data) || (data.budgetsCount is int && data.budgetsCount >= 0))
+        && (!('savingsGoalsCount' in data) || (data.savingsGoalsCount is int && data.savingsGoalsCount >= 0))
+        && data.fileSizeBytes is int && data.fileSizeBytes >= 0
+        && (!('compressedSizeBytes' in data) || (data.compressedSizeBytes is int && data.compressedSizeBytes >= 0))
+        && (!('schemaVersion' in data) || (data.schemaVersion is int && data.schemaVersion >= 1))
+        && (!('backupDate' in data) || (data.backupDate is string && data.backupDate.size() <= 64))
+        && (!('docType' in data) || data.docType == 'manifest')
+        && (data.uploadedAtMillis is int || data.uploadedAtMillis is number)
+        && data.uploadedAt is timestamp && data.uploadedAt <= request.time
+        && (
+          (('payloadEncoding' in data) && data.payloadEncoding == 'gzip_base64'
+            && ('backupJsonCompressed' in data) && data.backupJsonCompressed is string
+            && data.backupJsonCompressed.size() > 0 && data.backupJsonCompressed.size() <= 750000
+            && (!('chunkCount' in data) || data.chunkCount == 0))
+          || (('payloadEncoding' in data) && data.payloadEncoding == 'gzip_base64_chunked'
+            && ('chunkCount' in data) && data.chunkCount is int && data.chunkCount >= 1 && data.chunkCount <= 50
+            && ('revisionId' in data) && data.revisionId is string && data.revisionId.size() > 0 && data.revisionId.size() <= 100)
+          || (!('payloadEncoding' in data)
+            && ('backupJson' in data) && data.backupJson is string
+            && data.backupJson.size() > 0 && data.backupJson.size() <= 900000)
+        );
+    }
+
+    function isValidBackupChunk(data) {
+      return data.keys().hasAll(['userId', 'docType', 'revisionId', 'chunkIndex', 'totalChunks', 'data', 'uploadedAt'])
+        && data.userId is string && data.userId == request.auth.uid
+        && data.docType == 'chunk'
+        && data.revisionId is string && data.revisionId.size() > 0 && data.revisionId.size() <= 100
+        && data.chunkIndex is int && data.chunkIndex >= 0 && data.chunkIndex < 50
+        && data.totalChunks is int && data.totalChunks >= 1 && data.totalChunks <= 50
+        && data.chunkIndex < data.totalChunks
+        && data.data is string && data.data.size() > 0 && data.data.size() <= 750000
+        && data.uploadedAt is timestamp && data.uploadedAt <= request.time;
+    }
+
     match /users/{userId} {
       allow read, write: if isOwner(userId);
 
@@ -74,7 +118,12 @@ service cloud.firestore {
       }
 
       match /backups/{backupId} {
-        allow read, write, delete: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && (
+          (backupId == 'latest' && isValidBackupManifest(request.resource.data))
+          || (backupId.matches('^latest_chunk_[0-9]+$') && isValidBackupChunk(request.resource.data))
+        );
+        allow delete: if isOwner(userId);
       }
     }
   }

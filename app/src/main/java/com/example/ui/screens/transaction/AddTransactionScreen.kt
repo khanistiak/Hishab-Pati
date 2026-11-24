@@ -1148,32 +1148,16 @@ fun AddTransactionScreen(
 
                                         Spacer(modifier = Modifier.width(12.dp))
 
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = currentCategory?.getDisplayName(language) ?: selectedCategoryName,
-                                                style = MaterialTheme.typography.titleMedium.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 15.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            )
-
-                                            val subDisplay = currentSubEntity?.getDisplayName(language) ?: selectedSubcategoryName
-                                            val subText = if (subDisplay.isNotBlank()) {
-                                                if (isBn) "সাবক্যাটাগরি: $subDisplay" else "Subcategory: $subDisplay"
-                                            } else {
-                                                if (isBn) "সাবক্যাটাগরি নির্বাচন করুন" else "Tap to choose subcategory"
-                                            }
-
-                                            Text(
-                                                text = subText,
-                                                style = MaterialTheme.typography.bodySmall.copy(
-                                                    fontSize = 12.sp,
-                                                    color = if (selectedSubcategoryName.isNotBlank()) MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            )
-                                        }
+                                         Column(modifier = Modifier.weight(1f)) {
+                                             Text(
+                                                 text = currentCategory?.getDisplayName(language) ?: selectedCategoryName,
+                                                 style = MaterialTheme.typography.titleMedium.copy(
+                                                     fontWeight = FontWeight.Bold,
+                                                     fontSize = 15.sp,
+                                                     color = MaterialTheme.colorScheme.onSurface
+                                                 )
+                                             )
+                                         }
 
                                         Surface(
                                             shape = CircleShape,
@@ -1190,23 +1174,8 @@ fun AddTransactionScreen(
                                             }
                                         }
                                     }
+                             }
                                 }
-
-                                // Inline Quick Subcategory Pills for one-tap switching
-                                if (extendedSettings.enableSubcategories && currentCategorySubs.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    InlineSubcategoryQuickPills(
-                                        subcategories = currentCategorySubs,
-                                        selectedSubcategoryName = selectedSubcategoryName,
-                                        language = language,
-                                        onSelectSubcategory = { chosenSub ->
-                                            isCalculatorVisible = false
-                                            focusManager.clearFocus()
-                                            selectedSubcategoryName = chosenSub
-                                        }
-                                    )
-                                }
-                            }
 
                             Spacer(modifier = Modifier.height(12.dp))
                         } else {

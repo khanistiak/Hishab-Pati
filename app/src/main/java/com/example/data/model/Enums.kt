@@ -33,21 +33,26 @@ enum class ThemeMode(val displayName: String, val displayNameBn: String) {
     DARK("Dark", "ডার্ক")
 }
 
-enum class ThemeColorOption(val displayName: String, val primaryHex: Long, val secondaryHex: Long) {
+enum class ThemeColorOption(
+    val displayName: String,
+    val primaryHex: Long,
+    val secondaryHex: Long,
+    val gradientHexes: List<Long> = listOf(primaryHex, secondaryHex)
+) {
     ROYAL_INDIGO("Royal Indigo", 0xFF4F46E5, 0xFF6366F1),
     INDIGO_NIGHT("Indigo Night", 0xFF4F46E5, 0xFF6366F1),
-    ROYAL_VIOLET("Royal Violet", 0xFF7C3AED, 0xFF8B5CF6),
-    EMERALD_GREEN("Emerald Green", 0xFF059669, 0xFF10B981),
-    OCEAN_BLUE("Ocean Blue", 0xFF2563EB, 0xFF3B82F6),
-    SUNSET_ORANGE("Sunset Orange", 0xFFEA580C, 0xFFF97316),
-    ROSE_PINK("Rose Pink", 0xFFE11D48, 0xFFFB7185),
-    AQUA_TEAL("Aqua Teal", 0xFF0D9488, 0xFF14B8A6),
-    GOLDEN_AMBER("Golden Amber", 0xFFD97706, 0xFFF59E0B),
-    CRIMSON_RED("Crimson Red", 0xFFDC2626, 0xFFEF4444),
+    ROYAL_VIOLET("Royal Amethyst", 0xFF7C3AED, 0xFFA855F7, listOf(0xFF4C1D95, 0xFF7C3AED, 0xFFA855F7)),
+    EMERALD_GREEN("Bangla Green", 0xFF059669, 0xFF10B981, listOf(0xFF047857, 0xFF059669, 0xFF10B981)),
+    OCEAN_BLUE("Midnight Iris", 0xFF2563EB, 0xFF4F46E5, listOf(0xFF1E1B4B, 0xFF1D4ED8, 0xFF6366F1)),
+    SUNSET_ORANGE("Sunset", 0xFFEA580C, 0xFFF97316, listOf(0xFFDC2626, 0xFFEA580C, 0xFFF97316)),
+    ROSE_PINK("Rose", 0xFFE11D48, 0xFF9333EA, listOf(0xFFBE123C, 0xFFE11D48, 0xFF9333EA)),
+    AQUA_TEAL("Emerald Mint", 0xFF0D9488, 0xFF10B981, listOf(0xFF0F766E, 0xFF0D9488, 0xFF34D399)),
+    GOLDEN_AMBER("Solar Amber", 0xFFD97706, 0xFFF59E0B, listOf(0xFFB45309, 0xFFD97706, 0xFFF59E0B)),
+    CRIMSON_RED("Aurora Velvet", 0xFF9333EA, 0xFFDB2777, listOf(0xFF581C87, 0xFF9333EA, 0xFFDB2777)),
     LIME_FRESH("Lime Fresh", 0xFF65A30D, 0xFF84CC16),
-    SKY_CYAN("Sky Cyan", 0xFF0284C7, 0xFF38BDF8),
-    CORAL_PEACH("Coral Peach", 0xFFF43F5E, 0xFFFB7185),
-    GRAPHITE("Graphite", 0xFF334155, 0xFF475569)
+    SKY_CYAN("Ocean", 0xFF0284C7, 0xFF0D9488, listOf(0xFF0369A1, 0xFF0284C7, 0xFF0D9488)),
+    CORAL_PEACH("Coral Dusk", 0xFFF43F5E, 0xFFFB923C, listOf(0xFFBE123C, 0xFFF43F5E, 0xFFFB923C)),
+    GRAPHITE("Graphite", 0xFF334155, 0xFF475569, listOf(0xFF1E293B, 0xFF334155, 0xFF475569))
 }
 
 enum class BackgroundTextureOption(val displayName: String) {

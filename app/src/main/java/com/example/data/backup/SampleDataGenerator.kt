@@ -23,60 +23,44 @@ import java.util.TimeZone
 
 object SampleDataGenerator {
 
-    fun generateSampleJsonTemplate(referenceTimeMillis: Long = System.currentTimeMillis()): String {
+    fun generateSampleJsonTemplate(referenceTimeMillis: Long = 1795391999000L): String {
         val root = JSONObject()
         val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
 
-        val nowCal = Calendar.getInstance().apply { timeInMillis = referenceTimeMillis }
-        val currentMonthKey = String.format(
-            Locale.US,
-            "%04d-%02d",
-            nowCal.get(Calendar.YEAR),
-            nowCal.get(Calendar.MONTH) + 1
-        )
-        val monthStartCal = (nowCal.clone() as Calendar).apply {
-            set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
+        val refCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+            set(2026, Calendar.NOVEMBER, 22, 23, 59, 59)
             set(Calendar.MILLISECOND, 0)
         }
-        val monthStartMillis = monthStartCal.timeInMillis
-        val availableSpanMillis = (referenceTimeMillis - monthStartMillis).coerceAtLeast(60_000L)
+        val effectiveRefMillis = if (referenceTimeMillis > 0) referenceTimeMillis else refCal.timeInMillis
 
-        fun tsAtStep(step: Int, totalSteps: Int): Long {
-            val clamped = step.coerceIn(0, totalSteps)
-            return monthStartMillis + (availableSpanMillis * clamped) / totalSteps
-        }
-
-        fun dateStrDaysFromNow(daysOffset: Int): String {
-            val cal = (nowCal.clone() as Calendar).apply {
-                add(Calendar.DAY_OF_YEAR, daysOffset)
-            }
-            return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+        fun tsForDate(year: Int, month: Int, day: Int, hour: Int = 12, minute: Int = 0): Long {
+            return Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                set(year, month, day, hour, minute, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
         }
 
         root.put("appName", "Hishab Pati")
         root.put("schemaVersion", BackupMigrationEngine.CURRENT_SCHEMA_VERSION)
-        root.put("backupDate", isoFormat.format(Date(referenceTimeMillis)))
+        root.put("backupDate", isoFormat.format(Date(effectiveRefMillis)))
         root.put("currency", "BDT")
         root.put(
             "_comment",
-            "SAMPLE TEMPLATE: Complete fictional data for Hishab Pati matching the backup schema. " +
-                "Includes reconciled opening/closing balances across Cash, bKash/Nagad MFS, Bank Debit Card, and Credit Card accounts, " +
-                "all default Expense/Income/Transfer categories & subcategories, monthly budgets, savings goals, and Lent/Borrowed debts with repayments."
+            "SAMPLE TEMPLATE: Realistic 3-month fictional data for September 2026, October 2026, and November 2026 (up to Nov 22) " +
+                "matching the backup schema. Includes reconciled opening/closing balances across Cash, bKash/Nagad MFS, Bank Debit Card, and Credit Card accounts, " +
+                "income, varied expenses with categories/subcategories & recurring flags, account-to-account transfers, monthly budgets, savings goals, and debts."
         )
 
-        // 1. Settings matching AppSettingsEntity & JsonBackupManager
+        // 1. Settings matching AppSettingsEntity & JsonBackupManager (Royal Indigo theme intact, no legacy/non-indigo accent fields)
         val defaultSettings = AppSettingsEntity(
             userName = "Demo User",
             country = "Bangladesh",
             currencyCode = "BDT",
             currencySymbol = "৳",
             themeMode = ThemeMode.AUTO,
-            themeColor = ThemeColorOption.SKY_CYAN,
+            themeColor = ThemeColorOption.ROYAL_INDIGO,
             backgroundTexture = BackgroundTextureOption.AURORA
         )
         val settingsObj = JSONObject().apply {
@@ -97,316 +81,380 @@ object SampleDataGenerator {
         // 2. Default Categories & Subcategories directly from InitialData
         val (categories, subcategories) = InitialData.getDefaultCategories()
 
-        // 3. Transactions covering ALL 12 default Expense categories, ALL 5 default Income categories,
-        // Transfers between accounts, Credit Card Payment, and Borrow/Lend + partial & full repayments.
-        val totalSteps = 29
+        // 3. Transactions spanning September 2026, October 2026, and November 2026 (up to Nov 22)
         val transactions = listOf(
-            // --- Income (all 5 default Income categories) ---
+            // ==================== SEPTEMBER 2026 ====================
             TransactionEntity(
-                id = "tx_sample_inc_salary",
+                id = "tx_sep_salary",
                 type = TransactionType.INCOME,
                 amount = 75000.0,
-                title = "Monthly Corporate Salary",
+                title = "Monthly Corporate Salary (Sep)",
                 category = "Salary",
                 subcategory = "Monthly Salary",
                 accountId = "acc_sample_bank",
-                timestamp = tsAtStep(1, totalSteps),
-                notes = "Sample monthly salary deposit",
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 1, 9, 0),
+                notes = "September 2026 salary deposit",
                 isRecurring = true,
                 payeeOrPayer = "Tech Innovations Ltd."
             ),
             TransactionEntity(
-                id = "tx_sample_inc_bonus",
-                type = TransactionType.INCOME,
-                amount = 12000.0,
-                title = "Quarterly Performance Bonus",
-                category = "Bonus",
-                subcategory = "Performance Bonus",
+                id = "tx_sep_rent",
+                type = TransactionType.EXPENSE,
+                amount = 18000.0,
+                title = "Apartment Rent (Sep)",
+                category = "Rent & Utilities",
+                subcategory = "House Rent",
                 accountId = "acc_sample_bank",
-                timestamp = tsAtStep(2, totalSteps),
-                notes = "Sample performance bonus credit",
-                payeeOrPayer = "Tech Innovations Ltd."
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 2, 10, 0),
+                notes = "September 2026 house rent payment",
+                isRecurring = true,
+                payeeOrPayer = "Skyline Properties"
             ),
             TransactionEntity(
-                id = "tx_sample_inc_business",
-                type = TransactionType.INCOME,
-                amount = 15000.0,
-                title = "UI Consulting Milestone",
-                category = "Business",
-                subcategory = "Consulting",
+                id = "tx_sep_internet",
+                type = TransactionType.EXPENSE,
+                amount = 1200.0,
+                title = "Broadband Internet Bill (Sep)",
+                category = "Rent & Utilities",
+                subcategory = "Internet",
                 accountId = "acc_sample_bkash",
-                timestamp = tsAtStep(3, totalSteps),
-                notes = "Sample freelance consulting fee",
-                payeeOrPayer = "Apex Digital Studio"
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 5, 11, 30),
+                notes = "September 2026 internet bill",
+                isRecurring = true,
+                payeeOrPayer = "AmberIT"
             ),
             TransactionEntity(
-                id = "tx_sample_inc_gift",
-                type = TransactionType.INCOME,
-                amount = 3000.0,
-                title = "Family Occasion Cash Gift",
-                category = "Gifts Received",
-                subcategory = "Cash Gift",
-                accountId = "acc_sample_cash",
-                timestamp = tsAtStep(4, totalSteps),
-                notes = "Sample family gift",
-                payeeOrPayer = "Family"
-            ),
-            TransactionEntity(
-                id = "tx_sample_inc_cashback",
-                type = TransactionType.INCOME,
-                amount = 500.0,
-                title = "Mobile Payment Cashback",
-                category = "Other Income",
-                subcategory = "Refunds & Cashbacks",
-                accountId = "acc_sample_nagad",
-                timestamp = tsAtStep(5, totalSteps),
-                notes = "Sample merchant cashback reward",
-                payeeOrPayer = "Nagad Rewards"
-            ),
-
-            // --- Transfers between accounts ---
-            TransactionEntity(
-                id = "tx_sample_trf_atm",
+                id = "tx_sep_atm_withdraw",
                 type = TransactionType.TRANSFER,
-                amount = 8000.0,
+                amount = 10000.0,
                 title = "ATM Cash Withdrawal",
                 category = "Bank Transfer",
                 subcategory = "ATM Withdrawal",
                 accountId = "acc_sample_bank",
                 toAccountId = "acc_sample_cash",
-                timestamp = tsAtStep(6, totalSteps),
-                notes = "Sample ATM withdrawal from bank debit card to cash wallet",
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 3, 14, 0),
+                notes = "Cash withdrawal for daily expenses",
                 payeeOrPayer = "City Bank ATM"
             ),
             TransactionEntity(
-                id = "tx_sample_trf_bkash",
-                type = TransactionType.TRANSFER,
-                amount = 10000.0,
-                title = "Add Money to bKash",
-                category = "Wallet Transfer",
-                subcategory = "Mobile Financial Service",
-                accountId = "acc_sample_bank",
-                toAccountId = "acc_sample_bkash",
-                timestamp = tsAtStep(7, totalSteps),
-                notes = "Sample bank-to-bKash transfer",
-                payeeOrPayer = "bKash Add Money"
-            ),
-            TransactionEntity(
-                id = "tx_sample_trf_nagad",
-                type = TransactionType.TRANSFER,
-                amount = 3000.0,
-                title = "bKash to Nagad Wallet Transfer",
-                category = "Wallet Transfer",
-                subcategory = "Mobile Financial Service",
-                accountId = "acc_sample_bkash",
-                toAccountId = "acc_sample_nagad",
-                timestamp = tsAtStep(8, totalSteps),
-                notes = "Sample wallet-to-wallet transfer",
-                payeeOrPayer = "Self Transfer"
-            ),
-
-            // --- Expenses (all 12 default Expense categories + subcategories) ---
-            TransactionEntity(
-                id = "tx_sample_exp_food_dinner",
+                id = "tx_sep_groceries_1",
                 type = TransactionType.EXPENSE,
-                amount = 1650.0,
-                title = "Family Weekend Dinner",
-                category = "Food & Dining",
-                subcategory = "Restaurant",
-                accountId = "acc_sample_cash",
-                timestamp = tsAtStep(9, totalSteps),
-                notes = "Sample dinner out",
-                payeeOrPayer = "Spice Garden Cafe"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_food_coffee",
-                type = TransactionType.EXPENSE,
-                amount = 480.0,
-                title = "Evening Coffee & Snacks",
-                category = "Food & Dining",
-                subcategory = "Cafes & Coffee",
-                accountId = "acc_sample_bkash",
-                timestamp = tsAtStep(10, totalSteps),
-                notes = "Sample cafe visit",
-                payeeOrPayer = "North End Roasters"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_shopping_clothes",
-                type = TransactionType.EXPENSE,
-                amount = 6500.0,
-                title = "Seasonal Apparel Purchase",
-                category = "Shopping",
-                subcategory = "Clothing",
-                accountId = "acc_sample_card",
-                timestamp = tsAtStep(11, totalSteps),
-                notes = "Sample clothing purchase on credit card",
-                payeeOrPayer = "Aarong"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_shopping_elec",
-                type = TransactionType.EXPENSE,
-                amount = 4200.0,
-                title = "Wireless Earbuds",
-                category = "Shopping",
-                subcategory = "Electronics",
-                accountId = "acc_sample_card",
-                timestamp = tsAtStep(12, totalSteps),
-                notes = "Sample electronics purchase on credit card",
-                payeeOrPayer = "Gadget Galaxy"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_transport",
-                type = TransactionType.EXPENSE,
-                amount = 950.0,
-                title = "City Ride Sharing",
-                category = "Transportation",
-                subcategory = "Ride Sharing",
-                accountId = "acc_sample_bkash",
-                timestamp = tsAtStep(13, totalSteps),
-                notes = "Sample daily commute rides",
-                payeeOrPayer = "Pathao Rides"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_rent",
-                type = TransactionType.EXPENSE,
-                amount = 18000.0,
-                title = "Apartment Monthly Rent",
-                category = "Rent & Utilities",
-                subcategory = "House Rent",
-                accountId = "acc_sample_bank",
-                timestamp = tsAtStep(14, totalSteps),
-                notes = "Sample monthly house rent",
-                isRecurring = true,
-                payeeOrPayer = "Skyline Properties"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_internet",
-                type = TransactionType.EXPENSE,
-                amount = 1200.0,
-                title = "Broadband Fiber Internet Bill",
-                category = "Rent & Utilities",
-                subcategory = "Internet",
-                accountId = "acc_sample_bkash",
-                timestamp = tsAtStep(15, totalSteps),
-                notes = "Sample monthly internet bill",
-                isRecurring = true,
-                payeeOrPayer = "AmberIT"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_health",
-                type = TransactionType.EXPENSE,
-                amount = 1450.0,
-                title = "Pharmacy Medicines & Vitamins",
-                category = "Health & Medical",
-                subcategory = "Medicines",
-                accountId = "acc_sample_nagad",
-                timestamp = tsAtStep(16, totalSteps),
-                notes = "Sample pharmacy bill",
-                payeeOrPayer = "Lazz Pharma"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_entertainment",
-                type = TransactionType.EXPENSE,
-                amount = 850.0,
-                title = "Streaming Subscription Bundle",
-                category = "Entertainment",
-                subcategory = "Streaming Services",
-                accountId = "acc_sample_card",
-                timestamp = tsAtStep(17, totalSteps),
-                notes = "Sample monthly entertainment subscription",
-                isRecurring = true,
-                payeeOrPayer = "StreamHub"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_personal_care",
-                type = TransactionType.EXPENSE,
-                amount = 750.0,
-                title = "Haircut & Grooming",
-                category = "Personal Care",
-                subcategory = "Salon & Grooming",
-                accountId = "acc_sample_cash",
-                timestamp = tsAtStep(18, totalSteps),
-                notes = "Sample salon service",
-                payeeOrPayer = "Urban Grooming Studio"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_groceries_veg",
-                type = TransactionType.EXPENSE,
-                amount = 3200.0,
-                title = "Fresh Vegetables & Fish Market",
-                category = "Groceries",
-                subcategory = "Produce & Vegetables",
-                accountId = "acc_sample_cash",
-                timestamp = tsAtStep(19, totalSteps),
-                notes = "Sample weekly fresh groceries",
-                payeeOrPayer = "Green Harvest Market"
-            ),
-            TransactionEntity(
-                id = "tx_sample_exp_groceries_pantry",
-                type = TransactionType.EXPENSE,
-                amount = 2100.0,
-                title = "Rice, Lentils & Cooking Oil",
+                amount = 4500.0,
+                title = "Superstore Groceries",
                 category = "Groceries",
                 subcategory = "Pantry Staples",
                 accountId = "acc_sample_nagad",
-                timestamp = tsAtStep(20, totalSteps),
-                notes = "Sample supermarket pantry restock",
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 6, 16, 0),
+                notes = "Monthly pantry restock",
                 payeeOrPayer = "Shwapno Superstore"
             ),
             TransactionEntity(
-                id = "tx_sample_exp_travel",
+                id = "tx_sep_dining_1",
                 type = TransactionType.EXPENSE,
-                amount = 5500.0,
-                title = "Weekend Resort Booking",
-                category = "Travel",
-                subcategory = "Hotel & Lodging",
-                accountId = "acc_sample_bank",
-                timestamp = tsAtStep(21, totalSteps),
-                notes = "Sample weekend getaway hotel stay",
-                payeeOrPayer = "Sylhet Valley Resort"
+                amount = 1850.0,
+                title = "Weekend Family Dinner",
+                category = "Food & Dining",
+                subcategory = "Restaurant",
+                accountId = "acc_sample_cash",
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 12, 20, 0),
+                notes = "Dinner at Spice Garden",
+                payeeOrPayer = "Spice Garden Cafe"
             ),
             TransactionEntity(
-                id = "tx_sample_exp_family",
+                id = "tx_sep_shopping_clothes",
+                type = TransactionType.EXPENSE,
+                amount = 5500.0,
+                title = "Apparel Shopping",
+                category = "Shopping",
+                subcategory = "Clothing",
+                accountId = "acc_sample_card",
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 15, 17, 30),
+                notes = "Seasonal clothing purchase",
+                payeeOrPayer = "Aarong"
+            ),
+            TransactionEntity(
+                id = "tx_sep_transport",
+                type = TransactionType.EXPENSE,
+                amount = 2200.0,
+                title = "Commute & Ride Sharing",
+                category = "Transportation",
+                subcategory = "Ride Sharing",
+                accountId = "acc_sample_bkash",
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 20, 9, 30),
+                notes = "Monthly ride sharing expenses",
+                payeeOrPayer = "Pathao Rides"
+            ),
+            TransactionEntity(
+                id = "tx_sep_family",
                 type = TransactionType.EXPENSE,
                 amount = 6000.0,
-                title = "Parents Monthly Allowance",
+                title = "Parents Monthly Support",
                 category = "Family",
                 subcategory = "Parents Support",
                 accountId = "acc_sample_nagad",
-                timestamp = tsAtStep(22, totalSteps),
-                notes = "Sample monthly support sent home",
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 25, 12, 0),
+                notes = "Monthly support sent to parents",
                 isRecurring = true,
                 payeeOrPayer = "Parents"
             ),
             TransactionEntity(
-                id = "tx_sample_exp_other",
-                type = TransactionType.EXPENSE,
-                amount = 1000.0,
-                title = "Community Charity Contribution",
-                category = "Other Expenses",
-                subcategory = "Donations & Charity",
-                accountId = "acc_sample_cash",
-                timestamp = tsAtStep(23, totalSteps),
-                notes = "Sample charitable donation",
-                payeeOrPayer = "Local Community Welfare"
-            ),
-
-            // --- Credit Card Bill Payment ---
-            TransactionEntity(
-                id = "tx_sample_cc_payment",
+                id = "tx_sep_cc_payment",
                 type = TransactionType.CC_PAYMENT,
-                amount = 6500.0,
-                title = "Credit Card Statement Payment",
+                amount = 5500.0,
+                title = "Credit Card Bill Payment",
                 category = "Bank Transfer",
                 subcategory = "Account to Account",
                 accountId = "acc_sample_bank",
                 toAccountId = "acc_sample_card",
-                timestamp = tsAtStep(24, totalSteps),
-                notes = "Sample credit card statement payment from debit bank account",
+                timestamp = tsForDate(2026, Calendar.SEPTEMBER, 28, 15, 0),
+                notes = "Cleared September credit card statement",
                 payeeOrPayer = "Standard Chartered Bank"
             ),
 
-            // --- Loans & Debts: Borrowed (Payable) + Partial Repayment + Settled ---
+            // ==================== OCTOBER 2026 ====================
+            TransactionEntity(
+                id = "tx_oct_salary",
+                type = TransactionType.INCOME,
+                amount = 75000.0,
+                title = "Monthly Corporate Salary (Oct)",
+                category = "Salary",
+                subcategory = "Monthly Salary",
+                accountId = "acc_sample_bank",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 1, 9, 0),
+                notes = "October 2026 salary deposit",
+                isRecurring = true,
+                payeeOrPayer = "Tech Innovations Ltd."
+            ),
+            TransactionEntity(
+                id = "tx_oct_bonus",
+                type = TransactionType.INCOME,
+                amount = 15000.0,
+                title = "Quarterly Performance Bonus",
+                category = "Bonus",
+                subcategory = "Performance Bonus",
+                accountId = "acc_sample_bank",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 5, 10, 0),
+                notes = "Q3 performance bonus",
+                payeeOrPayer = "Tech Innovations Ltd."
+            ),
+            TransactionEntity(
+                id = "tx_oct_rent",
+                type = TransactionType.EXPENSE,
+                amount = 18000.0,
+                title = "Apartment Rent (Oct)",
+                category = "Rent & Utilities",
+                subcategory = "House Rent",
+                accountId = "acc_sample_bank",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 2, 10, 0),
+                notes = "October 2026 house rent payment",
+                isRecurring = true,
+                payeeOrPayer = "Skyline Properties"
+            ),
+            TransactionEntity(
+                id = "tx_oct_internet",
+                type = TransactionType.EXPENSE,
+                amount = 1200.0,
+                title = "Broadband Internet Bill (Oct)",
+                category = "Rent & Utilities",
+                subcategory = "Internet",
+                accountId = "acc_sample_bkash",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 5, 11, 30),
+                notes = "October 2026 internet bill",
+                isRecurring = true,
+                payeeOrPayer = "AmberIT"
+            ),
+            TransactionEntity(
+                id = "tx_oct_atm_withdraw",
+                type = TransactionType.TRANSFER,
+                amount = 12000.0,
+                title = "ATM Cash Withdrawal",
+                category = "Bank Transfer",
+                subcategory = "ATM Withdrawal",
+                accountId = "acc_sample_bank",
+                toAccountId = "acc_sample_cash",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 4, 14, 0),
+                notes = "Cash withdrawal for October",
+                payeeOrPayer = "City Bank ATM"
+            ),
+            TransactionEntity(
+                id = "tx_oct_groceries_1",
+                type = TransactionType.EXPENSE,
+                amount = 5200.0,
+                title = "Superstore Groceries & Supplies",
+                category = "Groceries",
+                subcategory = "Pantry Staples",
+                accountId = "acc_sample_nagad",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 8, 16, 0),
+                notes = "Monthly groceries restock",
+                payeeOrPayer = "Shwapno Superstore"
+            ),
+            TransactionEntity(
+                id = "tx_oct_shopping_elec",
+                type = TransactionType.EXPENSE,
+                amount = 8500.0,
+                title = "Home Office Accessories",
+                category = "Shopping",
+                subcategory = "Electronics",
+                accountId = "acc_sample_card",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 14, 15, 0),
+                notes = "Keyboard and monitor stand",
+                payeeOrPayer = "Gadget Galaxy"
+            ),
+            TransactionEntity(
+                id = "tx_oct_dining",
+                type = TransactionType.EXPENSE,
+                amount = 2400.0,
+                title = "Cafe & Coffee Outing",
+                category = "Food & Dining",
+                subcategory = "Cafes & Coffee",
+                accountId = "acc_sample_bkash",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 18, 17, 0),
+                notes = "Coffee meetup with team",
+                payeeOrPayer = "North End Roasters"
+            ),
+            TransactionEntity(
+                id = "tx_oct_health",
+                type = TransactionType.EXPENSE,
+                amount = 2100.0,
+                title = "Pharmacy Medicines",
+                category = "Health & Medical",
+                subcategory = "Medicines",
+                accountId = "acc_sample_nagad",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 22, 11, 0),
+                notes = "Monthly vitamins and medicines",
+                payeeOrPayer = "Lazz Pharma"
+            ),
+            TransactionEntity(
+                id = "tx_oct_family",
+                type = TransactionType.EXPENSE,
+                amount = 6000.0,
+                title = "Parents Monthly Support",
+                category = "Family",
+                subcategory = "Parents Support",
+                accountId = "acc_sample_nagad",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 25, 12, 0),
+                notes = "Monthly support sent to parents",
+                isRecurring = true,
+                payeeOrPayer = "Parents"
+            ),
+            TransactionEntity(
+                id = "tx_oct_cc_payment",
+                type = TransactionType.CC_PAYMENT,
+                amount = 8500.0,
+                title = "Credit Card Bill Payment",
+                category = "Bank Transfer",
+                subcategory = "Account to Account",
+                accountId = "acc_sample_bank",
+                toAccountId = "acc_sample_card",
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 29, 15, 0),
+                notes = "Cleared October credit card statement",
+                payeeOrPayer = "Standard Chartered Bank"
+            ),
+
+            // ==================== NOVEMBER 2026 (up to Nov 22) ====================
+            TransactionEntity(
+                id = "tx_nov_salary",
+                type = TransactionType.INCOME,
+                amount = 75000.0,
+                title = "Monthly Corporate Salary (Nov)",
+                category = "Salary",
+                subcategory = "Monthly Salary",
+                accountId = "acc_sample_bank",
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 1, 9, 0),
+                notes = "November 2026 salary deposit",
+                isRecurring = true,
+                payeeOrPayer = "Tech Innovations Ltd."
+            ),
+            TransactionEntity(
+                id = "tx_nov_rent",
+                type = TransactionType.EXPENSE,
+                amount = 18000.0,
+                title = "Apartment Rent (Nov)",
+                category = "Rent & Utilities",
+                subcategory = "House Rent",
+                accountId = "acc_sample_bank",
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 2, 10, 0),
+                notes = "November 2026 house rent payment",
+                isRecurring = true,
+                payeeOrPayer = "Skyline Properties"
+            ),
+            TransactionEntity(
+                id = "tx_nov_internet",
+                type = TransactionType.EXPENSE,
+                amount = 1200.0,
+                title = "Broadband Internet Bill (Nov)",
+                category = "Rent & Utilities",
+                subcategory = "Internet",
+                accountId = "acc_sample_bkash",
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 5, 11, 30),
+                notes = "November 2026 internet bill",
+                isRecurring = true,
+                payeeOrPayer = "AmberIT"
+            ),
+            TransactionEntity(
+                id = "tx_nov_atm_withdraw",
+                type = TransactionType.TRANSFER,
+                amount = 9000.0,
+                title = "ATM Cash Withdrawal",
+                category = "Bank Transfer",
+                subcategory = "ATM Withdrawal",
+                accountId = "acc_sample_bank",
+                toAccountId = "acc_sample_cash",
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 4, 14, 0),
+                notes = "Cash withdrawal for November",
+                payeeOrPayer = "City Bank ATM"
+            ),
+            TransactionEntity(
+                id = "tx_nov_groceries_1",
+                type = TransactionType.EXPENSE,
+                amount = 4800.0,
+                title = "Superstore Groceries",
+                category = "Groceries",
+                subcategory = "Pantry Staples",
+                accountId = "acc_sample_nagad",
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 7, 16, 0),
+                notes = "Monthly groceries restock",
+                payeeOrPayer = "Shwapno Superstore"
+            ),
+            TransactionEntity(
+                id = "tx_nov_dining",
+                type = TransactionType.EXPENSE,
+                amount = 2100.0,
+                title = "Weekend Dinner Out",
+                category = "Food & Dining",
+                subcategory = "Restaurant",
+                accountId = "acc_sample_cash",
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 14, 20, 0),
+                notes = "Dinner with friends",
+                payeeOrPayer = "Chef's Table"
+            ),
+            TransactionEntity(
+                id = "tx_nov_shopping",
+                type = TransactionType.EXPENSE,
+                amount = 4200.0,
+                title = "Winter Wear Shopping",
+                category = "Shopping",
+                subcategory = "Clothing",
+                accountId = "acc_sample_card",
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 18, 17, 0),
+                notes = "Winter jacket purchase",
+                payeeOrPayer = "Yellow"
+            ),
+            TransactionEntity(
+                id = "tx_nov_family",
+                type = TransactionType.EXPENSE,
+                amount = 6000.0,
+                title = "Parents Monthly Support",
+                category = "Family",
+                subcategory = "Parents Support",
+                accountId = "acc_sample_nagad",
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 20, 12, 0),
+                notes = "Monthly support sent to parents",
+                isRecurring = true,
+                payeeOrPayer = "Parents"
+            ),
+
+            // ==================== DEBTS & LOANS ====================
             TransactionEntity(
                 id = "tx_sample_borrow_arian",
                 type = TransactionType.BORROW,
@@ -415,7 +463,7 @@ object SampleDataGenerator {
                 category = "Other Income",
                 subcategory = "Miscellaneous",
                 accountId = "acc_sample_bank",
-                timestamp = tsAtStep(25, totalSteps),
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 10, 10, 0),
                 notes = "Sample borrowed amount from Arian Chowdhury [Debt:debt_sample_borrow_arian]",
                 payeeOrPayer = "Arian Chowdhury",
                 debtId = "debt_sample_borrow_arian"
@@ -428,39 +476,11 @@ object SampleDataGenerator {
                 category = "Debt Repayment",
                 subcategory = "Installment (EMI)",
                 accountId = "acc_sample_bank",
-                timestamp = tsAtStep(26, totalSteps),
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 10, 11, 0),
                 notes = "Sample partial repayment (৳6,000 of ৳18,000) to Arian Chowdhury [Debt:debt_sample_borrow_arian]",
                 payeeOrPayer = "Arian Chowdhury",
                 debtId = "debt_sample_borrow_arian"
             ),
-            TransactionEntity(
-                id = "tx_sample_borrow_farhan",
-                type = TransactionType.BORROW,
-                amount = 10000.0,
-                title = "Short-Term Project Loan Borrowed",
-                category = "Other Income",
-                subcategory = "Miscellaneous",
-                accountId = "acc_sample_nagad",
-                timestamp = tsAtStep(25, totalSteps),
-                notes = "Sample borrowed amount from Farhan Kabir [Debt:debt_sample_borrow_farhan]",
-                payeeOrPayer = "Farhan Kabir",
-                debtId = "debt_sample_borrow_farhan"
-            ),
-            TransactionEntity(
-                id = "tx_sample_settle_farhan",
-                type = TransactionType.EXPENSE,
-                amount = 10000.0,
-                title = "Loan Full Settlement Repayment",
-                category = "Debt Repayment",
-                subcategory = "Loan Principal",
-                accountId = "acc_sample_bank",
-                timestamp = tsAtStep(28, totalSteps),
-                notes = "Sample full settlement repayment (৳10,000) to Farhan Kabir [Debt:debt_sample_borrow_farhan]",
-                payeeOrPayer = "Farhan Kabir",
-                debtId = "debt_sample_borrow_farhan"
-            ),
-
-            // --- Loans & Debts: Lent (Receivable) + Partial Collection + Settled ---
             TransactionEntity(
                 id = "tx_sample_lend_nabila",
                 type = TransactionType.LEND,
@@ -469,7 +489,7 @@ object SampleDataGenerator {
                 category = "Other Expenses",
                 subcategory = "General Miscellaneous",
                 accountId = "acc_sample_bkash",
-                timestamp = tsAtStep(26, totalSteps),
+                timestamp = tsForDate(2026, Calendar.OCTOBER, 15, 12, 0),
                 notes = "Sample loan lent to Nabila Rahman for semester fees [Debt:debt_sample_lend_nabila]",
                 payeeOrPayer = "Nabila Rahman",
                 debtId = "debt_sample_lend_nabila"
@@ -482,41 +502,14 @@ object SampleDataGenerator {
                 category = "Other Income",
                 subcategory = "Miscellaneous",
                 accountId = "acc_sample_bkash",
-                timestamp = tsAtStep(27, totalSteps),
+                timestamp = tsForDate(2026, Calendar.NOVEMBER, 15, 12, 0),
                 notes = "Sample partial installment (৳4,000 of ৳9,000) received from Nabila Rahman [Debt:debt_sample_lend_nabila]",
                 payeeOrPayer = "Nabila Rahman",
                 debtId = "debt_sample_lend_nabila"
-            ),
-            TransactionEntity(
-                id = "tx_sample_lend_rafi",
-                type = TransactionType.LEND,
-                amount = 10000.0,
-                title = "Friendly Assistance Loan Lent",
-                category = "Other Expenses",
-                subcategory = "General Miscellaneous",
-                accountId = "acc_sample_bank",
-                timestamp = tsAtStep(26, totalSteps),
-                notes = "Sample short-term assistance lent to Rafi Hasan [Debt:debt_sample_lend_rafi]",
-                payeeOrPayer = "Rafi Hasan",
-                debtId = "debt_sample_lend_rafi"
-            ),
-            TransactionEntity(
-                id = "tx_sample_collect_rafi",
-                type = TransactionType.INCOME,
-                amount = 10000.0,
-                title = "Loan Full Settlement Received Back",
-                category = "Other Income",
-                subcategory = "Miscellaneous",
-                accountId = "acc_sample_bank",
-                timestamp = tsAtStep(29, totalSteps),
-                notes = "Sample full settlement (৳10,000) received from Rafi Hasan [Debt:debt_sample_lend_rafi]",
-                payeeOrPayer = "Rafi Hasan",
-                debtId = "debt_sample_lend_rafi"
             )
         )
 
         // 4. Sample Accounts across all types (Cash, bKash MFS, Nagad MFS, Bank Debit Card, Credit Card)
-        // Balances are computed dynamically from openingBalance + exact transaction deltas so every account reconciles 100%.
         val baseAccounts = listOf(
             AccountEntity(
                 id = "acc_sample_cash",
@@ -563,7 +556,7 @@ object SampleDataGenerator {
                 institution = "City Bank PLC",
                 openingBalance = 45000.0,
                 accountNumberLast4 = "4821",
-                colorHex = "#2563EB",
+                colorHex = "#4F46E5",
                 iconName = "account_balance",
                 sortOrder = 3,
                 notes = "Subtype:Salary Account\nNetwork:Visa",
@@ -580,7 +573,7 @@ object SampleDataGenerator {
                 billingDate = "15",
                 paymentDueDate = "05",
                 minPayment = 2500.0,
-                colorHex = "#8B5CF6",
+                colorHex = "#6366F1",
                 iconName = "credit_card",
                 sortOrder = 4,
                 notes = "Network:Visa",
@@ -595,71 +588,83 @@ object SampleDataGenerator {
             acc.copy(balance = acc.openingBalance + delta)
         }
 
-        // 5. Monthly Budgets matching BudgetEntity & JsonBackupManager
-        val budgets = listOf(
-            BudgetEntity(
-                id = "bgt_sample_food",
-                categoryName = "Food & Dining",
-                monthlyLimit = 6000.0,
-                monthYear = currentMonthKey,
-                isOverall = false,
-                rolloverEnabled = false,
-                name = "Food & Dining",
-                iconName = "restaurant",
-                colorHex = "#F59E0B",
-                alertPercentage = 80
-            ),
-            BudgetEntity(
-                id = "bgt_sample_groceries",
-                categoryName = "Groceries",
-                monthlyLimit = 10000.0,
-                monthYear = currentMonthKey,
-                isOverall = false,
-                rolloverEnabled = false,
-                name = "Groceries",
-                iconName = "shopping_cart",
-                colorHex = "#10B981",
-                alertPercentage = 80
-            ),
-            BudgetEntity(
-                id = "bgt_sample_rent",
-                categoryName = "Rent & Utilities",
-                monthlyLimit = 22000.0,
-                monthYear = currentMonthKey,
-                isOverall = false,
-                rolloverEnabled = false,
-                name = "Rent & Utilities",
-                iconName = "home",
-                colorHex = "#3B82F6",
-                alertPercentage = 85
-            ),
-            BudgetEntity(
-                id = "bgt_sample_shopping",
-                categoryName = "Shopping",
-                monthlyLimit = 12000.0,
-                monthYear = currentMonthKey,
-                isOverall = false,
-                rolloverEnabled = false,
-                name = "Shopping",
-                iconName = "shopping_bag",
-                colorHex = "#EC4899",
-                alertPercentage = 80
-            ),
-            BudgetEntity(
-                id = "bgt_sample_transport",
-                categoryName = "Transportation",
-                monthlyLimit = 3000.0,
-                monthYear = currentMonthKey,
-                isOverall = false,
-                rolloverEnabled = false,
-                name = "Transportation",
-                iconName = "directions_car",
-                colorHex = "#6366F1",
-                alertPercentage = 80
+        // 5. Monthly Budgets for September 2026, October 2026, and November 2026
+        val monthKeys = listOf("2026-09", "2026-10", "2026-11")
+        val budgets = mutableListOf<BudgetEntity>()
+        monthKeys.forEach { mKey ->
+            budgets.add(
+                BudgetEntity(
+                    id = "bgt_sample_food_$mKey",
+                    categoryName = "Food & Dining",
+                    monthlyLimit = 6000.0,
+                    monthYear = mKey,
+                    isOverall = false,
+                    rolloverEnabled = false,
+                    name = "Food & Dining",
+                    iconName = "restaurant",
+                    colorHex = "#F59E0B",
+                    alertPercentage = 80
+                )
             )
-        )
+            budgets.add(
+                BudgetEntity(
+                    id = "bgt_sample_groceries_$mKey",
+                    categoryName = "Groceries",
+                    monthlyLimit = 10000.0,
+                    monthYear = mKey,
+                    isOverall = false,
+                    rolloverEnabled = false,
+                    name = "Groceries",
+                    iconName = "shopping_cart",
+                    colorHex = "#10B981",
+                    alertPercentage = 80
+                )
+            )
+            budgets.add(
+                BudgetEntity(
+                    id = "bgt_sample_rent_$mKey",
+                    categoryName = "Rent & Utilities",
+                    monthlyLimit = 22000.0,
+                    monthYear = mKey,
+                    isOverall = false,
+                    rolloverEnabled = false,
+                    name = "Rent & Utilities",
+                    iconName = "home",
+                    colorHex = "#4F46E5",
+                    alertPercentage = 85
+                )
+            )
+            budgets.add(
+                BudgetEntity(
+                    id = "bgt_sample_shopping_$mKey",
+                    categoryName = "Shopping",
+                    monthlyLimit = 12000.0,
+                    monthYear = mKey,
+                    isOverall = false,
+                    rolloverEnabled = false,
+                    name = "Shopping",
+                    iconName = "shopping_bag",
+                    colorHex = "#EC4899",
+                    alertPercentage = 80
+                )
+            )
+            budgets.add(
+                BudgetEntity(
+                    id = "bgt_sample_transport_$mKey",
+                    categoryName = "Transportation",
+                    monthlyLimit = 3000.0,
+                    monthYear = mKey,
+                    isOverall = false,
+                    rolloverEnabled = false,
+                    name = "Transportation",
+                    iconName = "directions_car",
+                    colorHex = "#6366F1",
+                    alertPercentage = 80
+                )
+            )
+        }
 
-        // 6. Loans & Debts covering BOTH Lent (Receivable) & Borrowed (Payable) with partial & settled histories
+        // 6. Loans & Debts
         val debts = listOf(
             DebtEntity(
                 id = "debt_sample_borrow_arian",
@@ -668,30 +673,14 @@ object SampleDataGenerator {
                 totalAmount = 18000.0,
                 paidAmount = 6000.0,
                 type = DebtType.BORROWED,
-                dueDate = dateStrDaysFromNow(45),
+                dueDate = "2026-12-15",
                 notes = "Sample medical emergency support loan (1 installment paid)",
                 isSettled = false,
                 accountId = "acc_sample_bank",
                 reason = "Medical Emergency",
                 colorHex = "#EF4444",
-                tentativeCloseDateStr = dateStrDaysFromNow(45),
+                tentativeCloseDateStr = "2026-12-15",
                 tags = "Medical, Installment"
-            ),
-            DebtEntity(
-                id = "debt_sample_borrow_farhan",
-                personName = "Farhan Kabir",
-                amount = 0.0,
-                totalAmount = 10000.0,
-                paidAmount = 10000.0,
-                type = DebtType.BORROWED,
-                dueDate = dateStrDaysFromNow(-2),
-                notes = "Sample project bridge loan - fully settled",
-                isSettled = true,
-                accountId = "acc_sample_nagad",
-                reason = "Project Bridge",
-                colorHex = "#10B981",
-                tentativeCloseDateStr = dateStrDaysFromNow(-2),
-                tags = "Settled"
             ),
             DebtEntity(
                 id = "debt_sample_lend_nabila",
@@ -700,46 +689,29 @@ object SampleDataGenerator {
                 totalAmount = 9000.0,
                 paidAmount = 4000.0,
                 type = DebtType.LENT,
-                dueDate = dateStrDaysFromNow(30),
+                dueDate = "2026-12-01",
                 notes = "Sample college education loan (partial repayment received)",
                 isSettled = false,
                 accountId = "acc_sample_bkash",
                 reason = "Semester Fees",
-                colorHex = "#3B82F6",
-                tentativeCloseDateStr = dateStrDaysFromNow(30),
+                colorHex = "#4F46E5",
+                tentativeCloseDateStr = "2026-12-01",
                 tags = "Education, Receivable"
-            ),
-            DebtEntity(
-                id = "debt_sample_lend_rafi",
-                personName = "Rafi Hasan",
-                amount = 0.0,
-                totalAmount = 10000.0,
-                paidAmount = 10000.0,
-                type = DebtType.LENT,
-                dueDate = dateStrDaysFromNow(-1),
-                notes = "Sample friendly assistance - fully collected",
-                isSettled = true,
-                accountId = "acc_sample_bank",
-                reason = "Friendly Loan",
-                colorHex = "#10B981",
-                tentativeCloseDateStr = dateStrDaysFromNow(-1),
-                tags = "Settled"
             )
         )
 
-        // 7. Savings Goals matching SavingsGoalEntity & JsonBackupManager
-        val futureDeadlineCal = (nowCal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 180) }
+        // 7. Savings Goals
         val savingsGoals = listOf(
             SavingsGoalEntity(
                 id = "goal_sample_emergency",
                 name = "Emergency Reserve Fund",
                 targetAmount = 100000.0,
                 savedAmount = 45000.0,
-                themeColorHex = "#06B6D4",
+                themeColorHex = "#4F46E5",
                 iconName = "savings",
-                targetDeadline = futureDeadlineCal.timeInMillis,
-                targetDeadlineStr = dateStrDaysFromNow(180),
-                createdAt = monthStartMillis,
+                targetDeadline = tsForDate(2027, Calendar.MAY, 22),
+                targetDeadlineStr = "2027-05-22",
+                createdAt = tsForDate(2026, Calendar.SEPTEMBER, 1),
                 isCompleted = false
             ),
             SavingsGoalEntity(
@@ -749,9 +721,9 @@ object SampleDataGenerator {
                 savedAmount = 35000.0,
                 themeColorHex = "#10B981",
                 iconName = "laptop",
-                targetDeadline = referenceTimeMillis,
-                targetDeadlineStr = dateStrDaysFromNow(0),
-                createdAt = monthStartMillis,
+                targetDeadline = tsForDate(2026, Calendar.OCTOBER, 31),
+                targetDeadlineStr = "2026-10-31",
+                createdAt = tsForDate(2026, Calendar.SEPTEMBER, 1),
                 isCompleted = true
             )
         )

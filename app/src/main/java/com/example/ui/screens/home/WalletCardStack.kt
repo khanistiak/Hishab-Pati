@@ -78,6 +78,7 @@ import com.example.ui.components.TranslucentCard
 import com.example.ui.components.rememberReducedMotionEnabled
 import com.example.ui.navigation.walletCardSharedBounds
 import com.example.ui.screens.accounts.HishabPatiAccountCard
+import com.example.ui.theme.LocalIsDarkTheme
 import com.example.ui.util.CurrencyFormatter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -173,6 +174,7 @@ internal fun StackedAccountCards(
     isHomeActive: Boolean = true,
     currentCardStyle: HomeCardStyle = HomeCardStyle.STACK,
     showHeader: Boolean = true,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onSwitchViewMode: (() -> Unit)? = null,
     onAccountClick: (AccountEntity) -> Unit,
     onAllAccountsClick: () -> Unit
@@ -184,7 +186,8 @@ internal fun StackedAccountCards(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .testTag("home_wallet_card_stack"),
-            cornerRadius = 24.dp
+            cornerRadius = 24.dp,
+            isDarkTheme = isDarkTheme
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 if (showHeader && onSwitchViewMode != null) {
@@ -192,6 +195,7 @@ internal fun StackedAccountCards(
                         currentStyle = currentCardStyle,
                         isBangla = isBangla,
                         onClick = onSwitchViewMode,
+                        isDarkTheme = isDarkTheme,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(14.dp)
@@ -312,7 +316,14 @@ internal fun StackedAccountCards(
         }
     }
 
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val countPillBgColor = remember(isDarkTheme) {
+        if (isDarkTheme) Color(0xFF1E293B).copy(alpha = 0.58f)
+        else Color.White.copy(alpha = 0.64f)
+    }
+    val countPillBorderColor = remember(isDarkTheme) {
+        if (isDarkTheme) Color.White.copy(alpha = 0.14f)
+        else Color.White.copy(alpha = 0.78f)
+    }
 
     Column(
         modifier = Modifier
@@ -321,7 +332,7 @@ internal fun StackedAccountCards(
             .testTag("home_wallet_card_stack")
     ) {
         if (showHeader) {
-            // Lightweight floating header row: frosted glass "+N more" pill on left,
+            // Lightweight floating header row: frosted glass total account count pill on left,
             // "All accounts >" + circular frosted view-switcher button on right
             Row(
                 modifier = Modifier
@@ -330,41 +341,38 @@ internal fun StackedAccountCards(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val remainingCount = (n - 1).coerceAtLeast(0)
-                val remainingText = if (remainingCount > 0) {
-                    if (isBangla) {
-                        "+${CurrencyFormatter.convertToBanglaDigits(remainingCount.toString())} আরও"
-                    } else {
-                        "+$remainingCount more"
-                    }
+                val accountCountText = if (isBangla) {
+                    "${CurrencyFormatter.convertToBanglaDigits(n.toString())}টি অ্যাকাউন্ট"
                 } else {
-                    if (isBangla) "১টি অ্যাকাউন্ট" else "1 account"
+                    if (n == 1) "1 account" else "$n accounts"
                 }
 
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(
-                            color = if (isDark) Color(0xFF1E293B).copy(alpha = 0.58f)
-                            else Color.White.copy(alpha = 0.64f),
-                            shape = CircleShape
+                key(isDarkTheme) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(
+                                color = countPillBgColor,
+                                shape = CircleShape
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = countPillBorderColor,
+                                shape = CircleShape
+                            )
+                            .padding(horizontal = 11.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            text = accountCountText,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.80f),
+                                fontSize = 12.sp
+                            ),
+                            maxLines = 1,
+                            softWrap = false
                         )
-                        .border(
-                            width = 1.dp,
-                            color = if (isDark) Color.White.copy(alpha = 0.14f)
-                            else Color.White.copy(alpha = 0.78f),
-                            shape = CircleShape
-                        )
-                        .padding(horizontal = 11.dp, vertical = 5.dp)
-                ) {
-                    Text(
-                        text = remainingText,
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.80f),
-                            fontSize = 12.sp
-                        )
-                    )
+                    }
                 }
 
                 Row(
@@ -400,7 +408,8 @@ internal fun StackedAccountCards(
                         HomeCardViewSwitcherButton(
                             currentStyle = currentCardStyle,
                             isBangla = isBangla,
-                            onClick = onSwitchViewMode
+                            onClick = onSwitchViewMode,
+                            isDarkTheme = isDarkTheme
                         )
                     }
                 }

@@ -112,6 +112,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -662,9 +663,15 @@ fun SettingsScreen(
                             enabled = !isSigningIn,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(46.dp),
+                                .height(46.dp)
+                                .background(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(Color(0xFF4F46E5), Color(0xFF6366F1))
+                                    ),
+                                    shape = RoundedCornerShape(23.dp)
+                                ),
                             shape = RoundedCornerShape(23.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5))
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.AccountCircle,
@@ -684,7 +691,7 @@ fun SettingsScreen(
             }
         }
 
-        // 2. GENERAL & CUSTOMIZATION Card (Theme, Language, Notification Manager, Customize Home Dashboard, Subcategories, Auto-Open Keypad)
+        // 2. GENERAL & CUSTOMIZATION Card
         item(key = "settings_section_general") {
             SettingsGroupHeader(title = if (isBangla) "সাধারণ ও কাস্টমাইজেশন" else "GENERAL & CUSTOMIZATION")
             TranslucentCard(
@@ -709,7 +716,7 @@ fun SettingsScreen(
 
                     SettingsClickableRow(
                         icon = Icons.Default.Language,
-                        iconColor = Color(0xFF2563EB),
+                        iconColor = Color(0xFF4F46E5),
                         title = SettingsAndAboutSpec.rowTitle(SettingsRowItem.LANGUAGE, language),
                         value = settings?.language?.displayName ?: "English",
                         onClick = {
@@ -725,7 +732,6 @@ fun SettingsScreen(
                         icon = Icons.Default.Notifications,
                         iconColor = Color(0xFFF59E0B),
                         title = if (isBangla) "নোটিফিকেশন ম্যানেজার" else "Notification Manager",
-                        value = if (isBangla) "দৈনিক অনুস্মারক এবং পেমেন্ট সতর্কতা পরিচালনা করুন" else "Manage daily reminders and payment alerts",
                         onClick = {
                             AppHaptics.performTap(view, hapticsEnabled)
                             viewModel.openSubScreen(SubScreen.NOTIFICATION_MANAGER)
@@ -737,9 +743,8 @@ fun SettingsScreen(
 
                     SettingsClickableRow(
                         icon = Icons.Default.DashboardCustomize,
-                        iconColor = Color(0xFF0EA5E9),
+                        iconColor = Color(0xFF4F46E5),
                         title = if (isBangla) "হোম ড্যাশবোর্ড কাস্টমাইজ করুন" else "Customize Home Dashboard",
-                        value = if (isBangla) "আপনার হোম ড্যাশবোর্ডে প্রদর্শিত সেকশনগুলো সাজান ও টগল করুন" else "Reorder and toggle sections displayed on your home dashboard",
                         onClick = {
                             AppHaptics.performTap(view, hapticsEnabled)
                             showCustomizeHomeSheet = true
@@ -753,7 +758,6 @@ fun SettingsScreen(
                         icon = Icons.Default.SubdirectoryArrowRight,
                         iconColor = Color(0xFF10B981),
                         title = if (isBangla) "সাবক্যাটাগরি সক্রিয় করুন" else "Enable Subcategories",
-                        subtitle = if (isBangla) "আপনার ব্যয়ের অভ্যাস আরও বিস্তারিতভাবে ট্র্যাক করুন" else "Track your spending habits in more detail",
                         checked = extendedSettings.enableSubcategories,
                         onCheckedChange = { enabled ->
                             AppHaptics.performToggle(view, hapticsEnabled)
@@ -768,7 +772,6 @@ fun SettingsScreen(
                         icon = Icons.Default.Dialpad,
                         iconColor = Color(0xFF6366F1),
                         title = if (isBangla) "স্বয়ংক্রিয়ভাবে অ্যামাউন্ট কীপ্যাড খুলুন" else "Auto-Open Amount Keypad",
-                        subtitle = if (isBangla) "নতুন লেনদেন যোগ করার সময় স্বয়ংক্রিয়ভাবে অ্যামাউন্ট কীপ্যাড খুলুন" else "Automatically open the amount keypad when adding a new transaction",
                         checked = extendedSettings.autoOpenAmountKeypad,
                         onCheckedChange = { enabled ->
                             AppHaptics.performToggle(view, hapticsEnabled)
@@ -780,21 +783,21 @@ fun SettingsScreen(
             }
         }
 
-        // 3. WALLET, CURRENCY & DATA Card
+        // 3. WALLET, CURRENCY, DATA & TIME Card
         item(key = "settings_section_wallet_data") {
-            SettingsGroupHeader(title = if (isBangla) "ওয়ালেট, মুদ্রা ও ডাটা" else "WALLET, CURRENCY & DATA")
+            SettingsGroupHeader(title = if (isBangla) "ওয়ালেট, মুদ্রা, ডাটা ও সময়" else "WALLET, CURRENCY, DATA & TIME")
             TranslucentCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 4.dp)
             ) {
                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                    val walletName = resolvedDefaultWallet?.name ?: (if (isBangla) "ওয়ালেট ক্যাশ" else "Wallet Cash")
+                    val walletName = resolvedDefaultWallet?.name ?: (if (isBangla) "ওয়ালেট ক্যাশ" else "Cash Wallet")
                     SettingsClickableRow(
                         icon = Icons.Default.AccountBalanceWallet,
-                        iconColor = Color(0xFF0284C7),
+                        iconColor = Color(0xFF4F46E5),
                         title = if (isBangla) "ডিফল্ট ওয়ালেট" else "Default Wallet",
-                        value = if (isBangla) "আপনার বর্তমান ডিফল্ট হলো $walletName" else "Your current default is $walletName",
+                        value = walletName,
                         onClick = {
                             AppHaptics.performTap(view, hapticsEnabled)
                             showDefaultWalletSheet = true
@@ -805,16 +808,11 @@ fun SettingsScreen(
                     SettingsRowDivider(isDark = isDark)
 
                     val currencyCode = settings?.currencyCode ?: "BDT"
-                    val currencyDisplay = if (currencyCode == "BDT") {
-                        if (isBangla) "বাংলাদেশী টাকা (BDT)" else "Bangladeshi Taka (BDT)"
-                    } else {
-                        "$currencyCode (${settings?.currencySymbol ?: "৳"})"
-                    }
                     SettingsClickableRow(
                         icon = Icons.Default.Payments,
                         iconColor = Color(0xFF059669),
                         title = if (isBangla) "প্রধান মুদ্রা" else "Main Currency",
-                        value = currencyDisplay,
+                        value = currencyCode,
                         onClick = {
                             AppHaptics.performTap(view, hapticsEnabled)
                             viewModel.openSubScreen(SubScreen.CURRENCY_SELECTION)
@@ -828,7 +826,6 @@ fun SettingsScreen(
                         icon = Icons.Default.Category,
                         iconColor = Color(0xFF10B981),
                         title = SettingsAndAboutSpec.rowTitle(SettingsRowItem.CATEGORIES, language),
-                        value = if (isBangla) "ক্যাটাগরি ও সাব-ক্যাটাগরি পরিচালনা করুন" else "Manage categories & subcategories",
                         onClick = {
                             AppHaptics.performTap(view, hapticsEnabled)
                             viewModel.openSubScreen(SubScreen.CATEGORIES_MANAGEMENT)
@@ -840,9 +837,8 @@ fun SettingsScreen(
 
                     SettingsClickableRow(
                         icon = Icons.Default.AccountBalanceWallet,
-                        iconColor = Color(0xFF0EA5E9),
+                        iconColor = Color(0xFF4F46E5),
                         title = SettingsAndAboutSpec.rowTitle(SettingsRowItem.ACCOUNTS, language),
-                        value = if (isBangla) "ওয়ালেট, ব্যাংক ও ব্যালেন্স পরিচালনা করুন" else "Manage wallets, banks & balances",
                         onClick = {
                             AppHaptics.performTap(view, hapticsEnabled)
                             viewModel.openSubScreen(SubScreen.ACCOUNTS_MANAGEMENT)
@@ -856,26 +852,15 @@ fun SettingsScreen(
                         icon = Icons.Default.Sync,
                         iconColor = Color(0xFF4F46E5),
                         title = SettingsAndAboutSpec.rowTitle(SettingsRowItem.BACKUP_RESTORE, language),
-                        value = if (isBangla) "এক্সপোর্ট, রিস্টোর, ক্লাউড ব্যাকআপ ও সিঙ্ক" else "Export, restore, cloud backup & sync",
                         onClick = {
                             AppHaptics.performTap(view, hapticsEnabled)
                             viewModel.openSubScreen(SubScreen.BACKUP_RESTORE)
                         },
                         testTag = SettingsRowItem.BACKUP_RESTORE.testTag
                     )
-                }
-            }
-        }
 
-        // 4. DATE & TIME Card (Start of Week)
-        item(key = "settings_section_date_time") {
-            SettingsGroupHeader(title = if (isBangla) "তারিখ ও সময়" else "DATE & TIME")
-            TranslucentCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp)
-            ) {
-                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    SettingsRowDivider(isDark = isDark)
+
                     val startOfWeekLabel = UserSettingsPreferences.dayName(extendedSettings.startOfWeek, language)
                     SettingsClickableRow(
                         icon = Icons.Default.CalendarMonth,
@@ -892,9 +877,9 @@ fun SettingsScreen(
             }
         }
 
-        // 5. SECURITY & SYSTEM Card (Use Screen Lock, Haptic Feedback)
-        item(key = "settings_section_security") {
-            SettingsGroupHeader(title = if (isBangla) "নিরাপত্তা ও সিস্টেম" else "SECURITY & SYSTEM")
+        // 4. SECURITY, SYSTEM & ABOUT Card
+        item(key = "settings_section_security_about") {
+            SettingsGroupHeader(title = if (isBangla) "নিরাপত্তা, সিস্টেম ও সম্পর্কে" else "SECURITY, SYSTEM & ABOUT")
             TranslucentCard(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -905,7 +890,6 @@ fun SettingsScreen(
                         icon = Icons.Default.Lock,
                         iconColor = Color(0xFFF59E0B),
                         title = if (isBangla) "স্ক্রিন লক ব্যবহার করুন" else "Use Screen Lock",
-                        subtitle = if (isBangla) "অ্যাপটি খুলতে আপনার ডিভাইসের স্ক্রিন লক প্রয়োজন।" else "Require your device's screen lock to open the app.",
                         checked = extendedSettings.useScreenLock,
                         onCheckedChange = { requestedEnabled ->
                             AppHaptics.performToggle(view, hapticsEnabled)
@@ -943,7 +927,6 @@ fun SettingsScreen(
                         icon = Icons.Default.Vibration,
                         iconColor = Color(0xFF10B981),
                         title = if (isBangla) "হ্যাপটিক ফিডব্যাক" else "Haptic Feedback",
-                        subtitle = if (isBangla) "বিভিন্ন ইন্টারঅ্যাকশনে ভাইব্রেশন সক্রিয় করুন" else "Enable vibration on various interactions",
                         checked = extendedSettings.hapticFeedbackEnabled,
                         onCheckedChange = { enabled ->
                             if (enabled) {
@@ -953,24 +936,13 @@ fun SettingsScreen(
                         },
                         testTag = "settings_toggle_haptic_feedback"
                     )
-                }
-            }
-        }
 
-        // 6. ABOUT Card
-        item(key = "settings_section_about") {
-            SettingsGroupHeader(title = if (isBangla) "অ্যাপ সম্পর্কে" else "ABOUT")
-            TranslucentCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp)
-            ) {
-                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    SettingsRowDivider(isDark = isDark)
+
                     SettingsClickableRow(
                         icon = Icons.Default.Info,
                         iconColor = Color(0xFF6366F1),
                         title = SettingsAndAboutSpec.rowTitle(SettingsRowItem.ABOUT, language),
-                        value = if (isBangla) "হিসাব পাতি সম্পর্কে তথ্য" else "App info & developer details",
                         onClick = {
                             AppHaptics.performTap(view, hapticsEnabled)
                             viewModel.openSubScreen(SubScreen.ABOUT)
@@ -980,72 +952,46 @@ fun SettingsScreen(
 
                     SettingsRowDivider(isDark = isDark)
 
-                    val updateRowSubtitle = remember(lastUpdateCheckTimestamp, isBangla) {
-                        val verText = "v${BuildConfig.VERSION_NAME}"
-                        if (lastUpdateCheckTimestamp <= 0L) {
-                            verText
-                        } else {
-                            val nowCal = Calendar.getInstance()
-                            val chkCal = Calendar.getInstance().apply { timeInMillis = lastUpdateCheckTimestamp }
-                            val isSameDay = nowCal.get(Calendar.YEAR) == chkCal.get(Calendar.YEAR) &&
-                                nowCal.get(Calendar.DAY_OF_YEAR) == chkCal.get(Calendar.DAY_OF_YEAR)
-                            val pattern = if (isSameDay) "h:mm a" else "MMM d, h:mm a"
-                            val formattedTime = SimpleDateFormat(pattern, Locale.ENGLISH).format(Date(lastUpdateCheckTimestamp))
-                            val checkedPrefix = AppStrings.t("checked_prefix", language)
-                            "$verText • $checkedPrefix $formattedTime"
-                        }
-                    }
-
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 56.dp)
+                            .heightIn(min = 52.dp)
                             .testTag("settings_row_check_updates")
                             .clickable {
                                 AppHaptics.performTap(view, hapticsEnabled)
                                 viewModel.checkForUpdatesManually()
                             }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(36.dp)
                                 .background(
-                                    color = Color(0xFF0EA5E9).copy(alpha = 0.14f),
-                                    shape = RoundedCornerShape(12.dp)
+                                    color = Color(0xFF4F46E5).copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(10.dp)
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SystemUpdate,
                                 contentDescription = null,
-                                tint = Color(0xFF0EA5E9),
+                                tint = Color(0xFF4F46E5),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = AppStrings.t("check_for_updates", language),
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = updateRowSubtitle,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 12.sp
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        Text(
+                            text = AppStrings.t("check_for_updates", language),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
 
                         // Trailing Status Badge Pill (before the > chevron)
@@ -1062,14 +1008,14 @@ fun SettingsScreen(
                                         CircularProgressIndicator(
                                             modifier = Modifier.size(12.dp),
                                             strokeWidth = 1.8.dp,
-                                            color = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7)
+                                            color = Color(0xFF4F46E5)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = AppStrings.t("checking_short", language),
                                             style = MaterialTheme.typography.labelSmall.copy(
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7)
+                                                color = Color(0xFF4F46E5)
                                             )
                                         )
                                     }
@@ -1084,7 +1030,7 @@ fun SettingsScreen(
                                         text = "${AppStrings.t("update_pill_prefix", language)} • v${uState.releaseInfo.versionName}",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
-                                            color = if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)
+                                            color = if (isDark) Color(0xFF60A5FA) else Color(0xFF4F46E5)
                                         ),
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                     )
@@ -1096,7 +1042,7 @@ fun SettingsScreen(
                                     color = if (isDark) Color(0xFF064E3B).copy(alpha = 0.65f) else Color(0xFFDCFCE7)
                                 ) {
                                     Text(
-                                        text = AppStrings.t("up_to_date", language),
+                                        text = "v${BuildConfig.VERSION_NAME} · ${AppStrings.t("up_to_date", language)}",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
                                             color = if (isDark) Color(0xFF4ADE80) else Color(0xFF16A34A)
@@ -1112,14 +1058,14 @@ fun SettingsScreen(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
                             contentDescription = AppStrings.t("check_for_updates", language),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }
             }
         }
 
-        // 4. Footer Privacy Notice
+        // 5. Footer Privacy Notice
         item(key = "settings_section_footer") {
             Spacer(modifier = Modifier.height(16.dp))
             Text(
@@ -1977,7 +1923,7 @@ private fun SettingsClickableRow(
     icon: ImageVector,
     iconColor: Color,
     title: String,
-    value: String,
+    value: String? = null,
     onClick: () -> Unit,
     testTag: String? = null
 ) {
@@ -1986,7 +1932,7 @@ private fun SettingsClickableRow(
             .fillMaxWidth()
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Surface(
@@ -1999,19 +1945,26 @@ private fun SettingsClickableRow(
             }
         }
         Spacer(modifier = Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+        Text(
+            text = title,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+        if (!value.isNullOrBlank()) {
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = value,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
+        Spacer(modifier = Modifier.width(8.dp))
         Icon(
             imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
             contentDescription = null,
@@ -2026,7 +1979,6 @@ private fun SettingsSwitchRow(
     icon: ImageVector,
     iconColor: Color,
     title: String,
-    subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     testTag: String? = null
@@ -2035,7 +1987,7 @@ private fun SettingsSwitchRow(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 7.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Surface(
@@ -2048,19 +2000,13 @@ private fun SettingsSwitchRow(
             }
         }
         Spacer(modifier = Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = subtitle,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Text(
+            text = title,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,

@@ -366,124 +366,66 @@ fun ActivityScreen(
         }
     }
 
-    // Totals for filtered transactions computed in a single pass and remembered
-    val (totalMoneyIn, totalMoneyOut, netTotal) = remember(filteredList) {
-        var moneyIn = 0.0
-        var moneyOut = 0.0
-        filteredList.forEach { tx ->
-            if (tx.type == TransactionType.INCOME && !tx.category.equals("Transfer", ignoreCase = true)) {
-                moneyIn += tx.amount
-            } else if (tx.type == TransactionType.EXPENSE && !tx.category.equals("Transfer", ignoreCase = true)) {
-                moneyOut += tx.amount
-            }
-        }
-        Triple(moneyIn, moneyOut, moneyIn - moneyOut)
-    }
-
-    // Report timeline and breakdown metrics
-    val (startingBalance, endingBalance, timelinePoints) = remember(
-        reportStartTime, reportEndTime, accounts, transactions, selectedAccountIdFilter, language
-    ) {
-        FilteredReportCalculator.calculateBalanceTimeline(
-            startTime = reportStartTime,
-            endTime = reportEndTime,
-            accounts = accounts,
-            transactions = transactions,
-            selectedAccountId = selectedAccountIdFilter,
-            language = language
-        )
-    }
-
-    val (totalCategoryAmount, categoryShares) = remember(transactionsForReport, categories, language) {
-        FilteredReportCalculator.calculateCategoryBreakdown(
-            transactions = transactionsForReport,
-            categories = categories,
-            language = language
-        )
-    }
-
-    val reportTotalAmount = remember(filteredList, selectedFilter) {
-        when (selectedFilter) {
-            ActivityFilterType.EXPENSES -> filteredList.filter {
-                it.type == TransactionType.EXPENSE && !it.category.equals("Transfer", ignoreCase = true)
-            }.sumOf { it.amount }
-            ActivityFilterType.INCOME -> filteredList.filter {
-                it.type == TransactionType.INCOME && !it.category.equals("Transfer", ignoreCase = true)
-            }.sumOf { it.amount }
-            ActivityFilterType.TRANSFERS -> filteredList.filter {
-                it.type == TransactionType.TRANSFER || it.type == TransactionType.CC_PAYMENT
-            }.sumOf { it.amount }
-            ActivityFilterType.ALL -> {
-                var sum = 0.0
-                filteredList.forEach { tx ->
-                    if (!tx.category.equals("Transfer", ignoreCase = true)) {
-                        when (tx.type) {
-                            TransactionType.INCOME -> sum += tx.amount
-                            TransactionType.EXPENSE -> sum -= tx.amount
-                            else -> {}
-                        }
-                    }
-                }
-                sum
-            }
-        }
-    }
-
-    // Grouping by Date
-    val groupedByDate = remember(filteredList, language) {
-        filteredList.groupBy { DateFormatter.formatDateGroup(it.timestamp, language) }
-    }
-
-    val dateGroups = remember(filteredList, selectedSort, language, currencySymbol) {
-        val dayKeyFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val dayLabelFormat = SimpleDateFormat("MMMM d, yyyy", Locale.US)
-
-        val grouped = filteredList.groupBy { tx ->
-            dayKeyFormat.format(Date(tx.timestamp))
-        }
-
-        val sortedGroupEntries = if (selectedSort == ActivitySort.OLDEST) {
-            grouped.entries.sortedBy { it.key }
-        } else {
-            grouped.entries.sortedByDescending { it.key }
-        }
-
-        sortedGroupEntries.map { (dateKey, txs) ->
-            val firstTimestamp = txs.firstOrNull()?.timestamp ?: System.currentTimeMillis()
-            val formattedLabel = DateFormatter.localizeText(dayLabelFormat.format(Date(firstTimestamp)), language)
-
-            val dayExpenses = txs.filter {
-                it.type == TransactionType.EXPENSE && !it.category.equals("Transfer", ignoreCase = true)
-            }.sumOf { it.amount }
-            val dayIncome = txs.filter {
-                it.type == TransactionType.INCOME && !it.category.equals("Transfer", ignoreCase = true)
-            }.sumOf { it.amount }
-
-            val totalText = when {
-                dayExpenses > 0 && dayIncome == 0.0 -> "Δ -" + CurrencyFormatter.format(dayExpenses, currencySymbol, language = language)
-                dayIncome > 0 && dayExpenses == 0.0 -> "Δ +" + CurrencyFormatter.format(dayIncome, currencySymbol, language = language)
-                dayExpenses > 0 && dayIncome > 0 -> {
-                    val net = dayIncome - dayExpenses
-                    if (net >= 0) "Δ +" + CurrencyFormatter.format(net, currencySymbol, language = language)
-                    else "Δ -" + CurrencyFormatter.format(-net, currencySymbol, language = language)
-                }
-                else -> ""
-            }
-
-            ActivityDateGroup(
-                dateKey = dateKey,
-                dateLabel = formattedLabel,
-                dayTotalText = totalText,
-                transactions = txs
-            )
-        }
-    }
+    val accountsById = remember(accounts) { accounts.associateBy { it.id } }
 
     BackHandler(enabled = isFilteredReportMode) {
         isFilteredReportMode = false
     }
 
     if (isFilteredReportMode) {
+        // Compute report-only timeline, category breakdown, totals, and date grouping lazily when report mode is open
+        val (startingBalance, endingBalance, timelinePoints) = remember(
+            reportStartTime, reportEndTime, accounts, transactions, selectedAccountIdFilter, language
+        ) {
+            FilteredReportCalculator.calculateBalanceTimeline(
+                startTime = reportStartTime,
+                endTime = reportEndTime,
+                accounts = accounts,
+                transactions = transactions,
+                selectedAccountId = selectedAccountIdFilter,
+                language = language
+            )
+        }
+
+        val (totalCategoryAmount, categoryShares) = remember(transactionsForReport, categories, language) {
+            FilteredReportCalculator.calculateCategoryBreakdown(
+                transactions = transactionsForReport,
+                categories = categories,
+                language = language
+            )
+        }
+
+        val reportTotalAmount = remember(filteredList, selectedFilter) {
+            when (selectedFilter) {
+                ActivityFilterType.EXPENSES -> filteredList.filter {
+                    it.type == TransactionType.EXPENSE && !it.category.equals("Transfer", ignoreCase = true)
+                }.sumOf { it.amount }
+                ActivityFilterType.INCOME -> filteredList.filter {
+                    it.type == TransactionType.INCOME && !it.category.equals("Transfer", ignoreCase = true)
+                }.sumOf { it.amount }
+                ActivityFilterType.TRANSFERS -> filteredList.filter {
+                    it.type == TransactionType.TRANSFER || it.type == TransactionType.CC_PAYMENT
+                }.sumOf { it.amount }
+                ActivityFilterType.ALL -> {
+                    var sum = 0.0
+                    filteredList.forEach { tx ->
+                        if (!tx.category.equals("Transfer", ignoreCase = true)) {
+                            when (tx.type) {
+                                TransactionType.INCOME -> sum += tx.amount
+                                TransactionType.EXPENSE -> sum -= tx.amount
+                                else -> {}
+                            }
+                        }
+                    }
+                    sum
+                }
+            }
+        }
+
+        val groupedByDate = remember(filteredList, language) {
+            filteredList.groupBy { DateFormatter.formatDateGroup(it.timestamp, language) }
+        }
+
         FilteredReportContent(
             modifier = modifier.fillMaxSize(),
             listState = filteredReportListState,
@@ -562,6 +504,56 @@ fun ActivityScreen(
             }
         )
     } else {
+        val dateGroups = remember(filteredList, selectedSort, language, currencySymbol) {
+            val dayKeyFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            val dayLabelFormat = SimpleDateFormat("MMMM d, yyyy", Locale.US)
+
+            val grouped = filteredList.groupBy { tx ->
+                dayKeyFormat.format(Date(tx.timestamp))
+            }
+
+            val sortedGroupEntries = if (selectedSort == ActivitySort.OLDEST) {
+                grouped.entries.sortedBy { it.key }
+            } else {
+                grouped.entries.sortedByDescending { it.key }
+            }
+
+            sortedGroupEntries.map { (dateKey, txs) ->
+                val firstTimestamp = txs.firstOrNull()?.timestamp ?: System.currentTimeMillis()
+                val formattedLabel = DateFormatter.localizeText(dayLabelFormat.format(Date(firstTimestamp)), language)
+
+                var dayExpenses = 0.0
+                var dayIncome = 0.0
+                txs.forEach { tx ->
+                    if (!tx.category.equals("Transfer", ignoreCase = true)) {
+                        when (tx.type) {
+                            TransactionType.EXPENSE -> dayExpenses += tx.amount
+                            TransactionType.INCOME -> dayIncome += tx.amount
+                            else -> {}
+                        }
+                    }
+                }
+
+                val totalText = when {
+                    dayExpenses > 0 && dayIncome == 0.0 -> "Δ -" + CurrencyFormatter.format(dayExpenses, currencySymbol, language = language)
+                    dayIncome > 0 && dayExpenses == 0.0 -> "Δ +" + CurrencyFormatter.format(dayIncome, currencySymbol, language = language)
+                    dayExpenses > 0 && dayIncome > 0 -> {
+                        val net = dayIncome - dayExpenses
+                        if (net >= 0) "Δ +" + CurrencyFormatter.format(net, currencySymbol, language = language)
+                        else "Δ -" + CurrencyFormatter.format(-net, currencySymbol, language = language)
+                    }
+                    else -> ""
+                }
+
+                ActivityDateGroup(
+                    dateKey = dateKey,
+                    dateLabel = formattedLabel,
+                    dayTotalText = totalText,
+                    transactions = txs
+                )
+            }
+        }
+
         val hasActiveFilters = selectedFilter != ActivityFilterType.ALL ||
                 selectedAccountIdFilter != null ||
                 selectedCategoryFilter != null ||
@@ -797,8 +789,8 @@ fun ActivityScreen(
                                     val isIncome = tx.type == TransactionType.INCOME || tx.type == TransactionType.BORROW
                                     val isTransfer = tx.type == TransactionType.TRANSFER || tx.type == TransactionType.CC_PAYMENT
 
-                                    val acc = accounts.firstOrNull { it.id == tx.accountId }
-                                    val toAcc = if (tx.toAccountId != null) accounts.firstOrNull { it.id == tx.toAccountId } else null
+                                    val acc = accountsById[tx.accountId]
+                                    val toAcc = tx.toAccountId?.let { accountsById[it] }
 
                                     val accountLabel = if (isTransfer && toAcc != null) {
                                         "${acc?.name ?: "Wallet"} → ${toAcc.name}"

@@ -23,13 +23,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.example.ui.theme.LocalIsDarkTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -203,17 +206,25 @@ fun rememberScrollAwareGlassLayout(
     val topContentPadding = measuredHeaderHeightDp + extraTopGap
     val bottomContentPadding = navBarClearanceValue(navBarBottomPadding, bottomNavClearance)
 
-    val rawScrollPx = if (listState.firstVisibleItemIndex > 0) {
-        1000f
-    } else {
-        listState.firstVisibleItemScrollOffset.toFloat()
-    }
     val rampDistancePx = with(density) { 48.dp.toPx() }.coerceAtLeast(1f)
-    val scrollFraction = (rawScrollPx / rampDistancePx).coerceIn(0f, 1f)
-    val targetGlassProgress = if (rawScrollPx > 2f) {
-        (scrollFraction * 0.88f + 0.12f).coerceIn(0f, 1f)
-    } else {
-        0f
+    val targetGlassProgress by remember(listState, rampDistancePx) {
+        derivedStateOf {
+            val rawScrollPx = if (listState.firstVisibleItemIndex > 0) {
+                rampDistancePx
+            } else {
+                listState.firstVisibleItemScrollOffset.toFloat()
+            }
+            if (rawScrollPx <= 2f) {
+                0f
+            } else if (rawScrollPx >= rampDistancePx) {
+                1f
+            } else {
+                val fraction = (rawScrollPx / rampDistancePx).coerceIn(0f, 1f)
+                val progress = (fraction * 0.88f + 0.12f).coerceIn(0f, 1f)
+                // Quantize to 0.04f steps during the short 48dp ramp to avoid per-pixel recompositions
+                ((progress * 25f).toInt() / 25f)
+            }
+        }
     }
 
     LaunchedEffect(targetGlassProgress, listState, tabContentGraphicsLayer) {
@@ -265,20 +276,26 @@ fun rememberScrollAwareGlassLayout(
     val topContentPadding = measuredHeaderHeightDp + extraTopGap
     val bottomContentPadding = navBarClearanceValue(navBarBottomPadding, bottomNavClearance)
 
-    val rawScrollPx = scrollState.value.toFloat()
     val rampDistancePx = with(density) { 48.dp.toPx() }.coerceAtLeast(1f)
-    val scrollFraction = (rawScrollPx / rampDistancePx).coerceIn(0f, 1f)
-    val targetGlassProgress = if (rawScrollPx > 2f) {
-        (scrollFraction * 0.88f + 0.12f).coerceIn(0f, 1f)
-    } else {
-        0f
+    val targetGlassProgress by remember(scrollState, rampDistancePx) {
+        derivedStateOf {
+            val rawScrollPx = scrollState.value.toFloat()
+            if (rawScrollPx <= 2f) {
+                0f
+            } else if (rawScrollPx >= rampDistancePx) {
+                1f
+            } else {
+                val fraction = (rawScrollPx / rampDistancePx).coerceIn(0f, 1f)
+                val progress = (fraction * 0.88f + 0.12f).coerceIn(0f, 1f)
+                ((progress * 25f).toInt() / 25f)
+            }
+        }
     }
 
-    LaunchedEffect(targetGlassProgress, scrollState.value, tabContentGraphicsLayer) {
+    LaunchedEffect(targetGlassProgress, tabContentGraphicsLayer) {
         frostedBackdropState?.targetGlassProgress = targetGlassProgress
         frostedBackdropState?.lazyListState = null
         frostedBackdropState?.activeContentLayer = tabContentGraphicsLayer
-        frostedBackdropState?.scrollTick = ((frostedBackdropState?.scrollTick ?: 0) + 1) % 100000
     }
 
     return remember(
@@ -310,28 +327,33 @@ fun BoxScope.ScrollAwareFixedHeader(
     content: @Composable () -> Unit
 ) {
     val surfaceColor = MaterialTheme.colorScheme.surface
-    val isDarkHeader = surfaceColor.luminance() < 0.5f
-    val headerBaseBg = if (isDarkHeader) {
-        MaterialTheme.colorScheme.background.copy(alpha = 0.22f)
-    } else {
-        surfaceColor.copy(alpha = 0.16f)
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val isDarkHeader = LocalIsDarkTheme.current ?: (surfaceColor.luminance() < 0.5f)
+    val headerBaseBg = remember(isDarkHeader, surfaceColor, backgroundColor) {
+        if (isDarkHeader) {
+            backgroundColor.copy(alpha = 0.22f)
+        } else {
+            surfaceColor.copy(alpha = 0.16f)
+        }
     }
-    val headerOverlayBrush = if (isDarkHeader) {
-        Brush.verticalGradient(
-            listOf(
-                Color(0xFF0F172A).copy(alpha = 0.36f),
-                Color(0xFF1E293B).copy(alpha = 0.28f),
-                Color.Transparent
+    val headerOverlayBrush = remember(isDarkHeader) {
+        if (isDarkHeader) {
+            Brush.verticalGradient(
+                listOf(
+                    Color(0xFF0F172A).copy(alpha = 0.36f),
+                    Color(0xFF1E293B).copy(alpha = 0.28f),
+                    Color.Transparent
+                )
             )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.32f),
-                Color.White.copy(alpha = 0.22f),
-                Color.Transparent
+        } else {
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.32f),
+                    Color.White.copy(alpha = 0.22f),
+                    Color.Transparent
+                )
             )
-        )
+        }
     }
 
     FrostedGlassSurface(
@@ -373,13 +395,14 @@ fun FrostedGlassSurface(
     content: @Composable BoxScope.() -> Unit
 ) {
     val backdropState = LocalFrostedBackdropState.current
-    var surfaceOffsetInRoot by remember { mutableStateOf(Offset.Zero) }
+    val isDark = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.surface.luminance() < 0.5f)
+    var surfaceOffsetInRoot by remember(isDark) { mutableStateOf(Offset.Zero) }
     val reducedMotion = rememberReducedMotionEnabled()
 
     val rawTargetProgress = glassProgressOverride ?: backdropState?.targetGlassProgress ?: 1f
     val effectiveGlassProgress by animateFloatAsState(
         targetValue = rawTargetProgress.coerceIn(0f, 1f),
-        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 180),
+        animationSpec = tween(durationMillis = if (reducedMotion) 0 else 140),
         label = "FrostedGlassProgress"
     )
 
@@ -396,7 +419,8 @@ fun FrostedGlassSurface(
             .then(if (border != null && effectiveGlassProgress > 0.05f) Modifier.border(border, shape) else Modifier),
         contentAlignment = Alignment.Center
     ) {
-        // Blurred backdrop layer + tint
+        // Blurred backdrop layer + tint (keyed by isDark so theme switches never reuse cached dark backdrop layers)
+        key(isDark) {
         if (effectiveGlassProgress > 0.005f) {
             Box(
                 modifier = Modifier
@@ -406,6 +430,7 @@ fun FrostedGlassSurface(
                             Modifier
                                 .graphicsLayer {
                                     compositingStrategy = CompositingStrategy.Offscreen
+                                    val currentIsDark = isDark
                                 }
                                 .drawWithContent {
                                     drawContent()
@@ -427,6 +452,7 @@ fun FrostedGlassSurface(
                     modifier = Modifier
                         .matchParentSize()
                         .graphicsLayer {
+                            val currentIsDark = isDark
                             alpha = backdropLayerAlpha
                             val blurPx = currentBlurDp.toPx()
                             renderEffect = if (supportsRenderEffectBlur && blurPx > 0.5f) {
@@ -436,11 +462,13 @@ fun FrostedGlassSurface(
                             }
                         }
                         .drawBehind {
+                            val currentIsDark = isDark
                             val listState = backdropState?.lazyListState
                             val activeLayer = backdropState?.activeContentLayer ?: backdropState?.graphicsLayer
                             val scrollRead = (backdropState?.scrollTick ?: 0) +
                                 (listState?.firstVisibleItemIndex ?: 0) +
-                                (listState?.firstVisibleItemScrollOffset ?: 0)
+                                (listState?.firstVisibleItemScrollOffset ?: 0) +
+                                (if (currentIsDark) 1 else 0)
                             if (scrollRead >= 0) {
                                 drawRect(color = baseBackgroundColor)
                                 val bgLayer = backdropState?.backgroundGraphicsLayer
@@ -466,7 +494,10 @@ fun FrostedGlassSurface(
                     Box(
                         modifier = Modifier
                             .matchParentSize()
-                            .graphicsLayer { alpha = effectiveGlassProgress }
+                            .graphicsLayer { 
+                                val currentIsDark = isDark
+                                alpha = effectiveGlassProgress 
+                            }
                             .background(overlayBrush)
                     )
                 }
@@ -477,6 +508,7 @@ fun FrostedGlassSurface(
                     .matchParentSize()
                     .background(restingTintBrush)
             )
+        }
         }
 
         content()

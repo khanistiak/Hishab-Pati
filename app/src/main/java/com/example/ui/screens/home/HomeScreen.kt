@@ -124,6 +124,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -183,6 +184,7 @@ import com.example.ui.components.recordFrostedBackdrop
 import com.example.ui.components.rememberScrollAwareGlassLayout
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
+import com.example.ui.theme.LocalIsDarkTheme
 import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
 import com.example.ui.util.DateFormatter
@@ -215,6 +217,12 @@ fun HomeScreen(
     val lang = settings?.language ?: com.example.data.model.AppLanguage.ENGLISH
     val isBangla = lang == com.example.data.model.AppLanguage.BANGLA
     val currencySymbol = settings?.currencySymbol ?: "৳"
+    val activeThemeMode = settings?.themeMode ?: com.example.data.model.ThemeMode.AUTO
+    val isDarkTheme = LocalIsDarkTheme.current ?: when (activeThemeMode) {
+        com.example.data.model.ThemeMode.AUTO -> isSystemInDarkTheme()
+        com.example.data.model.ThemeMode.LIGHT -> false
+        com.example.data.model.ThemeMode.DARK -> true
+    }
 
     val unreadNotificationCount by viewModel.unreadNotificationCount.collectAsState()
     val hasUnreadNotifications = unreadNotificationCount > 0
@@ -222,17 +230,25 @@ fun HomeScreen(
     val (refYear, refMonth) = remember(transactions, budgets) {
         FinancialIntegrityValidator.resolveReferenceYearMonth(transactions, budgets)
     }
-    val spentThisMonth = remember(transactions, refYear, refMonth) {
-        transactions.filter { tx ->
-            FinancialIntegrityValidator.isEligibleExpense(tx) &&
-                FinancialIntegrityValidator.isInYearMonth(tx.timestamp, refYear, refMonth)
-        }.sumOf { it.amount }
+    val (spentThisMonth, earnedThisMonth) = remember(transactions, refYear, refMonth) {
+        var spent = 0.0
+        var earned = 0.0
+        transactions.forEach { tx ->
+            if (FinancialIntegrityValidator.isInYearMonth(tx.timestamp, refYear, refMonth)) {
+                if (FinancialIntegrityValidator.isEligibleExpense(tx)) {
+                    spent += tx.amount
+                } else if (FinancialIntegrityValidator.isEligibleIncome(tx)) {
+                    earned += tx.amount
+                }
+            }
+        }
+        spent to earned
     }
-    val earnedThisMonth = remember(transactions, refYear, refMonth) {
-        transactions.filter { tx ->
-            FinancialIntegrityValidator.isEligibleIncome(tx) &&
-                FinancialIntegrityValidator.isInYearMonth(tx.timestamp, refYear, refMonth)
-        }.sumOf { it.amount }
+    val recentTransactions = remember(transactions) {
+        transactions.sortedByDescending { it.timestamp }.take(5)
+    }
+    val sortedSavingsGoals = remember(savingsGoals) {
+        savingsGoals.sortedBy { it.isCompleted }
     }
     val visibleAccountCount = remember(accounts) { accounts.count { !it.isHidden } }
     val cycleHomeCardStyle: () -> Unit = {
@@ -342,6 +358,7 @@ fun HomeScreen(
                             isBalanceVisible = isBalanceVisible,
                             currencySymbol = currencySymbol,
                             isBangla = isBangla,
+                            isDarkTheme = isDarkTheme,
                             onToggleVisibility = { isBalanceVisible = !isBalanceVisible }
                         )
                     }
@@ -379,6 +396,7 @@ fun HomeScreen(
                                     isHomeActive = isHomeActive,
                                     currentCardStyle = activeMode,
                                     showHeader = true,
+                                    isDarkTheme = isDarkTheme,
                                     onSwitchViewMode = cycleHomeCardStyle,
                                     onAccountClick = { acc -> viewModel.openAccountDetail(acc.id) },
                                     onAllAccountsClick = { viewModel.openSubScreen(SubScreen.ACCOUNTS_MANAGEMENT) }
@@ -393,6 +411,7 @@ fun HomeScreen(
                                     isBangla = isBangla,
                                     currentCardStyle = activeMode,
                                     showHeader = true,
+                                    isDarkTheme = isDarkTheme,
                                     onSwitchViewMode = cycleHomeCardStyle,
                                     onAccountClick = { acc -> viewModel.openAccountDetail(acc.id) },
                                     onAllAccountsClick = { viewModel.openSubScreen(SubScreen.ACCOUNTS_MANAGEMENT) }
@@ -429,6 +448,7 @@ fun HomeScreen(
                                 budgets = budgets,
                                 transactions = transactions,
                                 currencySymbol = currencySymbol,
+                                isDarkTheme = isDarkTheme,
                                 onDetailsClick = { viewModel.openBudgetDashboard() }
                             )
                         }
@@ -442,6 +462,7 @@ fun HomeScreen(
                                 accounts = accounts,
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
+                                isDarkTheme = isDarkTheme,
                                 onManageDebtsClick = { viewModel.openSubScreen(SubScreen.MANAGE_DEBTS) },
                                 onAccountClick = { accId -> viewModel.openAccountDetail(accId) },
                                 onAddDebtClick = { viewModel.openSubScreen(SubScreen.ADD_DEBT) }
@@ -453,10 +474,11 @@ fun HomeScreen(
                     if (homeCustomization.showRecentActivity) {
                         item(key = "home_recent_activity") {
                             RecentActivitySection(
-                                transactions = transactions.sortedByDescending { it.timestamp }.take(5),
+                                transactions = recentTransactions,
                                 categories = categories,
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
+                                isDarkTheme = isDarkTheme,
                                 onSeeAllClick = { viewModel.setTab(MainTab.ACTIVITY) },
                                 onTransactionClick = { tx ->
                                     viewModel.transactionToEdit.value = tx
@@ -470,9 +492,10 @@ fun HomeScreen(
                     if (homeCustomization.showSavingsGoals) {
                         item(key = "home_savings_goals") {
                             HomeSavingsGoalsSection(
-                                goals = savingsGoals.sortedBy { it.isCompleted },
+                                goals = sortedSavingsGoals,
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
+                                isDarkTheme = isDarkTheme,
                                 onSeeAllClick = { viewModel.setTab(MainTab.PLAN) },
                                 onAddGoalClick = { viewModel.openNewSavingsGoal() },
                                 onGoalClick = { goal -> viewModel.openGoalDetails(goal) }
@@ -487,6 +510,7 @@ fun HomeScreen(
                                 transactions = transactions,
                                 budgets = budgets,
                                 isBangla = isBangla,
+                                isDarkTheme = isDarkTheme,
                                 onDetailsClick = { viewModel.setTab(MainTab.INSIGHTS) }
                             )
                         }
@@ -500,6 +524,7 @@ fun HomeScreen(
                                 budgets = budgets,
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
+                                isDarkTheme = isDarkTheme,
                                 onClick = { viewModel.setTab(MainTab.INSIGHTS) }
                             )
                         }
@@ -513,6 +538,7 @@ fun HomeScreen(
                                 categories = categories,
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
+                                isDarkTheme = isDarkTheme,
                                 onInsightsClick = { viewModel.setTab(MainTab.INSIGHTS) }
                             )
                         }
@@ -526,6 +552,7 @@ fun HomeScreen(
                                 currencySymbol = currencySymbol,
                                 startOfWeek = extendedSettings.startOfWeek,
                                 isBangla = isBangla,
+                                isDarkTheme = isDarkTheme,
                                 onInsightsClick = { viewModel.setTab(MainTab.INSIGHTS) }
                             )
                         }
@@ -539,6 +566,7 @@ fun HomeScreen(
                                 budgets = budgets,
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
+                                isDarkTheme = isDarkTheme,
                                 onDetailsClick = { viewModel.setTab(MainTab.INSIGHTS) }
                             )
                         }
@@ -549,6 +577,7 @@ fun HomeScreen(
                         item(key = "home_quick_shortcuts") {
                             QuickShortcutsRow(
                                 isBangla = isBangla,
+                                isDarkTheme = isDarkTheme,
                                 onTransferClick = {
                                     viewModel.newTransactionInitialType.value = TransactionType.TRANSFER
                                     viewModel.transactionToEdit.value = null
@@ -583,7 +612,8 @@ fun HomeScreen(
         ) {
             HomeHeader(
                 userName = currentDisplayName,
-                themeMode = settings?.themeMode ?: com.example.data.model.ThemeMode.AUTO,
+                themeMode = activeThemeMode,
+                isDarkTheme = isDarkTheme,
                 photoUrl = photoUrl,
                 symbolName = symbol,
                 backgroundColor = avatarColor,
@@ -602,6 +632,7 @@ fun HomeScreen(
 private fun HomeHeader(
     userName: String,
     themeMode: com.example.data.model.ThemeMode = com.example.data.model.ThemeMode.AUTO,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     photoUrl: String? = null,
     symbolName: String? = null,
     backgroundColor: Color = Color(0xFF6366F1),
@@ -634,6 +665,14 @@ private fun HomeHeader(
         .joinToString("")
         .ifEmpty { "U" }
         .uppercase()
+
+    val headerActionBg = remember(isDarkTheme) {
+        if (isDarkTheme) Color(0xFF1E293B).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.88f)
+    }
+    val headerActionBorder = remember(isDarkTheme) {
+        if (isDarkTheme) BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
+        else BorderStroke(1.dp, Color.White.copy(alpha = 0.90f))
+    }
 
     Row(
         modifier = Modifier
@@ -669,82 +708,87 @@ private fun HomeHeader(
             )
         }
 
-        // Quick Theme Mode Toggle Button (Light / Dark / Auto)
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-            shadowElevation = 1.dp,
-            onClick = onThemeToggle,
-            modifier = Modifier.size(42.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = when (themeMode) {
-                        com.example.data.model.ThemeMode.LIGHT -> Icons.Default.LightMode
-                        com.example.data.model.ThemeMode.DARK -> Icons.Default.DarkMode
-                        com.example.data.model.ThemeMode.AUTO -> Icons.Default.AutoAwesome
-                    },
-                    contentDescription = "Theme: ${themeMode.displayName}",
-                    tint = when (themeMode) {
-                        com.example.data.model.ThemeMode.LIGHT -> Color(0xFFF59E0B) // warm amber sun
-                        com.example.data.model.ThemeMode.DARK -> Color(0xFF818CF8) // indigo moon
-                        com.example.data.model.ThemeMode.AUTO -> MaterialTheme.colorScheme.primary
-                    },
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-            shadowElevation = 1.dp,
-            onClick = onSearchClick,
-            modifier = Modifier.size(42.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "Search",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-            shadowElevation = 1.dp,
-            onClick = onNotificationClick,
-            modifier = Modifier
-                .size(42.dp)
-                .testTag("home_notification_btn")
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+        key(isDarkTheme) {
+            // Quick Theme Mode Toggle Button (Light / Dark / Auto)
+            Surface(
+                shape = CircleShape,
+                color = headerActionBg,
+                border = headerActionBorder,
+                shadowElevation = 0.dp,
+                onClick = onThemeToggle,
+                modifier = Modifier.size(42.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Notifications,
-                    contentDescription = "Notifications",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(20.dp)
-                )
-                // Red badge indicator for active alerts
-                if (hasUnreadNotifications) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 9.dp, end = 9.dp)
-                            .size(8.dp)
-                            .background(ExpenseRed, CircleShape)
-                            .testTag("home_notification_badge")
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = when (themeMode) {
+                            com.example.data.model.ThemeMode.LIGHT -> Icons.Default.LightMode
+                            com.example.data.model.ThemeMode.DARK -> Icons.Default.DarkMode
+                            com.example.data.model.ThemeMode.AUTO -> Icons.Default.AutoAwesome
+                        },
+                        contentDescription = "Theme: ${themeMode.displayName}",
+                        tint = when (themeMode) {
+                            com.example.data.model.ThemeMode.LIGHT -> Color(0xFFF59E0B) // warm amber sun
+                            com.example.data.model.ThemeMode.DARK -> Color(0xFF818CF8) // indigo moon
+                            com.example.data.model.ThemeMode.AUTO -> MaterialTheme.colorScheme.primary
+                        },
+                        modifier = Modifier.size(20.dp)
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Surface(
+                shape = CircleShape,
+                color = headerActionBg,
+                border = headerActionBorder,
+                shadowElevation = 0.dp,
+                onClick = onSearchClick,
+                modifier = Modifier.size(42.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Surface(
+                shape = CircleShape,
+                color = headerActionBg,
+                border = headerActionBorder,
+                shadowElevation = 0.dp,
+                onClick = onNotificationClick,
+                modifier = Modifier
+                    .size(42.dp)
+                    .testTag("home_notification_btn")
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = "Notifications",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    // Red badge indicator for active alerts
+                    if (hasUnreadNotifications) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 9.dp, end = 9.dp)
+                                .size(8.dp)
+                                .background(ExpenseRed, CircleShape)
+                                .testTag("home_notification_badge")
+                        )
+                    }
                 }
             }
         }
@@ -758,15 +802,28 @@ private fun HomeSummaryCardsSection(
     isBalanceVisible: Boolean,
     currencySymbol: String,
     isBangla: Boolean = false,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onToggleVisibility: () -> Unit = {}
 ) {
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val royalIndigo = Color(0xFF4F46E5)
     val coralRose = Color(0xFFF43F5E)
     val language = if (isBangla) {
         com.example.data.model.AppLanguage.BANGLA
     } else {
         com.example.data.model.AppLanguage.ENGLISH
+    }
+
+    val balanceIconTint = remember(isDarkTheme) {
+        if (isDarkTheme) Color(0xFF818CF8) else royalIndigo
+    }
+    val balanceBadgeBg = remember(isDarkTheme) {
+        royalIndigo.copy(alpha = if (isDarkTheme) 0.24f else 0.12f)
+    }
+    val spentIconTint = remember(isDarkTheme) {
+        if (isDarkTheme) Color(0xFFFB7185) else coralRose
+    }
+    val spentBadgeBg = remember(isDarkTheme) {
+        coralRose.copy(alpha = if (isDarkTheme) 0.24f else 0.12f)
     }
 
     Row(
@@ -781,9 +838,9 @@ private fun HomeSummaryCardsSection(
             label = AppStrings.t("total_balance_caps", language),
             amount = if (isBalanceVisible) CurrencyFormatter.format(totalBalance, currencySymbol) else "••••••••",
             icon = Icons.Rounded.AccountBalanceWallet,
-            iconTint = if (isDark) Color(0xFF818CF8) else royalIndigo,
-            badgeBgColor = royalIndigo.copy(alpha = if (isDark) 0.24f else 0.12f),
-            isDark = isDark,
+            iconTint = balanceIconTint,
+            badgeBgColor = balanceBadgeBg,
+            isDarkTheme = isDarkTheme,
             isBangla = isBangla,
             onClick = onToggleVisibility,
             modifier = Modifier
@@ -795,9 +852,9 @@ private fun HomeSummaryCardsSection(
             label = AppStrings.t("spent_this_month_caps", language),
             amount = if (isBalanceVisible) CurrencyFormatter.format(spentThisMonth, currencySymbol) else "••••••••",
             icon = Icons.Rounded.TrendingDown,
-            iconTint = if (isDark) Color(0xFFFB7185) else coralRose,
-            badgeBgColor = coralRose.copy(alpha = if (isDark) 0.24f else 0.12f),
-            isDark = isDark,
+            iconTint = spentIconTint,
+            badgeBgColor = spentBadgeBg,
+            isDarkTheme = isDarkTheme,
             isBangla = isBangla,
             onClick = onToggleVisibility,
             modifier = Modifier
@@ -814,17 +871,17 @@ private fun FrostedKpiGlassPill(
     icon: ImageVector,
     iconTint: Color,
     badgeBgColor: Color,
-    isDark: Boolean,
+    isDarkTheme: Boolean,
     isBangla: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val pillShape = RoundedCornerShape(18.dp)
     val badgeShape = RoundedCornerShape(8.dp)
-    var amountFontSizeSp by remember(amount) { mutableFloatStateOf(18f) }
+    var amountFontSizeSp by remember(amount, isDarkTheme) { mutableFloatStateOf(18f) }
 
-    val borderBrush = remember(isDark) {
-        if (isDark) {
+    val borderBrush = remember(isDarkTheme) {
+        if (isDarkTheme) {
             Brush.linearGradient(
                 colors = listOf(
                     Color.White.copy(alpha = 0.22f),
@@ -835,84 +892,96 @@ private fun FrostedKpiGlassPill(
         } else {
             Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.75f),
-                    Color.White.copy(alpha = 0.48f),
-                    Color.White.copy(alpha = 0.26f)
+                    Color.White.copy(alpha = 0.90f),
+                    Color.White.copy(alpha = 0.68f),
+                    Color(0xFF6366F1).copy(alpha = 0.14f)
                 )
             )
         }
     }
 
-    val surfaceColor = if (isDark) {
-        Color(0xFF1E293B).copy(alpha = 0.55f)
-    } else {
-        Color.White.copy(alpha = 0.62f)
+    val surfaceColor = remember(isDarkTheme) {
+        if (isDarkTheme) {
+            Color(0xFF1E293B).copy(alpha = 0.55f)
+        } else {
+            Color.White.copy(alpha = 0.72f)
+        }
     }
 
-    Row(
-        modifier = modifier
-            .clip(pillShape)
-            .background(surfaceColor, pillShape)
-            .border(width = 1.dp, brush = borderBrush, shape = pillShape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(26.dp)
-                .clip(badgeShape)
-                .background(badgeBgColor),
-            contentAlignment = Alignment.Center
+    val labelColor = remember(isDarkTheme) {
+        if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF475569)
+    }
+
+    val amountColor = remember(isDarkTheme) {
+        if (isDarkTheme) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    }
+
+    key(isDarkTheme) {
+        Row(
+            modifier = modifier
+                .clip(pillShape)
+                .background(surfaceColor, pillShape)
+                .border(width = 1.dp, brush = borderBrush, shape = pillShape)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = iconTint,
-                modifier = Modifier.size(15.dp)
-            )
-        }
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(badgeShape)
+                    .background(badgeBgColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = iconTint,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
 
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 10.sp,
-                    lineHeight = 12.sp,
-                    letterSpacing = if (isBangla) 0.sp else 0.45.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
-                ),
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        letterSpacing = if (isBangla) 0.sp else 0.45.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = labelColor
+                    ),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
 
-            Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
-            Text(
-                text = amount,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = amountFontSizeSp.sp,
-                    lineHeight = (amountFontSizeSp + 3f).sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.3).sp,
-                    color = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A),
-                    fontFeatureSettings = "tnum"
-                ),
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis,
-                onTextLayout = { result ->
-                    if (result.didOverflowWidth && amountFontSizeSp > 13f) {
-                        amountFontSizeSp = (amountFontSizeSp - 0.5f).coerceAtLeast(13f)
+                Text(
+                    text = amount,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = amountFontSizeSp.sp,
+                        lineHeight = (amountFontSizeSp + 3f).sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = (-0.3).sp,
+                        color = amountColor,
+                        fontFeatureSettings = "tnum"
+                    ),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { result ->
+                        if (result.didOverflowWidth && amountFontSizeSp > 13f) {
+                            amountFontSizeSp = (amountFontSizeSp - 0.5f).coerceAtLeast(13f)
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }
@@ -922,25 +991,22 @@ private fun SharedWalletCardsHeaderRow(
     accountCount: Int,
     currentCardStyle: HomeCardStyle,
     isBangla: Boolean,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onAllAccountsClick: () -> Unit,
     onSwitchViewMode: () -> Unit
 ) {
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val pillLabel = if (currentCardStyle == HomeCardStyle.STACK) {
-        val remainingCount = (accountCount - 1).coerceAtLeast(0)
-        if (remainingCount > 0) {
-            if (isBangla) "+${CurrencyFormatter.convertToBanglaDigits(remainingCount.toString())} আরও"
-            else "+$remainingCount more"
-        } else {
-            if (isBangla) "${CurrencyFormatter.convertToBanglaDigits(accountCount.toString())}টি অ্যাকাউন্ট"
-            else if (accountCount == 1) "1 account" else "$accountCount accounts"
-        }
+    val pillLabel = if (isBangla) {
+        "${CurrencyFormatter.convertToBanglaDigits(accountCount.toString())}টি অ্যাকাউন্ট"
     } else {
-        if (isBangla) {
-            "${CurrencyFormatter.convertToBanglaDigits(accountCount.toString())}টি অ্যাকাউন্ট"
-        } else {
-            if (accountCount == 1) "1 account" else "$accountCount accounts"
-        }
+        if (accountCount == 1) "1 account" else "$accountCount accounts"
+    }
+    val pillBgColor = remember(isDarkTheme) {
+        if (isDarkTheme) Color(0xFF1E293B).copy(alpha = 0.58f)
+        else Color.White.copy(alpha = 0.72f)
+    }
+    val pillBorderColor = remember(isDarkTheme) {
+        if (isDarkTheme) Color.White.copy(alpha = 0.14f)
+        else Color.White.copy(alpha = 0.85f)
     }
 
     Row(
@@ -950,32 +1016,32 @@ private fun SharedWalletCardsHeaderRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .clip(CircleShape)
-                .background(
-                    color = if (isDark) Color(0xFF1E293B).copy(alpha = 0.58f)
-                    else Color.White.copy(alpha = 0.64f),
-                    shape = CircleShape
+        key(isDarkTheme) {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(
+                        color = pillBgColor,
+                        shape = CircleShape
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = pillBorderColor,
+                        shape = CircleShape
+                    )
+                    .padding(horizontal = 11.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = pillLabel,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.80f),
+                        fontSize = 12.sp
+                    ),
+                    maxLines = 1,
+                    softWrap = false
                 )
-                .border(
-                    width = 1.dp,
-                    color = if (isDark) Color.White.copy(alpha = 0.14f)
-                    else Color.White.copy(alpha = 0.78f),
-                    shape = CircleShape
-                )
-                .padding(horizontal = 11.dp, vertical = 5.dp)
-        ) {
-            Text(
-                text = pillLabel,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.80f),
-                    fontSize = 12.sp
-                ),
-                maxLines = 1,
-                softWrap = false
-            )
+            }
         }
 
         Row(
@@ -1016,7 +1082,8 @@ private fun SharedWalletCardsHeaderRow(
             HomeCardViewSwitcherButton(
                 currentStyle = currentCardStyle,
                 isBangla = isBangla,
-                onClick = onSwitchViewMode
+                onClick = onSwitchViewMode,
+                isDarkTheme = isDarkTheme
             )
         }
     }
@@ -1031,6 +1098,7 @@ private fun AccountCardsCarousel(
     isBangla: Boolean,
     currentCardStyle: HomeCardStyle,
     showHeader: Boolean = true,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onSwitchViewMode: () -> Unit,
     onAccountClick: (AccountEntity) -> Unit,
     onAllAccountsClick: () -> Unit
@@ -1050,6 +1118,7 @@ private fun AccountCardsCarousel(
                 accountCount = visibleAccounts.size,
                 currentCardStyle = currentCardStyle,
                 isBangla = isBangla,
+                isDarkTheme = isDarkTheme,
                 onAllAccountsClick = onAllAccountsClick,
                 onSwitchViewMode = onSwitchViewMode
             )
@@ -1092,6 +1161,7 @@ private fun AccountCardsCarousel(
 @Composable
 private fun QuickShortcutsRow(
     isBangla: Boolean = false,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onTransferClick: () -> Unit,
     onScanReceiptClick: () -> Unit,
     onExpenseClick: () -> Unit,
@@ -1114,21 +1184,25 @@ private fun QuickShortcutsRow(
             QuickActionButton(
                 icon = Icons.AutoMirrored.Filled.CompareArrows,
                 label = if (isBangla) "স্থানান্তর" else "Transfer",
+                isDarkTheme = isDarkTheme,
                 onClick = onTransferClick
             )
             QuickActionButton(
                 icon = Icons.Default.CameraAlt,
                 label = if (isBangla) "রসিদ স্ক্যান" else "Scan receipt",
+                isDarkTheme = isDarkTheme,
                 onClick = onScanReceiptClick
             )
             QuickActionButton(
                 icon = Icons.Default.ReceiptLong,
                 label = if (isBangla) "ব্যয়" else "Expense",
+                isDarkTheme = isDarkTheme,
                 onClick = onExpenseClick
             )
             QuickActionButton(
                 icon = Icons.Default.Mic,
                 label = if (isBangla) "ভয়েস এন্ট্রি" else "Voice Entry",
+                isDarkTheme = isDarkTheme,
                 onClick = onVoiceEntryClick
             )
         }
@@ -1152,6 +1226,7 @@ internal fun CustomizeHomeBottomSheet(
     onDismiss: () -> Unit,
     onUpdate: (HomeCustomization) -> Unit
 ) {
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val activeCount = listOf(
         current.showBudgetProgress,
         current.showUpcomingBills,
@@ -1277,7 +1352,7 @@ internal fun CustomizeHomeBottomSheet(
                         text = if (isBangla) "রিসেট" else "Reset",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF4F46E5),
+                            color = if (isDark) Color(0xFF818CF8) else Color(0xFF4F46E5),
                             fontSize = 15.sp
                         ),
                         modifier = Modifier
@@ -1532,7 +1607,7 @@ internal fun CustomizeHomeBottomSheet(
                                             .size(width = 68.dp, height = 34.dp)
                                             .offset(y = (-5).dp)
                                             .clip(RoundedCornerShape(7.dp))
-                                            .background(Color(0xFF2563EB))
+                                            .background(Color(0xFF4F46E5))
                                     )
                                     Box(
                                         modifier = Modifier
@@ -1675,7 +1750,7 @@ internal fun CustomizeHomeBottomSheet(
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(
                                                 Brush.horizontalGradient(
-                                                    listOf(Color(0xFF0D9488), Color(0xFF2563EB))
+                                                    listOf(Color(0xFF0D9488), Color(0xFF4F46E5))
                                                 )
                                             )
                                             .padding(5.dp)
@@ -1814,7 +1889,6 @@ internal fun CustomizeHomeBottomSheet(
                     ) {
                         // Display insertion drop target placeholder in the layout behind the floating dragged item
                         if (isBeingDragged) {
-                            val isDark = isSystemInDarkTheme()
                             Surface(
                                 shape = RoundedCornerShape(14.dp),
                                 color = if (isDark) Color(0xFF312E81).copy(alpha = 0.35f) else Color(0xFFEEF2FF).copy(alpha = 0.75f),
@@ -1998,25 +2072,36 @@ private fun CustomizeSectionItem(
 private fun QuickActionButton(
     icon: ImageVector,
     label: String,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onClick: () -> Unit
 ) {
+    val buttonBgColor = remember(isDarkTheme) {
+        if (isDarkTheme) Color(0xFF1E293B) else Color.White
+    }
+    val buttonBorder = remember(isDarkTheme) {
+        if (isDarkTheme) BorderStroke(1.dp, Color(0x22FFFFFF))
+        else BorderStroke(1.dp, Color(0x1F6366F1))
+    }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable { onClick() }
     ) {
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 2.dp,
-            modifier = Modifier.size(56.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(24.dp)
-                )
+        key(isDarkTheme) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = buttonBgColor,
+                border = buttonBorder,
+                shadowElevation = 0.dp,
+                modifier = Modifier.size(56.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(6.dp))
@@ -2036,8 +2121,10 @@ private fun MonthlyBudgetSection(
     budgets: List<BudgetEntity>,
     transactions: List<TransactionEntity>,
     currencySymbol: String,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onDetailsClick: () -> Unit
 ) {
+    val isDark = isDarkTheme
     val (refYear, refMonth) = remember(transactions, budgets) {
         FinancialIntegrityValidator.resolveReferenceYearMonth(transactions, budgets)
     }
@@ -2095,6 +2182,7 @@ private fun MonthlyBudgetSection(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("home_section_budget"),
+        isDarkTheme = isDarkTheme,
         onClick = onDetailsClick
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -2113,7 +2201,7 @@ private fun MonthlyBudgetSection(
                 Text(
                     text = if (hasBudget) (if (isBn) "বিস্তারিত" else "Details") else (if (isBn) "বাজেট সেট করুন" else "Set Limit"),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = if (isDark) Color(0xFF818CF8) else MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold
                     )
                 )
@@ -2134,7 +2222,7 @@ private fun MonthlyBudgetSection(
                 Text(
                     text = if (isBn) "একটি সামগ্রিক বা ক্যাটাগরিভিত্তিক মাসিক খরচের সীমা নির্ধারণ করতে ট্যাপ করুন।" else "Tap to set an overall or category monthly spending limit.",
                     style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                         fontSize = 12.sp
                     )
                 )
@@ -2195,7 +2283,7 @@ private fun MonthlyBudgetSection(
                 Text(
                     text = statusText,
                     style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                         fontSize = 12.sp
                     )
                 )
@@ -2278,7 +2366,7 @@ private fun MonthlyBudgetSection(
                             text = if (isBn) "ক্যাটাগরি ড্যাশবোর্ড দেখুন →" else "Open Category Dashboard →",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = if (isDark) Color(0xFF818CF8) else MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -2318,6 +2406,7 @@ private fun TopSpendingSection(
     categories: List<CategoryEntity> = emptyList(),
     currencySymbol: String,
     isBangla: Boolean = false,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onInsightsClick: () -> Unit
 ) {
     val (refYear, refMonth) = remember(transactions) {
@@ -2354,6 +2443,7 @@ private fun TopSpendingSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp),
+            isDarkTheme = isDarkTheme,
             onClick = onInsightsClick
         ) {
             if (categoryTotals.isEmpty()) {
@@ -2396,7 +2486,7 @@ private fun TopSpendingSection(
                 Column(modifier = Modifier.padding(16.dp)) {
                     categoryTotals.forEachIndexed { index, (cat, amt) ->
                         val fallbackColor = when (index) {
-                            0 -> "#3B82F6"
+                            0 -> "#4F46E5"
                             1 -> "#10B981"
                             2 -> "#6366F1"
                             3 -> "#F59E0B"
@@ -2464,6 +2554,7 @@ private fun SpendingByDaySection(
     currencySymbol: String,
     startOfWeek: Int = Calendar.SUNDAY,
     isBangla: Boolean = false,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onInsightsClick: () -> Unit
 ) {
     val orderedWeekDays = remember(startOfWeek) {
@@ -2506,6 +2597,7 @@ private fun SpendingByDaySection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp),
+            isDarkTheme = isDarkTheme,
             onClick = onInsightsClick
         ) {
             if (!hasData) {
@@ -2599,9 +2691,11 @@ private fun RecentActivitySection(
     categories: List<CategoryEntity> = emptyList(),
     currencySymbol: String,
     isBangla: Boolean = false,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onSeeAllClick: () -> Unit,
     onTransactionClick: (TransactionEntity) -> Unit
 ) {
+    val isDark = isDarkTheme
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2616,7 +2710,8 @@ private fun RecentActivitySection(
         TranslucentCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            isDarkTheme = isDarkTheme
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 if (transactions.isEmpty()) {
@@ -2629,7 +2724,7 @@ private fun RecentActivitySection(
                         Text(
                             text = if (isBangla) "এখনো কোনো সাম্প্রতিক লেনদেন নেই" else "No recent transactions yet",
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                                color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
                             )
                         )
                     }
@@ -2645,7 +2740,7 @@ private fun RecentActivitySection(
                             val isTransfer = FinancialIntegrityValidator.isInternalTransfer(tx)
                             val isPositive = tx.type == TransactionType.INCOME || tx.type == TransactionType.BORROW
                             val fallbackColor = when {
-                                isTransfer -> "#3B82F6"
+                                isTransfer -> "#4F46E5"
                                 isPositive -> "#10B981"
                                 else -> "#EF4444"
                             }
@@ -2673,7 +2768,7 @@ private fun RecentActivitySection(
                                 Text(
                                     text = "${tx.category} · ${tx.subcategory.ifBlank { if (isBangla) "অ্যাকাউন্ট" else "Account" }}",
                                     style = MaterialTheme.typography.bodySmall.copy(
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                         fontSize = 12.sp
                                     ),
                                     maxLines = 1,
@@ -2711,8 +2806,10 @@ private fun FinancialHealthCard(
     transactions: List<TransactionEntity>,
     budgets: List<BudgetEntity>,
     isBangla: Boolean = false,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onDetailsClick: () -> Unit
 ) {
+    val isDark = isDarkTheme
     val (refYear, refMonth) = remember(transactions, budgets) {
         FinancialIntegrityValidator.resolveReferenceYearMonth(transactions, budgets)
     }
@@ -2781,6 +2878,7 @@ private fun FinancialHealthCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp),
+            isDarkTheme = isDarkTheme,
             onClick = onDetailsClick
         ) {
             Row(
@@ -2827,7 +2925,7 @@ private fun FinancialHealthCard(
                     Text(
                         text = summaryText,
                         style = MaterialTheme.typography.bodySmall.copy(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                             fontSize = 12.sp
                         )
                     )
@@ -2850,6 +2948,7 @@ private fun SmartInsightBanner(
     budgets: List<BudgetEntity>,
     currencySymbol: String,
     isBangla: Boolean = false,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onClick: () -> Unit
 ) {
     val insightText = remember(transactions, budgets, currencySymbol, isBangla) {
@@ -2916,6 +3015,7 @@ private fun SmartInsightBanner(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("home_section_smart_insights"),
+        isDarkTheme = isDarkTheme,
         onClick = onClick
     ) {
         Row(
@@ -2968,10 +3068,12 @@ private fun UpcomingBillsSection(
     accounts: List<AccountEntity> = emptyList(),
     currencySymbol: String,
     isBangla: Boolean,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onManageDebtsClick: () -> Unit,
     onAccountClick: (String) -> Unit = {},
     onAddDebtClick: () -> Unit
 ) {
+    val isDark = isDarkTheme
     val upcomingBills = remember(debts, accounts, isBangla) {
         val creditCardBills = accounts
             .filter {
@@ -3038,7 +3140,7 @@ private fun UpcomingBillsSection(
             Text(
                 text = if (isBangla) "সকল দেখুন" else "See all",
                 style = MaterialTheme.typography.labelMedium.copy(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = if (isDark) Color(0xFF818CF8) else MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 ),
                 modifier = Modifier
@@ -3050,7 +3152,8 @@ private fun UpcomingBillsSection(
         if (upcomingBills.isEmpty()) {
             TranslucentCard(
                 modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 18.dp
+                cornerRadius = 18.dp,
+                isDarkTheme = isDarkTheme
             ) {
                 Row(
                     modifier = Modifier
@@ -3086,7 +3189,7 @@ private fun UpcomingBillsSection(
                             Text(
                                 text = if (isBangla) "সব বিল পরিশোধিত আছে" else "You're all caught up for now",
                                 style = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                             )
                         }
@@ -3094,7 +3197,7 @@ private fun UpcomingBillsSection(
                     Text(
                         text = if (isBangla) "+ যোগ করুন" else "+ Add",
                         style = MaterialTheme.typography.labelMedium.copy(
-                            color = MaterialTheme.colorScheme.primary,
+                            color = if (isDark) Color(0xFF818CF8) else MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
                         ),
                         modifier = Modifier
@@ -3109,6 +3212,7 @@ private fun UpcomingBillsSection(
                     TranslucentCard(
                         modifier = Modifier.fillMaxWidth(),
                         cornerRadius = 16.dp,
+                        isDarkTheme = isDarkTheme,
                         onClick = {
                             if (bill.isCreditCard && bill.accountId != null) {
                                 onAccountClick(bill.accountId)
@@ -3153,7 +3257,7 @@ private fun UpcomingBillsSection(
                                     Text(
                                         text = bill.subtitle,
                                         style = MaterialTheme.typography.bodySmall.copy(
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                            color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                             fontSize = 11.sp
                                         ),
                                         maxLines = 1,
@@ -3182,10 +3286,12 @@ private fun HomeSavingsGoalsSection(
     goals: List<SavingsGoalEntity>,
     currencySymbol: String,
     isBangla: Boolean,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onSeeAllClick: () -> Unit,
     onAddGoalClick: () -> Unit,
     onGoalClick: (SavingsGoalEntity) -> Unit = { onSeeAllClick() }
 ) {
+    val isDark = isDarkTheme
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -3207,7 +3313,7 @@ private fun HomeSavingsGoalsSection(
             Text(
                 text = if (isBangla) "সকল দেখুন" else "See all",
                 style = MaterialTheme.typography.labelMedium.copy(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = if (isDark) Color(0xFF818CF8) else MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 ),
                 modifier = Modifier
@@ -3219,7 +3325,8 @@ private fun HomeSavingsGoalsSection(
         if (goals.isEmpty()) {
             TranslucentCard(
                 modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 18.dp
+                cornerRadius = 18.dp,
+                isDarkTheme = isDarkTheme
             ) {
                 Row(
                     modifier = Modifier
@@ -3255,7 +3362,7 @@ private fun HomeSavingsGoalsSection(
                             Text(
                                 text = if (isBangla) "নতুন সঞ্চয় লক্ষ্য নির্ধারণ করুন" else "Create a goal to stay on track",
                                 style = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                             )
                         }
@@ -3263,7 +3370,7 @@ private fun HomeSavingsGoalsSection(
                     Text(
                         text = if (isBangla) "+ লক্ষ্য" else "+ New goal",
                         style = MaterialTheme.typography.labelMedium.copy(
-                            color = MaterialTheme.colorScheme.primary,
+                            color = if (isDark) Color(0xFF818CF8) else MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
                         ),
                         modifier = Modifier
@@ -3278,6 +3385,7 @@ private fun HomeSavingsGoalsSection(
                     TranslucentCard(
                         modifier = Modifier.fillMaxWidth(),
                         cornerRadius = 16.dp,
+                        isDarkTheme = isDarkTheme,
                         onClick = { onGoalClick(goal) }
                     ) {
                         Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
@@ -3325,14 +3433,14 @@ private fun HomeSavingsGoalsSection(
                                     text = if (isBangla) "$savedFormatted সঞ্চিত" else "$savedFormatted saved",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 )
                                 Text(
                                     text = if (isBangla) "লক্ষ্য: $targetFormatted" else "Target: $targetFormatted",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 )
                             }
@@ -3350,8 +3458,10 @@ private fun SpendingStreakSection(
     budgets: List<BudgetEntity> = emptyList(),
     currencySymbol: String,
     isBangla: Boolean,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onDetailsClick: () -> Unit
 ) {
+    val isDark = isDarkTheme
     val (hasExpenses, streakDays) = remember(transactions, budgets) {
         val (refYear, refMonth) = FinancialIntegrityValidator.resolveReferenceYearMonth(transactions, budgets)
         val monthExpenses = transactions.filter {
@@ -3407,6 +3517,7 @@ private fun SpendingStreakSection(
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("home_section_spending_streak"),
         cornerRadius = 20.dp,
+        isDarkTheme = isDarkTheme,
         onClick = onDetailsClick
     ) {
         Row(
@@ -3433,7 +3544,7 @@ private fun SpendingStreakSection(
                 Text(
                     text = subtitleText,
                     style = MaterialTheme.typography.bodySmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        color = if (isDark) Color(0xFF94A3B8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                         fontSize = 12.sp
                     )
                 )

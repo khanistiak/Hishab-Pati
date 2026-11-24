@@ -49,7 +49,9 @@ import com.example.ui.components.recordFrostedBackdrop
 import com.example.ui.components.rememberScrollAwareGlassLayout
 
 import com.example.ui.MainTab
+import com.example.ui.navigation.DeferredBentoChartPlaceholder
 import com.example.ui.navigation.rememberScreenLazyListState
+import com.example.ui.navigation.rememberTransitionSettled
 
 @Composable
 fun InsightsScreen(
@@ -86,6 +88,11 @@ fun InsightsScreen(
             language = language
         )
     }
+
+    val chartsSettled = rememberTransitionSettled(
+        key = "insights_tab",
+        settleDelayMillis = 120L
+    )
 
     val scrollLayout = rememberScrollAwareGlassLayout(
         listState = listState,
@@ -132,57 +139,73 @@ fun InsightsScreen(
 
             // 4. Spending Trend (Interactive line chart with inspection, peak day & daily average)
             item(key = "spending_trend_card") {
-                SpendingTrendCard(
-                    transactions = transactions,
-                    period = period,
-                    dateRange = dateRange,
-                    currencySymbol = currencySymbol,
-                    language = language
-                )
+                if (chartsSettled) {
+                    SpendingTrendCard(
+                        transactions = transactions,
+                        period = period,
+                        dateRange = dateRange,
+                        currencySymbol = currencySymbol,
+                        language = language
+                    )
+                } else {
+                    DeferredBentoChartPlaceholder(height = 260.dp)
+                }
             }
 
             // 5. Spending by Category (Segmented Donut + Progress Bars + Direct Tap-to-Open Transactions)
             item(key = "category_spending_card") {
-                CategorySpendingCard(
-                    transactions = transactions,
-                    categories = categories,
-                    dateRange = dateRange,
-                    selectedCategory = selectedCategory,
-                    onSelectCategory = { catName ->
-                        viewModel.insightsSelectedCategory.value = catName
-                    },
-                    onViewTransactions = { cat, datePair, dateLabel, filterType ->
-                        viewModel.openFilteredReports(
-                            category = cat,
-                            dateRange = datePair,
-                            dateRangeLabel = dateLabel,
-                            filterType = filterType
-                        )
-                    },
-                    currencySymbol = currencySymbol,
-                    language = language
-                )
+                if (chartsSettled) {
+                    CategorySpendingCard(
+                        transactions = transactions,
+                        categories = categories,
+                        dateRange = dateRange,
+                        selectedCategory = selectedCategory,
+                        onSelectCategory = { catName ->
+                            viewModel.insightsSelectedCategory.value = catName
+                        },
+                        onViewTransactions = { cat, datePair, dateLabel, filterType ->
+                            viewModel.openFilteredReports(
+                                category = cat,
+                                dateRange = datePair,
+                                dateRangeLabel = dateLabel,
+                                filterType = filterType
+                            )
+                        },
+                        currencySymbol = currencySymbol,
+                        language = language
+                    )
+                } else {
+                    DeferredBentoChartPlaceholder(height = 300.dp)
+                }
             }
 
             // 6. Key Spending Highlights (At most 2-3 data-backed observations)
             item(key = "spending_highlights_card") {
-                SpendingHighlightsCard(
-                    transactions = transactions,
-                    categories = categories,
-                    dateRange = dateRange,
-                    currencySymbol = currencySymbol,
-                    language = language
-                )
+                if (chartsSettled) {
+                    SpendingHighlightsCard(
+                        transactions = transactions,
+                        categories = categories,
+                        dateRange = dateRange,
+                        currencySymbol = currencySymbol,
+                        language = language
+                    )
+                } else {
+                    DeferredBentoChartPlaceholder(height = 160.dp)
+                }
             }
 
             // 7. Cash Flow (Simple comparison chart of income vs expenses and net total)
             item(key = "cash_flow_card") {
-                CashFlowCard(
-                    transactions = transactions,
-                    dateRange = dateRange,
-                    currencySymbol = currencySymbol,
-                    language = language
-                )
+                if (chartsSettled) {
+                    CashFlowCard(
+                        transactions = transactions,
+                        dateRange = dateRange,
+                        currencySymbol = currencySymbol,
+                        language = language
+                    )
+                } else {
+                    DeferredBentoChartPlaceholder(height = 220.dp)
+                }
             }
         }
 

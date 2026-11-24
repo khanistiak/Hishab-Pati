@@ -40,7 +40,7 @@ fun Modifier.walletCardSharedBounds(
             sharedContentState = rememberSharedContentState(key = "wallet_card_$accountId"),
             animatedVisibilityScope = animatedScope,
             boundsTransform = { _, _ ->
-                spring(dampingRatio = 0.84f, stiffness = 320f)
+                spring(dampingRatio = 0.85f, stiffness = 480f)
             },
             clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(cornerRadius)),
             resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds()

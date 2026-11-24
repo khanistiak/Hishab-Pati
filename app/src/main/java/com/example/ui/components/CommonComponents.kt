@@ -45,9 +45,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.theme.CardBackgroundDark
 import com.example.ui.theme.CardBackgroundLight
 import com.example.ui.theme.CardBorderLight
+import com.example.ui.theme.LocalIsDarkTheme
 
 import androidx.compose.ui.graphics.luminance
 
@@ -66,49 +70,73 @@ fun TranslucentCard(
     cornerRadius: Dp = 24.dp,
     elevation: Dp = 2.dp,
     border: BorderStroke? = null,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f),
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val bgColor = if (isDark) CardBackgroundDark else CardBackgroundLight
+    val bgColor = remember(isDarkTheme) {
+        if (isDarkTheme) CardBackgroundDark else CardBackgroundLight
+    }
     val cardContentColor = MaterialTheme.colorScheme.onSurface
-    val effectiveBorder = border ?: if (isDark) BorderStroke(1.dp, Color(0x22FFFFFF)) else BorderStroke(1.dp, CardBorderLight)
+    val effectiveBorder = remember(isDarkTheme, border) {
+        border ?: if (isDarkTheme) BorderStroke(1.dp, Color(0x22FFFFFF)) else BorderStroke(1.dp, CardBorderLight)
+    }
 
-    val cardShape = RoundedCornerShape(cornerRadius)
-
-    if (onClick != null) {
-        Card(
-            onClick = onClick,
-            modifier = modifier.clip(cardShape),
-            shape = cardShape,
-            colors = CardDefaults.cardColors(
-                containerColor = bgColor,
-                contentColor = cardContentColor
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = elevation),
-            border = effectiveBorder
-        ) {
-            androidx.compose.runtime.CompositionLocalProvider(
-                androidx.compose.material3.LocalContentColor provides cardContentColor
-            ) {
-                content()
-            }
-        }
+    val cardShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+    val shadowAmbientColor = remember(isDarkTheme) {
+        if (isDarkTheme) Color.Black.copy(alpha = 0.32f) else Color(0xFF4F46E5).copy(alpha = 0.08f)
+    }
+    val shadowSpotColor = remember(isDarkTheme) {
+        if (isDarkTheme) Color.Black.copy(alpha = 0.42f) else Color(0xFF4F46E5).copy(alpha = 0.12f)
+    }
+    val cardModifier = if (elevation > 0.dp) {
+        modifier
+            .shadow(
+                elevation = elevation,
+                shape = cardShape,
+                ambientColor = shadowAmbientColor,
+                spotColor = shadowSpotColor
+            )
+            .clip(cardShape)
     } else {
-        Card(
-            modifier = modifier.clip(cardShape),
-            shape = cardShape,
-            colors = CardDefaults.cardColors(
-                containerColor = bgColor,
-                contentColor = cardContentColor
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = elevation),
-            border = effectiveBorder
-        ) {
-            androidx.compose.runtime.CompositionLocalProvider(
-                androidx.compose.material3.LocalContentColor provides cardContentColor
+        modifier.clip(cardShape)
+    }
+
+    key(isDarkTheme) {
+        if (onClick != null) {
+            Card(
+                onClick = onClick,
+                modifier = cardModifier,
+                shape = cardShape,
+                colors = CardDefaults.cardColors(
+                    containerColor = bgColor,
+                    contentColor = cardContentColor
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                border = effectiveBorder
             ) {
-                content()
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.material3.LocalContentColor provides cardContentColor
+                ) {
+                    content()
+                }
+            }
+        } else {
+            Card(
+                modifier = cardModifier,
+                shape = cardShape,
+                colors = CardDefaults.cardColors(
+                    containerColor = bgColor,
+                    contentColor = cardContentColor
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                border = effectiveBorder
+            ) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.material3.LocalContentColor provides cardContentColor
+                ) {
+                    content()
+                }
             }
         }
     }

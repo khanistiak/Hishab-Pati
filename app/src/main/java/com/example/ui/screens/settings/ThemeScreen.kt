@@ -1,6 +1,6 @@
 package com.example.ui.screens.settings
 
-import androidx.compose.animation.animateColorAsState
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,23 +16,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.ui.platform.testTag
-import com.example.ui.components.ScrollAwareFixedHeader
-import com.example.ui.components.recordFrostedBackdrop
-import com.example.ui.components.rememberScrollAwareGlassLayout
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Home
@@ -42,35 +33,33 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ThemeColorOption
 import com.example.data.model.ThemeMode
 import com.example.ui.MainViewModel
+import com.example.ui.components.ScrollAwareFixedHeader
 import com.example.ui.components.TranslucentCard
-import com.example.ui.util.CurrencyFormatter
+import com.example.ui.components.recordFrostedBackdrop
+import com.example.ui.components.rememberScrollAwareGlassLayout
 
 data class AppColourTheme(
     val option: ThemeColorOption,
@@ -82,45 +71,87 @@ data class AppColourTheme(
 
 val ColourThemesList = listOf(
     AppColourTheme(
-        option = ThemeColorOption.INDIGO_NIGHT,
+        option = ThemeColorOption.ROYAL_INDIGO,
         name = "Indigo",
         subtitle = "The Hishab Pati brand",
-        gradient = listOf(Color(0xFF5B21B6), Color(0xFF6366F1), Color(0xFF7C3AED)),
-        primaryColor = Color(0xFF6366F1)
+        gradient = listOf(Color(0xFF4338CA), Color(0xFF4F46E5), Color(0xFF7C3AED)),
+        primaryColor = Color(0xFF4F46E5)
     ),
     AppColourTheme(
         option = ThemeColorOption.EMERALD_GREEN,
         name = "Bangla Green",
         subtitle = "Deep green, red accent",
-        gradient = listOf(Color(0xFF047857), Color(0xFF059669)),
+        gradient = listOf(Color(0xFF047857), Color(0xFF059669), Color(0xFF10B981)),
         primaryColor = Color(0xFF059669)
     ),
     AppColourTheme(
         option = ThemeColorOption.SKY_CYAN,
         name = "Ocean",
         subtitle = "Calm blues and teal",
-        gradient = listOf(Color(0xFF0284C7), Color(0xFF0D9488)),
+        gradient = listOf(Color(0xFF0369A1), Color(0xFF0284C7), Color(0xFF0D9488)),
         primaryColor = Color(0xFF0284C7)
     ),
     AppColourTheme(
         option = ThemeColorOption.SUNSET_ORANGE,
         name = "Sunset",
         subtitle = "Warm orange to coral",
-        gradient = listOf(Color(0xFFEA580C), Color(0xFFDC2626)),
+        gradient = listOf(Color(0xFFDC2626), Color(0xFFEA580C), Color(0xFFF97316)),
         primaryColor = Color(0xFFEA580C)
     ),
     AppColourTheme(
         option = ThemeColorOption.ROSE_PINK,
         name = "Rose",
         subtitle = "Pink to violet",
-        gradient = listOf(Color(0xFFE11D48), Color(0xFF9333EA)),
+        gradient = listOf(Color(0xFFBE123C), Color(0xFFE11D48), Color(0xFF9333EA)),
         primaryColor = Color(0xFFE11D48)
+    ),
+    AppColourTheme(
+        option = ThemeColorOption.CRIMSON_RED,
+        name = "Aurora Velvet",
+        subtitle = "Plum velvet to magenta",
+        gradient = listOf(Color(0xFF581C87), Color(0xFF9333EA), Color(0xFFDB2777)),
+        primaryColor = Color(0xFF9333EA)
+    ),
+    AppColourTheme(
+        option = ThemeColorOption.ROYAL_VIOLET,
+        name = "Royal Amethyst",
+        subtitle = "Deep violet to orchid",
+        gradient = listOf(Color(0xFF4C1D95), Color(0xFF7C3AED), Color(0xFFA855F7)),
+        primaryColor = Color(0xFF7C3AED)
+    ),
+    AppColourTheme(
+        option = ThemeColorOption.OCEAN_BLUE,
+        name = "Midnight Iris",
+        subtitle = "Cobalt depths to iris",
+        gradient = listOf(Color(0xFF1E1B4B), Color(0xFF1D4ED8), Color(0xFF6366F1)),
+        primaryColor = Color(0xFF2563EB)
+    ),
+    AppColourTheme(
+        option = ThemeColorOption.AQUA_TEAL,
+        name = "Emerald Mint",
+        subtitle = "Lush teal to sea mint",
+        gradient = listOf(Color(0xFF0F766E), Color(0xFF0D9488), Color(0xFF34D399)),
+        primaryColor = Color(0xFF0D9488)
+    ),
+    AppColourTheme(
+        option = ThemeColorOption.GOLDEN_AMBER,
+        name = "Solar Amber",
+        subtitle = "Burnished gold & amber",
+        gradient = listOf(Color(0xFFB45309), Color(0xFFD97706), Color(0xFFF59E0B)),
+        primaryColor = Color(0xFFD97706)
+    ),
+    AppColourTheme(
+        option = ThemeColorOption.CORAL_PEACH,
+        name = "Coral Dusk",
+        subtitle = "Coral rose to warm dusk",
+        gradient = listOf(Color(0xFFBE123C), Color(0xFFF43F5E), Color(0xFFFB923C)),
+        primaryColor = Color(0xFFF43F5E)
     ),
     AppColourTheme(
         option = ThemeColorOption.GRAPHITE,
         name = "Graphite",
         subtitle = "Monochrome and quiet",
-        gradient = listOf(Color(0xFF1E293B), Color(0xFF334155)),
+        gradient = listOf(Color(0xFF1E293B), Color(0xFF334155), Color(0xFF475569)),
         primaryColor = Color(0xFF334155)
     )
 )
@@ -132,16 +163,26 @@ fun ThemeScreen(
     modifier: Modifier = Modifier
 ) {
     val settings by viewModel.settings.collectAsState()
-    val accounts by viewModel.accounts.collectAsState()
 
     val currentMode = settings?.themeMode ?: ThemeMode.AUTO
-    val currentColor = settings?.themeColor ?: ThemeColorOption.INDIGO_NIGHT
+    val currentColor = settings?.themeColor ?: ThemeColorOption.ROYAL_INDIGO
     val currencySymbol = settings?.currencySymbol ?: "৳"
     val userName = settings?.userName ?: "Khan Istiak"
 
-    var useWallpaperColours by remember { mutableStateOf(false) }
+    val activeThemeItem = remember(currentColor) {
+        ColourThemesList.firstOrNull { theme ->
+            theme.option == currentColor ||
+                (theme.option == ThemeColorOption.ROYAL_INDIGO && currentColor == ThemeColorOption.INDIGO_NIGHT)
+        } ?: ColourThemesList[0]
+    }
 
-    val activeThemeItem = ColourThemesList.firstOrNull { it.option == currentColor } ?: ColourThemesList[0]
+    val activeGradientBrush = remember(activeThemeItem.gradient) {
+        Brush.linearGradient(
+            colors = activeThemeItem.gradient,
+            start = Offset(0f, 0f),
+            end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+        )
+    }
 
     // Determine dark appearance for container backgrounds
     val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
@@ -267,7 +308,7 @@ fun ThemeScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Brush.linearGradient(activeThemeItem.gradient))
+                                .background(activeGradientBrush)
                                 .padding(12.dp)
                         ) {
                             Column(
@@ -423,7 +464,7 @@ fun ThemeScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(Brush.linearGradient(activeThemeItem.gradient)),
+                                        .background(activeGradientBrush),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -538,7 +579,7 @@ fun ThemeScreen(
             )
         }
 
-        // 4. COLOUR THEME Section (6 2-column cards matching Screenshot)
+        // 4. COLOUR THEME Section (2-column gradient cards)
         item {
             Spacer(modifier = Modifier.height(10.dp))
             Text(
@@ -564,14 +605,17 @@ fun ThemeScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         rowThemes.forEach { themeItem ->
-                            val isSelected = currentColor == themeItem.option
+                            val isSelected = currentColor == themeItem.option ||
+                                (themeItem.option == ThemeColorOption.ROYAL_INDIGO && currentColor == ThemeColorOption.INDIGO_NIGHT)
 
                             ColourThemeCard(
                                 theme = themeItem,
                                 isSelected = isSelected,
                                 isDark = isDarkAppearance,
                                 onClick = { viewModel.setThemeColor(themeItem.option) },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("theme_card_${themeItem.option.name.lowercase()}")
                             )
                         }
                         if (rowThemes.size == 1) {
@@ -582,76 +626,7 @@ fun ThemeScreen(
             }
         }
 
-        // 5. Wallpaper colours (Material You) Toggle Card
-        item {
-            Spacer(modifier = Modifier.height(14.dp))
-            TranslucentCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                cornerRadius = 20.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF475569).copy(alpha = 0.85f),
-                        modifier = Modifier.size(42.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.ColorLens,
-                                contentDescription = "Wallpaper colours",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Wallpaper colours",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontSize = 14.sp
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Takes the colour from your wallpaper (Material You) instead of a theme.",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Switch(
-                        checked = useWallpaperColours,
-                        onCheckedChange = {
-                            useWallpaperColours = it
-                            viewModel.userNotificationMessage.value = if (it) "Wallpaper colours enabled" else "Theme colours active"
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = activeThemeItem.primaryColor
-                        )
-                    )
-                }
-            }
-        }
-
-        // 6. Informational Note Card at Bottom
+        // 5. Informational Note Card at Bottom
         item {
             Spacer(modifier = Modifier.height(14.dp))
             Surface(
@@ -743,6 +718,24 @@ private fun ColourThemeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val swatchBrush = remember(theme.gradient) {
+        Brush.linearGradient(
+            colors = theme.gradient,
+            start = Offset(0f, 0f),
+            end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+        )
+    }
+    val highlightSheen = remember {
+        Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.22f),
+                Color.Transparent
+            ),
+            center = Offset(0f, 0f),
+            radius = 240f
+        )
+    }
+
     Surface(
         modifier = modifier
             .height(162.dp)
@@ -750,20 +743,25 @@ private fun ColourThemeCard(
         shape = RoundedCornerShape(22.dp),
         color = if (isDark) Color(0xFF1E293B) else Color.White,
         shadowElevation = if (isSelected) 3.dp else 1.dp,
-        border = if (isSelected) BorderStroke(2.dp, theme.primaryColor) else BorderStroke(1.dp, Color.Black.copy(alpha = 0.05f))
+        border = if (isSelected) {
+            BorderStroke(2.dp, theme.primaryColor)
+        } else {
+            BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+        }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(10.dp)
         ) {
-            // Preview Rectangle with Gradient
+            // Preview Rectangle with Smooth Diagonal Gradient + Subtle Glass Sheen
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(92.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Brush.linearGradient(theme.gradient))
+                    .background(swatchBrush)
+                    .background(highlightSheen)
                     .padding(8.dp)
             ) {
                 // Bottom-left preview dots (filled dot + ring dot)
@@ -819,7 +817,8 @@ private fun ColourThemeCard(
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onBackground
                 ),
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
             // Subtitle
@@ -829,7 +828,8 @@ private fun ColourThemeCard(
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
                 ),
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.AppLanguage
 import com.example.ui.HomeCardStyle
 import com.example.ui.screens.accounts.AnimatedGuillocheRosetteCanvas
+import com.example.ui.theme.LocalIsDarkTheme
 import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
 
@@ -75,10 +77,10 @@ internal fun HomeCardViewSwitcherButton(
     isBangla: Boolean,
     onClick: () -> Unit,
     onDarkSurface: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isDarkTheme: Boolean = LocalIsDarkTheme.current ?: (MaterialTheme.colorScheme.surface.luminance() < 0.5f)
 ) {
     val haptic = LocalHapticFeedback.current
-    val isDarkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val language = if (isBangla) AppLanguage.BANGLA else AppLanguage.ENGLISH
     val buttonShape = CircleShape
 
@@ -88,42 +90,51 @@ internal fun HomeCardViewSwitcherButton(
         HomeCardStyle.CAROUSEL -> Icons.Rounded.Layers
     }
 
-    val containerColor = when {
-        onDarkSurface -> Color.White.copy(alpha = 0.18f)
-        isDarkTheme -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-        else -> Color.White.copy(alpha = 0.88f)
+    val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+    val primaryColor = MaterialTheme.colorScheme.primary
+
+    val containerColor = remember(isDarkTheme, onDarkSurface, surfaceVariantColor) {
+        when {
+            onDarkSurface -> Color.White.copy(alpha = 0.18f)
+            isDarkTheme -> surfaceVariantColor.copy(alpha = 0.72f)
+            else -> Color.White.copy(alpha = 0.88f)
+        }
     }
 
-    val borderColor = when {
-        onDarkSurface -> Color.White.copy(alpha = 0.28f)
-        isDarkTheme -> Color.White.copy(alpha = 0.12f)
-        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+    val borderColor = remember(isDarkTheme, onDarkSurface, primaryColor) {
+        when {
+            onDarkSurface -> Color.White.copy(alpha = 0.28f)
+            isDarkTheme -> Color.White.copy(alpha = 0.12f)
+            else -> primaryColor.copy(alpha = 0.14f)
+        }
     }
 
-    val iconTint = if (onDarkSurface) Color.White else MaterialTheme.colorScheme.primary
+    val iconTint = if (onDarkSurface) Color.White else primaryColor
 
-    Box(
-        modifier = modifier
-            .size(if (onDarkSurface) 36.dp else 34.dp)
-            .clip(buttonShape)
-            .background(containerColor, buttonShape)
-            .border(width = 1.dp, color = borderColor, shape = buttonShape)
-            .clickable(
-                role = Role.Button,
-                onClickLabel = AppStrings.t("switch_card_view", language)
-            ) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onClick()
-            }
-            .testTag("home_card_view_switcher_button"),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = AppStrings.t("switch_card_view", language),
-            tint = iconTint,
-            modifier = Modifier.size(18.dp)
-        )
+    key(isDarkTheme, onDarkSurface) {
+        Box(
+            modifier = modifier
+                .size(if (onDarkSurface) 36.dp else 34.dp)
+                .clip(buttonShape)
+                .background(containerColor, buttonShape)
+                .border(width = 1.dp, color = borderColor, shape = buttonShape)
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = AppStrings.t("switch_card_view", language)
+                ) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                }
+                .testTag("home_card_view_switcher_button"),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = AppStrings.t("switch_card_view", language),
+                tint = iconTint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 

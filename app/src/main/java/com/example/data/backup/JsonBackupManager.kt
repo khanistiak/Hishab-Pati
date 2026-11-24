@@ -20,9 +20,30 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
 import kotlin.math.abs
+
+data class BackupExportSnapshot(
+    val json: String,
+    val backupDate: String,
+    val accountsCount: Int,
+    val transactionsCount: Int,
+    val categoriesCount: Int,
+    val subcategoriesCount: Int,
+    val budgetsCount: Int,
+    val debtsCount: Int,
+    val savingsGoalsCount: Int,
+    val rawSizeBytes: Long
+) {
+    val hasUserData: Boolean
+        get() = accountsCount > 0 ||
+            transactionsCount > 0 ||
+            budgetsCount > 0 ||
+            debtsCount > 0 ||
+            savingsGoalsCount > 0
+}
 
 class JsonBackupManager(private val db: AppDatabase) {
 
@@ -34,12 +55,17 @@ class JsonBackupManager(private val db: AppDatabase) {
 
     fun isRestoring(): Boolean = isRestoreInProgress.get()
 
-    suspend fun createBackupJson(): String = withContext(Dispatchers.IO) {
+    suspend fun createBackupJson(): String = createBackupSnapshot(prettyPrint = true).json
+
+    suspend fun createBackupSnapshot(prettyPrint: Boolean = false): BackupExportSnapshot = withContext(Dispatchers.IO) {
         val root = JSONObject()
         root.put("appName", "Hishab Pati")
         root.put("schemaVersion", BackupMigrationEngine.CURRENT_SCHEMA_VERSION)
-        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-        root.put("backupDate", isoFormat.format(Date()))
+        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val backupDate = isoFormat.format(Date())
+        root.put("backupDate", backupDate)
 
         val settings = db.settingsDao().getSettings() ?: AppSettingsEntity()
         root.put("currency", settings.currencyCode)
@@ -81,6 +107,7 @@ class JsonBackupManager(private val db: AppDatabase) {
                 put("minPayment", acc.minPayment)
                 put("notes", acc.notes)
                 put("includeInTotal", acc.includeInTotal)
+                put("updatedAt", acc.updatedAt)
             }
             accountsArr.put(obj)
         }
@@ -103,6 +130,11 @@ class JsonBackupManager(private val db: AppDatabase) {
                 put("notes", tx.notes)
                 put("isRecurring", tx.isRecurring)
                 put("payeeOrPayer", tx.payeeOrPayer)
+                put("createdAt", tx.createdAt)
+                put("updatedAt", tx.updatedAt)
+                if (!tx.debtId.isNullOrBlank()) put("debtId", tx.debtId)
+                put("excludeFromBudgets", tx.excludeFromBudgets)
+                if (tx.assignedBudgetIds.isNotBlank()) put("assignedBudgetIds", tx.assignedBudgetIds)
             }
             txArr.put(obj)
         }
@@ -160,6 +192,12 @@ class JsonBackupManager(private val db: AppDatabase) {
                     put("iconName", b.iconName)
                     put("colorHex", b.colorHex)
                     put("alertPercentage", b.alertPercentage)
+                    put("isManual", b.isManual)
+                    put("recurrence", b.recurrence)
+                    put("startDateMillis", b.startDateMillis)
+                    put("description", b.description)
+                    put("selectedCategories", b.selectedCategories)
+                    put("selectedSubcategories", b.selectedSubcategories)
                 }
             )
         }
@@ -181,10 +219,15 @@ class JsonBackupManager(private val db: AppDatabase) {
                     put("notes", d.notes)
                     put("isSettled", d.isSettled)
                     put("accountId", d.accountId)
+                    put("createdAt", d.createdAt)
+                    put("createdDateStr", d.createdDateStr)
                     put("reason", d.reason)
                     put("colorHex", d.colorHex)
+                    if (d.tentativeCloseDate != null) put("tentativeCloseDate", d.tentativeCloseDate)
                     put("tentativeCloseDateStr", d.tentativeCloseDateStr)
                     put("tags", d.tags)
+                    put("includeInBalance", d.includeInBalance)
+                    put("bindToWallet", d.bindToWallet)
                 }
             )
         }
@@ -211,7 +254,19 @@ class JsonBackupManager(private val db: AppDatabase) {
         }
         root.put("savingsGoals", goalArr)
 
-        root.toString(2)
+        val json = if (prettyPrint) root.toString(2) else root.toString()
+        BackupExportSnapshot(
+            json = json,
+            backupDate = backupDate,
+            accountsCount = accounts.size,
+            transactionsCount = transactions.size,
+            categoriesCount = categories.size,
+            subcategoriesCount = subcategories.size,
+            budgetsCount = budgets.size,
+            debtsCount = debts.size,
+            savingsGoalsCount = goals.size,
+            rawSizeBytes = json.toByteArray(Charsets.UTF_8).size.toLong()
+        )
     }
 
     suspend fun createBackupCsv(): String = withContext(Dispatchers.IO) {
@@ -457,19 +512,22 @@ class JsonBackupManager(private val db: AppDatabase) {
                     db.categoryDao().deleteAllSubcategories()
                     db.savingsGoalDao().deleteAllGoals()
 
-                    // Save Settings
+                    // Save Settings while strictly preserving active Royal Indigo theme, Aurora Mesh background, and avatar accent
                     payload.settings?.let { s ->
                         val current = db.settingsDao().getSettings() ?: AppSettingsEntity()
+                        val preservedUserName = s.userName.takeIf { it.isNotBlank() && it != "Guest User" }
+                            ?: current.userName
                         db.settingsDao().saveSettings(
                             current.copy(
-                                userName = s.userName,
+                                userName = preservedUserName,
                                 country = s.country,
                                 currencyCode = s.currencyCode,
                                 currencySymbol = s.currencySymbol,
                                 language = s.language,
-                                themeMode = s.themeMode,
-                                themeColor = s.themeColor,
-                                backgroundTexture = s.backgroundTexture,
+                                themeMode = current.themeMode,
+                                themeColor = current.themeColor,
+                                backgroundTexture = current.backgroundTexture,
+                                profileAvatarColorHex = current.profileAvatarColorHex,
                                 appLockEnabled = s.appLockEnabled,
                                 screenshotProtectionEnabled = s.screenshotProtectionEnabled,
                                 notificationsEnabled = s.notificationsEnabled
@@ -693,13 +751,17 @@ class JsonBackupManager(private val db: AppDatabase) {
                     }
 
                     // 4. Merge Budgets
+                    fun budgetMergeKey(b: BudgetEntity): String {
+                        val manualPart = if (b.isManual) "::manual::${b.name.lowercase(Locale.US)}" else ""
+                        return "${b.categoryName.lowercase(Locale.US)}::${b.subcategoryName.lowercase(Locale.US)}::${b.monthYear}::${b.isOverall}$manualPart"
+                    }
                     val existingBudgetIds = localBudgets.map { it.id }.toMutableSet()
                     val existingBudgetKeys = localBudgets
-                        .map { "${it.categoryName.lowercase(Locale.US)}::${it.monthYear}::${it.isOverall}" }
+                        .map { budgetMergeKey(it) }
                         .toMutableSet()
                     val newBudgets = mutableListOf<BudgetEntity>()
                     for (bgt in payload.budgets) {
-                        val key = "${bgt.categoryName.lowercase(Locale.US)}::${bgt.monthYear}::${bgt.isOverall}"
+                        val key = budgetMergeKey(bgt)
                         if (existingBudgetIds.contains(bgt.id) || existingBudgetKeys.contains(key)) {
                             additionalSkippedDuplicates++
                         } else {

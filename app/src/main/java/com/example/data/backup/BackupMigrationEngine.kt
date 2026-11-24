@@ -93,7 +93,9 @@ object BackupMigrationEngine {
             root.has("expenseCategories") ||
             root.has("budgets") ||
             root.has("debts") ||
-            root.has("loans")
+            root.has("loans") ||
+            root.has("savingsGoals") ||
+            root.has("goals")
 
         if (!hasRecognizableKeys) {
             throw BackupRestoreException(
@@ -531,7 +533,8 @@ object BackupMigrationEngine {
                 paymentDueDate = w.optString("paymentDueDate", w.optString("dueDate", "")),
                 minPayment = parseSafeDouble(w, listOf("minPayment", "minimumPayment"), 0.0, "account[$id].minPayment"),
                 notes = w.optString("notes", w.optString("description", w.optString("memo", ""))),
-                includeInTotal = w.optBoolean("includeInTotal", true)
+                includeInTotal = w.optBoolean("includeInTotal", true),
+                updatedAt = w.optLong("updatedAt", System.currentTimeMillis())
             )
             accounts.add(acc)
             migratedCount++
@@ -1225,6 +1228,10 @@ object BackupMigrationEngine {
 
             val isRecurring = t.optBoolean("isRecurring", t.optBoolean("recurring", false))
             val debtId = t.optString("debtId", t.optString("loanId", "")).trim().takeIf { it.isNotBlank() }
+            val excludeFromBudgets = t.optBoolean("excludeFromBudgets", false)
+            val assignedBudgetIds = t.optString("assignedBudgetIds", "").trim()
+            val txCreatedAt = t.optLong("createdAt", item.timestamp).takeIf { it > 0L } ?: item.timestamp
+            val txUpdatedAt = t.optLong("updatedAt", item.timestamp).takeIf { it > 0L } ?: item.timestamp
 
             // Ensure category and subcategory exist in normalized entities
             val normCatKey = finalCategory.lowercase(Locale.US)
@@ -1301,7 +1308,11 @@ object BackupMigrationEngine {
                             notes = splitNotes,
                             isRecurring = isRecurring,
                             payeeOrPayer = item.payee,
-                            debtId = debtId
+                            createdAt = txCreatedAt,
+                            updatedAt = txUpdatedAt,
+                            debtId = debtId,
+                            excludeFromBudgets = excludeFromBudgets,
+                            assignedBudgetIds = assignedBudgetIds
                         )
                     )
                 }
@@ -1321,7 +1332,11 @@ object BackupMigrationEngine {
                         notes = finalNotes,
                         isRecurring = isRecurring,
                         payeeOrPayer = item.payee,
-                        debtId = debtId
+                        createdAt = txCreatedAt,
+                        updatedAt = txUpdatedAt,
+                        debtId = debtId,
+                        excludeFromBudgets = excludeFromBudgets,
+                        assignedBudgetIds = assignedBudgetIds
                     )
                 )
             }
@@ -1409,10 +1424,21 @@ object BackupMigrationEngine {
             val subcategoryName = b.optString("subcategoryName", "")
             val name = b.optString("name", "")
             val iconName = b.optString("iconName", "")
-            val colorHex = b.optString("colorHex", "")
+            val rawColorHex = b.optString("colorHex", "").trim()
+            val colorHex = if (rawColorHex.isBlank()) "" else normalizeColorHex(rawColorHex, "#4F46E5")
             val alertPercentage = b.optInt("alertPercentage", 80)
+            val isManual = b.optBoolean("isManual", false)
+            val recurrence = b.optString("recurrence", "MONTHLY").ifBlank { "MONTHLY" }
+            val startDateMillis = b.optLong("startDateMillis", 0L)
+            val description = b.optString("description", "")
+            val selectedCategories = b.optString("selectedCategories", "")
+            val selectedSubcategories = b.optString("selectedSubcategories", "")
             val id = rawId.ifBlank { "bgt_${resolvedCatName.lowercase(Locale.US)}_${if (subcategoryName.isNotBlank()) "${subcategoryName.lowercase(Locale.US)}_" else ""}$monthYear" }
-            val catMonthKey = "${resolvedCatName.lowercase(Locale.US)}::$monthYear::$isOverall::${subcategoryName.lowercase(Locale.US)}"
+            val catMonthKey = if (isManual) {
+                "manual::${name.lowercase(Locale.US)}::$id"
+            } else {
+                "${resolvedCatName.lowercase(Locale.US)}::$monthYear::$isOverall::${subcategoryName.lowercase(Locale.US)}"
+            }
 
             if (!seenIds.add(id) || !seenCatMonth.add(catMonthKey)) {
                 skippedDuplicates++
@@ -1431,7 +1457,13 @@ object BackupMigrationEngine {
                     subcategoryName = subcategoryName,
                     iconName = iconName,
                     colorHex = colorHex,
-                    alertPercentage = alertPercentage
+                    alertPercentage = alertPercentage,
+                    isManual = isManual,
+                    recurrence = recurrence,
+                    startDateMillis = startDateMillis,
+                    description = description,
+                    selectedCategories = selectedCategories,
+                    selectedSubcategories = selectedSubcategories
                 )
             )
         }
@@ -1501,10 +1533,15 @@ object BackupMigrationEngine {
                     notes = d.optString("notes", d.optString("description", "")),
                     isSettled = isSettled,
                     accountId = resolvedAcc,
+                    createdAt = d.optLong("createdAt", System.currentTimeMillis()),
+                    createdDateStr = d.optString("createdDateStr", ""),
                     reason = d.optString("reason", d.optString("notes", "")),
-                    colorHex = normalizeColorHex(d.optString("colorHex", "#3B82F6"), "#3B82F6"),
+                    colorHex = normalizeColorHex(d.optString("colorHex", "#4F46E5"), "#4F46E5"),
+                    tentativeCloseDate = if (d.has("tentativeCloseDate") && !d.isNull("tentativeCloseDate")) d.optLong("tentativeCloseDate") else null,
                     tentativeCloseDateStr = d.optString("tentativeCloseDateStr", ""),
-                    tags = tags
+                    tags = tags,
+                    includeInBalance = d.optBoolean("includeInBalance", true),
+                    bindToWallet = d.optBoolean("bindToWallet", false)
                 )
             )
         }
@@ -1548,7 +1585,7 @@ object BackupMigrationEngine {
                     name = name,
                     targetAmount = targetAmount,
                     savedAmount = savedAmount,
-                    themeColorHex = normalizeColorHex(g.optString("themeColorHex", "#F59E0B"), "#F59E0B"),
+                    themeColorHex = normalizeColorHex(g.optString("themeColorHex", "#4F46E5"), "#4F46E5"),
                     iconName = g.optString("iconName", "savings"),
                     targetDeadline = if (g.has("targetDeadline") && !g.isNull("targetDeadline")) g.optLong("targetDeadline") else null,
                     targetDeadlineStr = g.optString("targetDeadlineStr", ""),
@@ -1610,9 +1647,10 @@ object BackupMigrationEngine {
             currencyCode = s.optString("currencyCode", fallbackCurrency.ifBlank { defaults.currencyCode }),
             currencySymbol = s.optString("currencySymbol", defaults.currencySymbol),
             language = try { AppLanguage.valueOf(s.optString("language")) } catch (_: Exception) { defaults.language },
-            themeMode = try { ThemeMode.valueOf(s.optString("themeMode")) } catch (_: Exception) { defaults.themeMode },
-            themeColor = try { ThemeColorOption.valueOf(s.optString("themeColor")) } catch (_: Exception) { defaults.themeColor },
-            backgroundTexture = try { BackgroundTextureOption.valueOf(s.optString("backgroundTexture")) } catch (_: Exception) { defaults.backgroundTexture },
+            // Ignore legacy theme/accent/background fields from backup files so restore preserves the active design system
+            themeMode = defaults.themeMode,
+            themeColor = defaults.themeColor,
+            backgroundTexture = defaults.backgroundTexture,
             appLockEnabled = s.optBoolean("appLockEnabled", defaults.appLockEnabled),
             screenshotProtectionEnabled = s.optBoolean("screenshotProtectionEnabled", defaults.screenshotProtectionEnabled),
             notificationsEnabled = s.optBoolean("notificationsEnabled", defaults.notificationsEnabled)
@@ -1834,11 +1872,28 @@ object BackupMigrationEngine {
         return if (digits.length >= 4) digits.takeLast(4) else digits
     }
 
+    private val legacyAccentColorRemap = mapOf(
+        "#0284C7" to "#4F46E5",
+        "#38BDF8" to "#6366F1",
+        "#0EA5E9" to "#4F46E5",
+        "#0369A1" to "#4F46E5",
+        "#00B4D8" to "#4F46E5",
+        "#06B6D4" to "#6366F1",
+        "#1E88E5" to "#4F46E5",
+        "#2196F3" to "#4F46E5",
+        "#2563EB" to "#4F46E5",
+        "#3B82F6" to "#6366F1",
+        "#1D4ED8" to "#4F46E5"
+    )
+
     private fun normalizeColorHex(raw: String, fallback: String): String {
         val trimmed = raw.trim()
-        if (trimmed.matches(Regex("^#[0-9A-Fa-f]{6,8}$"))) return trimmed
-        if (trimmed.matches(Regex("^[0-9A-Fa-f]{6}$"))) return "#$trimmed"
-        return fallback
+        val normalized = when {
+            trimmed.matches(Regex("^#[0-9A-Fa-f]{6,8}$")) -> trimmed.uppercase(Locale.US)
+            trimmed.matches(Regex("^[0-9A-Fa-f]{6}$")) -> "#${trimmed.uppercase(Locale.US)}"
+            else -> return fallback
+        }
+        return legacyAccentColorRemap[normalized] ?: normalized
     }
 
     private fun mapIconName(raw: String, accountType: AccountType): String {

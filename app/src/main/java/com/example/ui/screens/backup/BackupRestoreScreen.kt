@@ -1,6 +1,5 @@
 package com.example.ui.screens.backup
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -21,10 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -34,13 +29,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Share
@@ -65,6 +58,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -76,10 +70,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -88,6 +82,9 @@ import com.example.data.backup.AutoBackupFrequency
 import com.example.data.model.AppLanguage
 import com.example.ui.MainViewModel
 import com.example.ui.auth.AuthManager
+import com.example.ui.components.ScrollAwareFixedHeader
+import com.example.ui.components.recordFrostedBackdrop
+import com.example.ui.components.rememberScrollAwareGlassLayout
 import com.example.ui.theme.ExpenseRed
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
@@ -122,6 +119,14 @@ fun BackupRestoreScreen(
     val lastBackupTime by viewModel.lastCloudBackupTimestamp.collectAsState()
     val lastBackupSize by viewModel.lastCloudBackupSize.collectAsState()
     val lastSyncTime by viewModel.lastCloudSyncTimestamp.collectAsState()
+    val cloudBackupInfo by viewModel.cloudBackupInfo.collectAsState()
+    val isCheckingCloudBackup by viewModel.isCheckingCloudBackup.collectAsState()
+
+    LaunchedEffect(currentUser?.uid) {
+        if (currentUser != null) {
+            viewModel.refreshCloudBackupMetadata()
+        }
+    }
 
     var isSigningIn by remember { mutableStateOf(false) }
 
@@ -135,9 +140,10 @@ fun BackupRestoreScreen(
     var preserveCloudDataOnErase by remember { mutableStateOf(true) }
 
     val credentialManager = remember { CredentialManager.create(context) }
-    val timeFormatter = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
+    val timeFormatter = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
 
     val dividerColor = if (isDark) Color(0x1AFFFFFF) else Color(0x0E000000)
+    val subtitleColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f)
 
     // Storage Access Framework: Create Document Launcher
     val createDocLauncher = rememberLauncherForActivityResult(
@@ -234,124 +240,88 @@ fun BackupRestoreScreen(
         }
     }
 
-    val navBarBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-
     val listState = viewModel.rememberScreenLazyListState(
         screenOverride = com.example.ui.SubScreen.BACKUP_RESTORE
     )
+    val scrollLayout = rememberScrollAwareGlassLayout(
+        listState = listState,
+        defaultHeaderHeight = 64.dp,
+        extraTopGap = 6.dp,
+        bottomNavClearance = 48.dp
+    )
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("backup_restore_lazy_column"),
-        contentPadding = PaddingValues(bottom = navBarBottomPadding + 48.dp)
-    ) {
-        // Top Header with Back Button
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = if (isDark) Color(0xFF262B3D) else Color.White,
-                    shadowElevation = 2.dp,
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .recordFrostedBackdrop(
+                    scrollLayout.backdropState,
+                    listState,
+                    scrollLayout.contentGraphicsLayer
+                )
+                .testTag("backup_restore_lazy_column"),
+            contentPadding = scrollLayout.contentPadding
+        ) {
+            // =========================================================================
+            // CARD A: LOCAL BACKUP & RESTORE (Merged Export, Import, and Sample)
+            // =========================================================================
+            item {
+                CompactSectionLabel(
+                    title = if (isBangla) "লোকাল ব্যাকআপ" else "LOCAL BACKUP"
+                )
+
+                Card(
                     modifier = Modifier
-                        .size(42.dp)
-                        .testTag("backup_back_button"),
-                    onClick = onBack
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.88f else 0.75f)
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column {
-                    Text(
-                        text = if (isBangla) "ব্যাকআপ ও রিস্টোর" else "Backup & Restore",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 22.sp,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    )
-                    Text(
-                        text = if (isBangla) "ডাটা ব্যাকআপ, রিস্টোর ও সিঙ্ক" else "Backup, restore & sync",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
-                        )
-                    )
-                }
-            }
-        }
-
-        // =========================================================================
-        // CARD A: LOCAL BACKUP & RESTORE (Merged Export, Import, and Sample)
-        // =========================================================================
-        item {
-            CompactSectionLabel(
-                title = if (isBangla) "লোকাল ব্যাকআপ ও রিস্টোর" else "LOCAL BACKUP & RESTORE"
-            )
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(22.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.88f else 0.75f)
-                ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    // Action 1: Export Data (JSON & CSV)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF6366F1).copy(alpha = 0.12f),
-                            modifier = Modifier.size(38.dp)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        // Action 1: Export Data (JSON & CSV)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.FileDownload,
-                                    contentDescription = null,
-                                    tint = Color(0xFF6366F1),
-                                    modifier = Modifier.size(20.dp)
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF6366F1).copy(alpha = 0.12f),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.FileDownload,
+                                        contentDescription = null,
+                                        tint = Color(0xFF6366F1),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isBangla) "ডাটা এক্সপোর্ট" else "Export Data",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (isBangla) "লোকাল ফাইল সংরক্ষণ" else "Save backup file",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 11.sp,
+                                        color = subtitleColor
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = if (isBangla) "ডাটা এক্সপোর্ট" else "Export Data",
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            )
-                            Text(
-                                text = if (isBangla) "JSON বা CSV ফাইল সংরক্ষণ" else "Export JSON or CSV file",
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            )
-                        }
 
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedButton(
@@ -414,14 +384,18 @@ fun BackupRestoreScreen(
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
-                                )
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (isBangla) "JSON বা CSV ফাইল থেকে রিস্টোর" else "Restore from JSON or CSV",
+                                text = if (isBangla) "JSON বা CSV থেকে" else "From JSON or CSV",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                    color = subtitleColor
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -483,14 +457,18 @@ fun BackupRestoreScreen(
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
-                                )
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (isBangla) "নমুনা আর্থিক ডাটা" else "Sample financial template",
+                                text = if (isBangla) "JSON ফরম্যাট" else "JSON format",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                    color = subtitleColor
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -538,7 +516,7 @@ fun BackupRestoreScreen(
         item {
             Spacer(modifier = Modifier.height(10.dp))
             CompactSectionLabel(
-                title = if (isBangla) "ক্লাউড ব্যাকআপ ও সিঙ্ক" else "CLOUD BACKUP & SYNC"
+                title = if (isBangla) "ক্লাউড ও সিঙ্ক" else "CLOUD & SYNC"
             )
 
             Card(
@@ -576,21 +554,25 @@ fun BackupRestoreScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (isBangla) "গুগল সাইন-ইন আবশ্যক" else "Google Sign-In Required",
+                                    text = if (isBangla) "গুগল অ্যাকাউন্ট" else "Google Account",
                                     style = MaterialTheme.typography.bodyMedium.copy(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = if (isBangla)
-                                        "ক্লাউড ব্যাকআপ ও সিঙ্কের জন্য সাইন-ইন করুন"
+                                        "ক্লাউড ব্যাকআপ ও সিঙ্কের জন্য সাইন-ইন"
                                     else
-                                        "Sign in to backup & sync across devices",
+                                        "Sign in for cloud backup & sync",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                        color = subtitleColor
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -682,21 +664,23 @@ fun BackupRestoreScreen(
                                 Text(
                                     text = user.email ?: user.displayName ?: "Google Account",
                                     style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = if (isBangla)
-                                        "সংযুক্ত ক্লাউড স্টোরেজ"
-                                    else
-                                        "Connected · UID: ${user.uid.take(8)}...",
+                                    text = if (isBangla) "ক্লাউড সংযুক্ত" else "Cloud connected",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                        color = subtitleColor
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
+                            Spacer(modifier = Modifier.width(8.dp))
                             OutlinedButton(
                                 onClick = {
                                     AuthManager.signOut(
@@ -711,7 +695,9 @@ fun BackupRestoreScreen(
                                 },
                                 shape = RoundedCornerShape(10.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(30.dp)
+                                modifier = Modifier
+                                    .height(30.dp)
+                                    .testTag("cloud_sign_out_button")
                             ) {
                                 Text(if (isBangla) "লগআউট" else "Sign Out", fontSize = 11.sp)
                             }
@@ -721,30 +707,67 @@ fun BackupRestoreScreen(
                         HorizontalDivider(color = dividerColor)
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // 2. Last Backup Status
-                        Row(
+                        // 2. Last Backup Status (compact inline header + optional single-line summary)
+                        val formattedSize = when {
+                            lastBackupSize >= 1024L * 1024L -> String.format(Locale.ENGLISH, " · %.1f MB", lastBackupSize / (1024.0 * 1024.0))
+                            lastBackupSize > 0L -> " · ${(lastBackupSize / 1024L).coerceAtLeast(1L)} KB"
+                            else -> ""
+                        }
+                        val lastBackupFormatted = when {
+                            lastBackupTime > 0L -> timeFormatter.format(Date(lastBackupTime)) + formattedSize
+                            isCheckingCloudBackup -> if (isBangla) "যাচাই হচ্ছে..." else "Checking..."
+                            else -> if (isBangla) "নেওয়া হয়নি" else "Never"
+                        }
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(
                                     text = if (isBangla) "সর্বশেষ ব্যাকআপ" else "Last Backup",
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                )
-                                val lastBackupFormatted = if (lastBackupTime > 0L) {
-                                    timeFormatter.format(Date(lastBackupTime)) + (if (lastBackupSize > 0) " (${lastBackupSize / 1024} KB)" else "")
-                                } else {
-                                    if (isBangla) "এখনও কোনো ব্যাকআপ নেওয়া হয়নি" else "Never backed up"
-                                }
-                                Text(
-                                    text = lastBackupFormatted,
                                     style = MaterialTheme.typography.bodyMedium.copy(
                                         fontWeight = FontWeight.SemiBold,
-                                        color = if (lastBackupTime > 0L) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = lastBackupFormatted,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 11.sp,
+                                        fontWeight = if (lastBackupTime > 0L) FontWeight.Medium else FontWeight.Normal,
+                                        color = if (lastBackupTime > 0L) MaterialTheme.colorScheme.onSurface else subtitleColor
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            cloudBackupInfo?.let { info ->
+                                val summaryParts = buildList {
+                                    add(if (isBangla) "${info.accountsCount} অ্যাকাউন্ট" else "${info.accountsCount} accounts")
+                                    add(if (isBangla) "${info.transactionsCount} লেনদেন" else "${info.transactionsCount} txns")
+                                    if (info.budgetsCount > 0) {
+                                        add(if (isBangla) "${info.budgetsCount} বাজেট" else "${info.budgetsCount} budgets")
+                                    }
+                                    if (info.debtsCount > 0) {
+                                        add(if (isBangla) "${info.debtsCount} ঋণ" else "${info.debtsCount} debts")
+                                    }
+                                    if (info.savingsGoalsCount > 0) {
+                                        add(if (isBangla) "${info.savingsGoalsCount} লক্ষ্য" else "${info.savingsGoalsCount} goals")
+                                    }
+                                }.joinToString(" · ")
+                                Text(
+                                    text = summaryParts,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = 11.sp,
+                                        color = subtitleColor
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -755,27 +778,13 @@ fun BackupRestoreScreen(
 
                         // 3. Auto Backup Setting (Off / Daily / Weekly)
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = if (isBangla) "স্বয়ংক্রিয় ব্যাকআপ" else "Auto Backup",
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    )
-                                    Text(
-                                        text = if (isBangla) "স্বয়ংক্রিয় ব্যাকআপ শিডিউল" else "Scheduled automatic backup",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    )
-                                }
-                            }
+                            Text(
+                                text = if (isBangla) "স্বয়ংক্রিয় ব্যাকআপ" else "Auto Backup",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            )
 
                             Spacer(modifier = Modifier.height(8.dp))
 
@@ -890,17 +899,18 @@ fun BackupRestoreScreen(
                                     style = MaterialTheme.typography.bodyMedium.copy(
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = if (isBangla)
-                                        "সব ডিভাইসে স্বয়ংক্রিয় সমন্বয়"
-                                    else
-                                        "Sync changes across your devices",
+                                    text = if (isBangla) "ডিভাইস জুড়ে অটো-সিঙ্ক" else "Auto-sync across devices",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                        color = subtitleColor
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             Switch(
@@ -927,20 +937,23 @@ fun BackupRestoreScreen(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    .padding(horizontal = 12.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                val syncText = if (lastSyncTime > 0L) timeFormatter.format(Date(lastSyncTime)) else if (isBangla) "এখনও সিঙ্ক হয়নি" else "Not synced yet"
+                                val syncText = if (lastSyncTime > 0L) timeFormatter.format(Date(lastSyncTime)) else if (isBangla) "সিঙ্ক হয়নি" else "Not synced"
                                 Text(
-                                    text = "${if (isBangla) "সর্বশেষ সিঙ্ক: " else "Last synced: "}$syncText",
+                                    text = if (isBangla) "সিঙ্ক · $syncText" else "Synced · $syncText",
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = subtitleColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
                                 )
                                 TextButton(
                                     onClick = { viewModel.syncWithCloud(force = true) },
                                     enabled = !isSyncing,
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                    modifier = Modifier.testTag("cloud_sync_now_button")
                                 ) {
                                     if (isSyncing) {
                                         CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
@@ -964,7 +977,8 @@ fun BackupRestoreScreen(
         item {
             Spacer(modifier = Modifier.height(14.dp))
             CompactSectionLabel(
-                title = if (isBangla) "বিপদ অঞ্চল" else "DANGER ZONE"
+                title = if (isBangla) "বিপদ অঞ্চল" else "DANGER ZONE",
+                color = ExpenseRed
             )
 
             Card(
@@ -996,18 +1010,22 @@ fun BackupRestoreScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (isBangla) "সমস্ত আর্থিক তথ্য মুছুন" else "Erase All Financial Data",
+                                text = if (isBangla) "সব লোকাল ডাটা মুছুন" else "Erase Local Data",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
-                                color = ExpenseRed
+                                color = ExpenseRed,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = if (isBangla)
-                                    "ডিভাইসের সব ওয়ালেট ও লেনদেন স্থায়ীভাবে ডিলিট হবে।"
+                                    "স্থায়ীভাবে মুছে যাবে, ফেরানো যাবে না"
                                 else
-                                    "Permanently removes local accounts & transactions.",
+                                    "Permanent, cannot be undone",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = subtitleColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -1039,6 +1057,53 @@ fun BackupRestoreScreen(
                         )
                     }
                 }
+            }
+        }
+        }
+
+        // Fixed Liquid Glass Header pinned at top so content scrolls smoothly beneath
+        ScrollAwareFixedHeader(
+            layoutState = scrollLayout,
+            testTag = "backup_restore_fixed_header"
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (isDark) Color(0xFF262B3D).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.90f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+                    shadowElevation = 2.dp,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .testTag("backup_back_button"),
+                    onClick = onBack
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = if (isBangla) "পেছনে" else "Back",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Text(
+                    text = if (isBangla) "ব্যাকআপ ও রিস্টোর" else "Backup & Restore",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp,
+                        color = MaterialTheme.colorScheme.onBackground
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -1229,12 +1294,15 @@ fun BackupRestoreScreen(
 }
 
 @Composable
-private fun CompactSectionLabel(title: String) {
+private fun CompactSectionLabel(
+    title: String,
+    color: Color = MaterialTheme.colorScheme.primary
+) {
     Text(
         text = title,
         style = MaterialTheme.typography.labelSmall.copy(
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+            color = color,
             letterSpacing = 1.sp
         ),
         modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)

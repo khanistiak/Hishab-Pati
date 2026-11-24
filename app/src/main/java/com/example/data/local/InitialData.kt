@@ -234,9 +234,9 @@ object InitialData {
         transferCats.forEach { (catInfo, subs) ->
             val (id, name, nameBn) = catInfo
             val (icon, color) = when (name) {
-                "Wallet Transfer" -> "wallet" to "#3B82F6"
+                "Wallet Transfer" -> "wallet" to "#4F46E5"
                 "Bank Transfer" -> "account_balance" to "#6366F1"
-                else -> "swap_horiz" to "#0284C7"
+                else -> "swap_horiz" to "#4F46E5"
             }
 
             categories.add(

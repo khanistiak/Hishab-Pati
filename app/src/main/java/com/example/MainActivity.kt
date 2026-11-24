@@ -12,6 +12,8 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -595,10 +597,16 @@ fun MyWalletApp(viewModel: MainViewModel) {
                                         } else {
                                             ContentTransform(
                                                 targetContentEnter = fadeIn(
-                                                    animationSpec = tween(durationMillis = 220, delayMillis = 180)
+                                                    animationSpec = tween(
+                                                        durationMillis = 130,
+                                                        easing = FastOutSlowInEasing
+                                                    )
                                                 ),
                                                 initialContentExit = fadeOut(
-                                                    animationSpec = tween(durationMillis = 180)
+                                                    animationSpec = tween(
+                                                        durationMillis = 110,
+                                                        easing = LinearOutSlowInEasing
+                                                    )
                                                 ),
                                                 targetContentZIndex = 1f,
                                                 sizeTransform = null

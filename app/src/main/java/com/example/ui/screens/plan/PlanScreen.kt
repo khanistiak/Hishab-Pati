@@ -95,14 +95,16 @@ fun PlanScreen(
     val language = settings?.language ?: AppLanguage.ENGLISH
 
     // Exactly 6 tools as specified in prompt
-    val planTools = listOf(
-        ToolItemData(AppStrings.t("converter", language), Icons.Default.CurrencyExchange, Color(0xFFE0E7FF), Color(0xFF4F46E5), "converter"),
-        ToolItemData(AppStrings.t("networth", language), Icons.Default.TrendingUp, Color(0xFFDCFCE7), Color(0xFF16A34A), "networth"),
-        ToolItemData(AppStrings.t("monthly_recap", language), Icons.Default.Timeline, Color(0xFFEDE9FE), Color(0xFF7C3AED), "recap"),
-        ToolItemData(AppStrings.t("spending_comparison", language), Icons.Default.TrendingDown, Color(0xFFFEF3C7), Color(0xFFD97706), "comparison"),
-        ToolItemData(AppStrings.t("income_tracker", language), Icons.Default.Payments, Color(0xFFD1FAE5), Color(0xFF059669), "income"),
-        ToolItemData(AppStrings.t("calendar", language), Icons.Default.CalendarMonth, Color(0xFFF3E8FF), Color(0xFF9333EA), "calendar")
-    )
+    val planTools = remember(language) {
+        listOf(
+            ToolItemData(AppStrings.t("converter", language), Icons.Default.CurrencyExchange, Color(0xFFE0E7FF), Color(0xFF4F46E5), "converter"),
+            ToolItemData(AppStrings.t("networth", language), Icons.Default.TrendingUp, Color(0xFFDCFCE7), Color(0xFF16A34A), "networth"),
+            ToolItemData(AppStrings.t("monthly_recap", language), Icons.Default.Timeline, Color(0xFFEDE9FE), Color(0xFF7C3AED), "recap"),
+            ToolItemData(AppStrings.t("spending_comparison", language), Icons.Default.TrendingDown, Color(0xFFFEF3C7), Color(0xFFD97706), "comparison"),
+            ToolItemData(AppStrings.t("income_tracker", language), Icons.Default.Payments, Color(0xFFD1FAE5), Color(0xFF059669), "income"),
+            ToolItemData(AppStrings.t("calendar", language), Icons.Default.CalendarMonth, Color(0xFFF3E8FF), Color(0xFF9333EA), "calendar")
+        )
+    }
 
     // Precompute budget & spending totals for smooth scrolling with budgeted vs unbudgeted separation
     val (totalBudget, totalSpent) = remember(budgets, transactions) {
@@ -113,10 +115,21 @@ fun PlanScreen(
             !it.isOverall && !it.categoryName.equals("Overall", ignoreCase = true) && it.monthlyLimit > 0.0
         }
         val budget = com.example.data.backup.FinancialIntegrityValidator.computeTotalMonthlyBudget(budgets, monthKey)
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.YEAR, refYear)
+            set(java.util.Calendar.MONTH, refMonth)
+            set(java.util.Calendar.DAY_OF_MONTH, 1)
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val monthStartMs = cal.timeInMillis
+        cal.add(java.util.Calendar.MONTH, 1)
+        val monthEndExclusiveMs = cal.timeInMillis
+
         val monthExpenses = transactions.filter { tx ->
-            val cal = java.util.Calendar.getInstance().apply { timeInMillis = tx.timestamp }
-            cal.get(java.util.Calendar.YEAR) == refYear &&
-                cal.get(java.util.Calendar.MONTH) == refMonth &&
+            tx.timestamp in monthStartMs until monthEndExclusiveMs &&
                 com.example.data.backup.FinancialIntegrityValidator.isEligibleExpense(tx)
         }
         val spent = if (activeCategoryBudgets.isNotEmpty()) {
@@ -623,14 +636,14 @@ fun PlanDebtSummaryCard(
         ) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = if (isPayable) Color(0xFFDBEAFE) else Color(0xFFDCFCE7),
+                color = if (isPayable) Color(0xFFE0E7FF) else Color(0xFFDCFCE7),
                 modifier = Modifier.size(40.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = if (isPayable) Icons.Default.AccountBalance else Icons.Default.Person,
                         contentDescription = null,
-                        tint = if (isPayable) Color(0xFF2563EB) else Color(0xFF16A34A),
+                        tint = if (isPayable) Color(0xFF4F46E5) else Color(0xFF16A34A),
                         modifier = Modifier.size(22.dp)
                     )
                 }

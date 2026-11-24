@@ -24,6 +24,8 @@ val LocalPrimaryCtaGradient = staticCompositionLocalOf<Brush> {
     Brush.linearGradient(colors = RoyalIndigoGradientColors)
 }
 
+val LocalIsDarkTheme = staticCompositionLocalOf<Boolean?> { null }
+
 @Composable
 fun MyWalletTheme(
     themeMode: ThemeMode = ThemeMode.AUTO,
@@ -38,7 +40,9 @@ fun MyWalletTheme(
 
     val primary = Color(themeColor.primaryHex)
     val secondary = Color(themeColor.secondaryHex)
-    val primaryCtaGradient = Brush.linearGradient(colors = listOf(primary, secondary))
+    val primaryCtaGradient = Brush.linearGradient(
+        colors = themeColor.gradientHexes.map { Color(it) }
+    )
 
     val colorScheme = if (isDark) {
         darkColorScheme(
@@ -84,7 +88,8 @@ fun MyWalletTheme(
     ) {
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.material3.LocalContentColor provides colorScheme.onBackground,
-            LocalPrimaryCtaGradient provides primaryCtaGradient
+            LocalPrimaryCtaGradient provides primaryCtaGradient,
+            LocalIsDarkTheme provides isDark
         ) {
             content()
         }
@@ -115,9 +120,9 @@ fun MyWalletBackground(
             BackgroundTextureOption.AURORA -> Brush.verticalGradient(
                 listOf(
                     Color(0xFFE0E7FF), // soft indigo
+                    Color(0xFFFCE7F3), // soft rose-pink
                     Color(0xFFEFF6FF), // soft sky
-                    Color(0xFFFAF5FF), // soft purple
-                    Color(0xFFF8FAFC)  // crisp slate
+                    Color(0xFFF8FAFC)  // clean off-white canvas
                 )
             )
             BackgroundTextureOption.WAVES -> Brush.linearGradient(
@@ -173,24 +178,34 @@ fun MyWalletBackground(
 
                 // Draw subtle decorative ambient glows matching the theme accent
                 if (!isDark) {
-                    // Top-right soft secondary accent glow
+                    // Top-right soft pastel Reddish / Rose-Pink glow (#F43F5E / #FB7185 / #FBCFE8 at very low alpha), smoothly fading into off-white canvas
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(secondary.copy(alpha = 0.16f), Color.Transparent),
+                            colors = listOf(
+                                Color(0xFFF43F5E).copy(alpha = 0.12f),
+                                Color(0xFFFB7185).copy(alpha = 0.07f),
+                                Color(0xFFFBCFE8).copy(alpha = 0.03f),
+                                Color.Transparent
+                            ),
                             center = Offset(size.width * 0.9f, size.height * 0.05f),
-                            radius = size.width * 0.6f
+                            radius = size.width * 0.65f
                         ),
-                        radius = size.width * 0.6f,
+                        radius = size.width * 0.65f,
                         center = Offset(size.width * 0.9f, size.height * 0.05f)
                     )
-                    // Top-left soft primary accent glow
+                    // Top-left soft pastel Royal Indigo glow (#4F46E5 / #6366F1 at very low alpha), smoothly fading into off-white canvas
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(primary.copy(alpha = 0.16f), Color.Transparent),
+                            colors = listOf(
+                                Color(0xFF4F46E5).copy(alpha = 0.12f),
+                                Color(0xFF6366F1).copy(alpha = 0.07f),
+                                Color(0xFFE0E7FF).copy(alpha = 0.03f),
+                                Color.Transparent
+                            ),
                             center = Offset(size.width * 0.1f, size.height * 0.08f),
-                            radius = size.width * 0.7f
+                            radius = size.width * 0.75f
                         ),
-                        radius = size.width * 0.7f,
+                        radius = size.width * 0.75f,
                         center = Offset(size.width * 0.1f, size.height * 0.08f)
                     )
 

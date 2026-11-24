@@ -2,13 +2,11 @@ package com.example.ui.screens.transaction
 
 import android.os.Build
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,6 +15,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,10 +25,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -65,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -76,6 +79,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.CategoryEntity
@@ -108,7 +112,7 @@ object CategorySelectionSheetStyle {
     val DARK_ROW_BG_SELECTED = Color(0xFF0F253E)
     val DARK_BORDER_UNSELECTED = Color(0xFF334155)
 
-    val ACCENT_BLUE = Color(0xFF0284C7)
+    val ACCENT_BLUE = Color(0xFF6366F1) // Royal Indigo / #6366F1
 
     val LIGHT_BUTTON_BG = Color(0xFFF1F5F9)
     val DARK_BUTTON_BG = Color(0xFF334155)
@@ -278,7 +282,7 @@ fun SheetHeaderCircleActionButton(
 
 /**
  * Clean, modern bottom sheet for Category & Subcategory selection,
- * designed in exact visual consistency with the Edit Budget category picker.
+ * supporting 3 category types (Expense, Income, Transfer) and inline horizontal subcategory rows.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -297,7 +301,6 @@ fun CategorySelectionBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var searchQuery by remember { mutableStateOf("") }
-    var drilledCategory by remember { mutableStateOf<CategoryEntity?>(null) }
     val categoryListState = rememberLazyListState()
 
     val currentOnCategorySelected by rememberUpdatedState(onCategorySelected)
@@ -321,11 +324,12 @@ fun CategorySelectionBottomSheet(
     val accentBlue = CategorySelectionSheetStyle.ACCENT_BLUE
 
     val searchInteractionSource = remember { MutableInteractionSource() }
-    val isSearchFocused by searchInteractionSource.collectIsFocusedAsState()
 
-    // Intercept back button to return from subcategory drill-down
-    BackHandler(enabled = drilledCategory != null) {
-        drilledCategory = null
+    // Track which category has its subcategories expanded inline
+    var expandedCategoryId by remember {
+        mutableStateOf<String?>(
+            categories.firstOrNull { it.name.equals(selectedCategoryName, ignoreCase = true) }?.id
+        )
     }
 
     val filteredList = remember(categories, selectedType, searchQuery) {
@@ -389,63 +393,26 @@ fun CategorySelectionBottomSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                if (drilledCategory != null) {
-                    // Screen 1: Subcategory Picker Header (Back Button + Category Title & "Select subcategory")
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        SheetHeaderCircleActionButton(
-                            icon = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = if (language == AppLanguage.BANGLA) "ক্যাটাগরিতে ফিরে যান" else "Back to categories",
-                            isDark = isDark,
-                            onClick = { drilledCategory = null },
-                            testTag = "btn_category_drill_back"
-                        )
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = drilledCategory!!.getDisplayName(language),
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (language == AppLanguage.BANGLA) "সাবক্যাটাগরি নির্বাচন করুন" else "Select subcategory",
-                                fontSize = 12.sp,
-                                color = textSecondary
-                            )
-                        }
-                    }
-                } else {
-                    // Screen 3: Transaction Category Picker Header ("Select Category")
-                    Text(
-                        text = if (language == AppLanguage.BANGLA) "ক্যাটাগরি নির্বাচন করুন" else "Select Category",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = textPrimary
-                    )
-                }
+                Text(
+                    text = if (language == AppLanguage.BANGLA) "ক্যাটাগরি নির্বাচন করুন" else "Select Category",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textPrimary
+                )
 
                 // Trailing controls in header
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (drilledCategory == null) {
-                        // Add-category (+) action in high-contrast circular button
-                        SheetHeaderCircleActionButton(
-                            icon = CategorySelectionSheetStyle.HighContrastPlusIcon,
-                            contentDescription = "Add Category",
-                            isDark = isDark,
-                            onClick = onAddNewCategory,
-                            testTag = "btn_add_category_quick"
-                        )
-                    }
+                    // Add-category (+) action in high-contrast circular button
+                    SheetHeaderCircleActionButton(
+                        icon = CategorySelectionSheetStyle.HighContrastPlusIcon,
+                        contentDescription = "Add Category",
+                        isDark = isDark,
+                        onClick = onAddNewCategory,
+                        testTag = "btn_add_category_quick"
+                    )
 
                     // Close (×) control in high-contrast circular button
                     SheetHeaderCircleActionButton(
@@ -458,345 +425,297 @@ fun CategorySelectionBottomSheet(
                 }
             }
 
-            // Only show Segmented Toggle and Search Bar when in main categories list
-            if (drilledCategory == null) {
-                // Segmented Toggle: Expense / Income
-                Surface(
-                    shape = RoundedCornerShape(22.dp),
-                    color = if (isDark) Color(0xFF1E293B) else Color(0xFFF1F5F9),
+            // Segmented Toggle: Expense / Income / Transfer (3 types)
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = if (isDark) Color(0xFF1E293B) else Color(0xFFF1F5F9),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+            ) {
+                BoxWithConstraints(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(42.dp)
+                        .fillMaxSize()
+                        .padding(3.dp)
                 ) {
+                    val tabWidth = maxWidth / 3f
+                    val selectedTabIndex = when (selectedType) {
+                        TransactionType.EXPENSE -> 0
+                        TransactionType.INCOME -> 1
+                        TransactionType.TRANSFER -> 2
+                        else -> 0
+                    }
+                    val indicatorOffsetX by animateDpAsState(
+                        targetValue = tabWidth * selectedTabIndex.toFloat(),
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "category_type_sliding_pill_offset"
+                    )
+                    val pillShape = RoundedCornerShape(18.dp)
+
+                    // Single shared sliding pill underlay behind the 3 tabs
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset(indicatorOffsetX.roundToPx(), 0) }
+                            .width(tabWidth)
+                            .fillMaxHeight()
+                            .shadow(elevation = 1.dp, shape = pillShape)
+                            .clip(pillShape)
+                            .background(if (isDark) Color(0xFF334155) else Color.White)
+                    )
+
                     Row(
                         modifier = Modifier.fillMaxSize(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val isExpense = selectedType == TransactionType.EXPENSE
-                        Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = if (isExpense) (if (isDark) Color(0xFF334155) else Color.White) else Color.Transparent,
-                            shadowElevation = if (isExpense) 1.dp else 0.dp,
+                        val expenseIconTint by animateColorAsState(
+                            targetValue = if (isExpense) Color(0xFFEF4444) else textSecondary,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "expense_tab_icon_tint"
+                        )
+                        val expenseTextColor by animateColorAsState(
+                            targetValue = if (isExpense) textPrimary else textSecondary,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "expense_tab_text_color"
+                        )
+                        Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(3.dp)
-                                .fillMaxHeight(),
-                            onClick = { onTypeChanged(TransactionType.EXPENSE) }
+                                .fillMaxHeight()
+                                .clip(pillShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { onTypeChanged(TransactionType.EXPENSE) }
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowDownward,
-                                    contentDescription = null,
-                                    tint = if (isExpense) Color(0xFFEF4444) else textSecondary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = if (language == AppLanguage.BANGLA) "ব্যয়" else "Expense",
-                                    fontWeight = if (isExpense) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 13.sp,
-                                    color = if (isExpense) textPrimary else textSecondary
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.ArrowDownward,
+                                contentDescription = null,
+                                tint = expenseIconTint,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = if (language == AppLanguage.BANGLA) "ব্যয়" else "Expense",
+                                fontWeight = if (isExpense) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 11.5.sp,
+                                color = expenseTextColor
+                            )
                         }
 
                         val isIncome = selectedType == TransactionType.INCOME
-                        Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = if (isIncome) (if (isDark) Color(0xFF334155) else Color.White) else Color.Transparent,
-                            shadowElevation = if (isIncome) 1.dp else 0.dp,
+                        val incomeIconTint by animateColorAsState(
+                            targetValue = if (isIncome) Color(0xFF10B981) else textSecondary,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "income_tab_icon_tint"
+                        )
+                        val incomeTextColor by animateColorAsState(
+                            targetValue = if (isIncome) textPrimary else textSecondary,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "income_tab_text_color"
+                        )
+                        Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(3.dp)
-                                .fillMaxHeight(),
-                            onClick = { onTypeChanged(TransactionType.INCOME) }
+                                .fillMaxHeight()
+                                .clip(pillShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { onTypeChanged(TransactionType.INCOME) }
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowUpward,
-                                    contentDescription = null,
-                                    tint = if (isIncome) Color(0xFF10B981) else textSecondary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = if (language == AppLanguage.BANGLA) "আয়" else "Income",
-                                    fontWeight = if (isIncome) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 13.sp,
-                                    color = if (isIncome) textPrimary else textSecondary
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.ArrowUpward,
+                                contentDescription = null,
+                                tint = incomeIconTint,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = if (language == AppLanguage.BANGLA) "আয়" else "Income",
+                                fontWeight = if (isIncome) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 11.5.sp,
+                                color = incomeTextColor
+                            )
+                        }
+
+                        val isTransfer = selectedType == TransactionType.TRANSFER
+                        val transferIconTint by animateColorAsState(
+                            targetValue = if (isTransfer) Color(0xFF3B82F6) else textSecondary,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "transfer_tab_icon_tint"
+                        )
+                        val transferTextColor by animateColorAsState(
+                            targetValue = if (isTransfer) textPrimary else textSecondary,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "transfer_tab_text_color"
+                        )
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(pillShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { onTypeChanged(TransactionType.TRANSFER) }
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.CompareArrows,
+                                contentDescription = null,
+                                tint = transferIconTint,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = if (language == AppLanguage.BANGLA) "স্থানান্তর" else "Transfer",
+                                fontWeight = if (isTransfer) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 11.5.sp,
+                                color = transferTextColor
+                            )
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Search field as full-width rounded rectangle with subtle neutral border
-                val searchShape = RoundedCornerShape(CategorySelectionSheetStyle.SEARCH_CORNER_RADIUS)
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    interactionSource = searchInteractionSource,
-                    placeholder = {
-                        Text(
-                            text = if (language == AppLanguage.BANGLA) "ক্যাটাগরি অনুসন্ধান করুন..." else "Search categories...",
-                            color = textSecondary.copy(alpha = 0.8f),
-                            fontSize = 14.sp
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = textSecondary,
-                            modifier = Modifier.size(19.dp)
-                        )
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Clear",
-                                    tint = textSecondary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    },
-                    shape = searchShape,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = textPrimary,
-                        unfocusedTextColor = textPrimary,
-                        focusedBorderColor = accentBlue,
-                        unfocusedBorderColor = borderUnselected,
-                        focusedContainerColor = cardBgUnselected,
-                        unfocusedContainerColor = cardBgUnselected,
-                        cursorColor = accentBlue
-                    ),
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("category_search_input")
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
             }
 
-            // Animated transition between Category List and Subcategories List
-            AnimatedContent(
-                targetState = drilledCategory,
-                transitionSpec = {
-                    if (targetState != null) {
-                        (slideInHorizontally(animationSpec = tween(150)) { width -> width / 3 } + fadeIn(tween(150))).togetherWith(
-                            slideOutHorizontally(animationSpec = tween(120)) { width -> -width / 3 } + fadeOut(tween(120))
-                        )
-                    } else {
-                        (slideInHorizontally(animationSpec = tween(150)) { width -> -width / 3 } + fadeIn(tween(150))).togetherWith(
-                            slideOutHorizontally(animationSpec = tween(120)) { width -> width / 3 } + fadeOut(tween(120))
-                        )
-                    }
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Search field
+            val searchShape = RoundedCornerShape(CategorySelectionSheetStyle.SEARCH_CORNER_RADIUS)
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                interactionSource = searchInteractionSource,
+                placeholder = {
+                    Text(
+                        text = if (language == AppLanguage.BANGLA) "ক্যাটাগরি অনুসন্ধান করুন..." else "Search categories...",
+                        color = textSecondary.copy(alpha = 0.8f),
+                        fontSize = 14.sp
+                    )
                 },
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                label = "CategoryDrillDownAnimation"
-            ) { targetCategory ->
-                if (targetCategory == null) {
-                    // SCREEN 3: MAIN CATEGORY LIST
-                    if (filteredList.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(vertical = 40.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (language == AppLanguage.BANGLA) "কোন ক্যাটাগরি পাওয়া যায়নি" else "No categories found",
-                                fontSize = 14.sp,
-                                color = textSecondary
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = textSecondary,
+                        modifier = Modifier.size(19.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = textSecondary,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
-                    } else {
-                        LazyColumn(
-                            state = categoryListState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .testTag("category_picker_list"),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(top = 2.dp, bottom = 16.dp)
-                        ) {
-                            items(filteredList, key = { it.id }) { cat ->
-                                val isSelected = selectedCategoryName == cat.name
-                                val catSubs = remember(cat.id, subcategories) {
-                                    subcategories.filter { it.categoryId == cat.id }
-                                }
+                    }
+                },
+                shape = searchShape,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = textPrimary,
+                    unfocusedTextColor = textPrimary,
+                    focusedBorderColor = accentBlue,
+                    unfocusedBorderColor = borderUnselected,
+                    focusedContainerColor = cardBgUnselected,
+                    unfocusedContainerColor = cardBgUnselected,
+                    cursorColor = accentBlue
+                ),
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("category_search_input")
+            )
 
-                                CategoryItemCard(
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Category List with inline subcategory horizontal scrolling rows
+            if (filteredList.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(vertical = 40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (language == AppLanguage.BANGLA) "কোন ক্যাটাগরি পাওয়া যায়নি" else "No categories found",
+                        fontSize = 14.sp,
+                        color = textSecondary
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = categoryListState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                        .testTag("category_picker_list"),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(top = 2.dp, bottom = 16.dp)
+                ) {
+                    items(filteredList, key = { it.id }) { cat ->
+                        val isSelected = selectedCategoryName == cat.name
+                        val catSubs = remember(cat.id, subcategories) {
+                            subcategories.filter { it.categoryId == cat.id }
+                        }
+                        val isExpanded = expandedCategoryId == cat.id
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            CategoryItemCard(
+                                category = cat,
+                                subcategoryCount = catSubs.size,
+                                isSelected = isSelected,
+                                isExpanded = isExpanded,
+                                selectedSubcategoryName = if (isSelected) selectedSubcategoryName else "",
+                                language = language,
+                                isDark = isDark,
+                                textPrimary = textPrimary,
+                                textSecondary = textSecondary,
+                                cardBgUnselected = cardBgUnselected,
+                                cardBgSelected = cardBgSelected,
+                                borderUnselected = borderUnselected,
+                                accentBlue = accentBlue,
+                                buttonBg = buttonBg,
+                                onClick = {
+                                    if (catSubs.isNotEmpty()) {
+                                        expandedCategoryId = if (isExpanded) null else cat.id
+                                    } else {
+                                        commitSelection(cat.name, "")
+                                    }
+                                }
+                            )
+
+                            if (isExpanded && catSubs.isNotEmpty()) {
+                                InlineCategorySubcategoriesRow(
                                     category = cat,
-                                    subcategoryCount = catSubs.size,
-                                    isSelected = isSelected,
+                                    subcategories = catSubs,
                                     selectedSubcategoryName = if (isSelected) selectedSubcategoryName else "",
                                     language = language,
                                     isDark = isDark,
-                                    textPrimary = textPrimary,
-                                    textSecondary = textSecondary,
+                                    accentBlue = accentBlue,
                                     cardBgUnselected = cardBgUnselected,
                                     cardBgSelected = cardBgSelected,
                                     borderUnselected = borderUnselected,
-                                    accentBlue = accentBlue,
-                                    buttonBg = buttonBg,
-                                    onClick = {
-                                        if (catSubs.isNotEmpty()) {
-                                            // Drill down to show subcategories
-                                            drilledCategory = cat
-                                        } else {
-                                            // No subcategories: Select directly & dismiss on first tap
-                                            commitSelection(cat.name, "")
-                                        }
+                                    textPrimary = textPrimary,
+                                    textSecondary = textSecondary,
+                                    onSelectSubcategory = { subName ->
+                                        commitSelection(cat.name, subName)
                                     }
                                 )
-                            }
-                        }
-                    }
-                } else {
-                    // SCREEN 1: SUBCATEGORY PICKER
-                    val catSubs = remember(targetCategory.id, subcategories) {
-                        subcategories.filter { it.categoryId == targetCategory.id }
-                    }
-
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(top = 2.dp, bottom = 16.dp)
-                    ) {
-                        // "All [Category]" Option Row
-                        item {
-                            val isEntireSelected = selectedCategoryName == targetCategory.name && selectedSubcategoryName.isBlank()
-                            val rowShape = RoundedCornerShape(CategorySelectionSheetStyle.ROW_CORNER_RADIUS)
-
-                            Surface(
-                                onClick = {
-                                    commitSelection(targetCategory.name, "")
-                                },
-                                shape = rowShape,
-                                color = if (isEntireSelected) cardBgSelected else cardBgUnselected,
-                                border = BorderStroke(
-                                    width = if (isEntireSelected) CategorySelectionSheetStyle.SELECTED_BORDER_WIDTH else CategorySelectionSheetStyle.UNSELECTED_BORDER_WIDTH,
-                                    color = if (isEntireSelected) accentBlue else borderUnselected
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("select_category_entire")
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    CategoryIcon(
-                                        iconName = targetCategory.iconName,
-                                        colorHex = targetCategory.colorHex,
-                                        size = 38.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = if (language == AppLanguage.BANGLA) "সম্পূর্ণ ${targetCategory.getDisplayName(language)}" else "All ${targetCategory.getDisplayName(language)}",
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 15.sp,
-                                            color = textPrimary
-                                        )
-                                        Text(
-                                            text = if (language == AppLanguage.BANGLA) "সাবক্যাটাগরি ব্যতীত নির্বাচন" else "Select without subcategory",
-                                            fontSize = 12.sp,
-                                            color = textSecondary
-                                        )
-                                    }
-                                    if (isEntireSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Selected",
-                                            tint = accentBlue,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // "SUBCATEGORIES" Small Section Label
-                        if (catSubs.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = if (language == AppLanguage.BANGLA) "সাবক্যাটাগরিসমূহ" else "SUBCATEGORIES",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = textSecondary,
-                                    letterSpacing = 0.5.sp,
-                                    modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 2.dp)
-                                )
-                            }
-                        }
-
-                        // Subcategory list items with colorful bullet dots and consistent rounded cards
-                        itemsIndexed(catSubs, key = { _, it -> it.id }) { index, sub ->
-                            val isSubSelected = selectedCategoryName == targetCategory.name && selectedSubcategoryName == sub.name
-                            val bulletColor = CategorySelectionSheetStyle.subcategoryBulletColor(index, isDark)
-                            val rowShape = RoundedCornerShape(CategorySelectionSheetStyle.ROW_CORNER_RADIUS)
-
-                            Surface(
-                                onClick = {
-                                    commitSelection(targetCategory.name, sub.name)
-                                },
-                                shape = rowShape,
-                                color = if (isSubSelected) cardBgSelected else cardBgUnselected,
-                                border = BorderStroke(
-                                    width = if (isSubSelected) CategorySelectionSheetStyle.SELECTED_BORDER_WIDTH else CategorySelectionSheetStyle.UNSELECTED_BORDER_WIDTH,
-                                    color = if (isSubSelected) accentBlue else borderUnselected
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("subcategory_item_${sub.name}")
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 13.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(CategorySelectionSheetStyle.SUBCATEGORY_BULLET_SIZE)
-                                            .clip(CircleShape)
-                                            .background(bulletColor)
-                                            .testTag("subcategory_dot_${sub.name}")
-                                    )
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Text(
-                                        text = sub.getDisplayName(language),
-                                        fontWeight = if (isSubSelected) FontWeight.SemiBold else FontWeight.Medium,
-                                        fontSize = 15.sp,
-                                        color = textPrimary,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    if (isSubSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Selected",
-                                            tint = accentBlue,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
@@ -807,13 +726,124 @@ fun CategorySelectionBottomSheet(
 }
 
 /**
- * Individual Category Item Card in the main category picker.
+ * Horizontal scrolling row of subcategories (including "None") displayed directly beneath the tapped category.
+ */
+@Composable
+private fun InlineCategorySubcategoriesRow(
+    category: CategoryEntity,
+    subcategories: List<SubcategoryEntity>,
+    selectedSubcategoryName: String,
+    language: AppLanguage,
+    isDark: Boolean,
+    accentBlue: Color,
+    cardBgUnselected: Color,
+    cardBgSelected: Color,
+    borderUnselected: Color,
+    textPrimary: Color,
+    textSecondary: Color,
+    onSelectSubcategory: (subcategoryName: String) -> Unit
+) {
+    val isBn = language == AppLanguage.BANGLA
+    val isNoneSelected = selectedSubcategoryName.isBlank()
+
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 0.dp)
+    ) {
+        // "None" option chip
+        item(key = "none") {
+            Surface(
+                onClick = { onSelectSubcategory("") },
+                shape = RoundedCornerShape(12.dp),
+                color = if (isNoneSelected) cardBgSelected else cardBgUnselected,
+                border = BorderStroke(
+                    width = if (isNoneSelected) CategorySelectionSheetStyle.SELECTED_BORDER_WIDTH else CategorySelectionSheetStyle.UNSELECTED_BORDER_WIDTH,
+                    color = if (isNoneSelected) accentBlue else borderUnselected
+                ),
+                modifier = Modifier.testTag("subcategory_chip_none_${category.name}")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (isNoneSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = accentBlue,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    Text(
+                        text = if (isBn) "কোনোটি না" else "None",
+                        fontSize = 13.sp,
+                        fontWeight = if (isNoneSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isNoneSelected) accentBlue else textPrimary
+                    )
+                }
+            }
+        }
+
+        // Subcategory chips (avoiding duplicate rendering)
+        itemsIndexed(subcategories, key = { _, sub -> sub.id }) { index, sub ->
+            val isSubSelected = selectedSubcategoryName.equals(sub.name, ignoreCase = true)
+            val bulletColor = CategorySelectionSheetStyle.subcategoryBulletColor(index, isDark)
+
+            Surface(
+                onClick = { onSelectSubcategory(sub.name) },
+                shape = RoundedCornerShape(12.dp),
+                color = if (isSubSelected) cardBgSelected else cardBgUnselected,
+                border = BorderStroke(
+                    width = if (isSubSelected) CategorySelectionSheetStyle.SELECTED_BORDER_WIDTH else CategorySelectionSheetStyle.UNSELECTED_BORDER_WIDTH,
+                    color = if (isSubSelected) accentBlue else borderUnselected
+                ),
+                modifier = Modifier.testTag("subcategory_chip_${sub.name}")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(bulletColor)
+                    )
+                    Text(
+                        text = sub.getDisplayName(language),
+                        fontSize = 13.sp,
+                        fontWeight = if (isSubSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSubSelected) accentBlue else textPrimary
+                    )
+                    if (isSubSelected) {
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = accentBlue,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Individual Category Item Card in the category picker.
  */
 @Composable
 private fun CategoryItemCard(
     category: CategoryEntity,
     subcategoryCount: Int,
     isSelected: Boolean,
+    isExpanded: Boolean,
     selectedSubcategoryName: String,
     language: AppLanguage,
     isDark: Boolean,
@@ -880,7 +910,7 @@ private fun CategoryItemCard(
             }
 
             if (subcategoryCount > 0) {
-                // Trailing chevron indicating tap to drill into subcategories
+                // Trailing indicator indicating subcategories (chevron)
                 Surface(
                     shape = CircleShape,
                     color = buttonBg,
@@ -889,7 +919,7 @@ private fun CategoryItemCard(
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                            contentDescription = "View subcategories",
+                            contentDescription = "Toggle subcategories",
                             tint = textSecondary,
                             modifier = Modifier.size(11.dp)
                         )
