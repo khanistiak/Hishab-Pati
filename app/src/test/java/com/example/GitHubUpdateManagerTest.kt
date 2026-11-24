@@ -114,9 +114,9 @@ class GitHubUpdateManagerTest {
 
     @Test
     fun appVersion_isUpdatedTo212_andDefaultComparatorUsesBuildConfig() {
-        assertEquals("2.1.2", BuildConfig.VERSION_NAME)
-        assertEquals(212, BuildConfig.VERSION_CODE)
-        assertFalse(GitHubUpdateManager.isNewerVersion("v2.1.2"))
+        assertEquals("2.7.0", BuildConfig.VERSION_NAME)
+        assertEquals(270, BuildConfig.VERSION_CODE)
+        assertFalse(GitHubUpdateManager.isNewerVersion("v2.7.0"))
         assertFalse(GitHubUpdateManager.isNewerVersion("2.1.1"))
         assertFalse(GitHubUpdateManager.isNewerVersion("v1.0.0"))
         assertTrue(GitHubUpdateManager.isNewerVersion("v2.1.3"))

@@ -16,8 +16,8 @@ android {
     applicationId = "com.istiak.hishabpati"
     minSdk = 26
     targetSdk = 36
-    versionCode = 212
-    versionName = "2.1.2"
+    versionCode = 270
+    versionName = "2.7.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
