@@ -716,15 +716,15 @@ private fun HomeHeader(
             ) {
                 // Quick Theme Mode Toggle Button (Light / Dark / Auto)
                 Surface(
-                    shape = RoundedCornerShape(50),
+                    shape = CircleShape,
                     color = headerActionBg,
                     border = headerActionBorder,
                     shadowElevation = 4.dp,
                     onClick = onThemeToggle,
-                    modifier = Modifier.height(38.dp)
+                    modifier = Modifier.size(40.dp)
                 ) {
                     Box(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -739,61 +739,61 @@ private fun HomeHeader(
                                 com.example.data.model.ThemeMode.DARK -> Color(0xFF818CF8) // indigo moon
                                 com.example.data.model.ThemeMode.AUTO -> MaterialTheme.colorScheme.primary
                             },
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
 
-                // Search Button Capsule
+                // Search Button
                 Surface(
-                    shape = RoundedCornerShape(50),
+                    shape = CircleShape,
                     color = headerActionBg,
                     border = headerActionBorder,
                     shadowElevation = 4.dp,
                     onClick = onSearchClick,
-                    modifier = Modifier.height(38.dp)
+                    modifier = Modifier.size(40.dp)
                 ) {
                     Box(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = "Search",
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
 
-                // Notifications Button Capsule
+                // Notifications Button
                 Surface(
-                    shape = RoundedCornerShape(50),
+                    shape = CircleShape,
                     color = headerActionBg,
                     border = headerActionBorder,
                     shadowElevation = 4.dp,
                     onClick = onNotificationClick,
                     modifier = Modifier
-                        .height(38.dp)
+                        .size(40.dp)
                         .testTag("home_notification_btn")
                 ) {
                     Box(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Notifications,
                             contentDescription = "Notifications",
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                         // Red badge indicator for active alerts
                         if (hasUnreadNotifications) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .padding(top = 8.dp, end = 8.dp)
-                                    .size(7.dp)
+                                    .padding(top = 7.dp, end = 7.dp)
+                                    .size(8.dp)
                                     .background(ExpenseRed, CircleShape)
                                     .testTag("home_notification_badge")
                             )

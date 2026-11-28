@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -186,7 +187,8 @@ fun rememberScrollAwareGlassLayout(
     listState: LazyListState,
     defaultHeaderHeight: Dp = 72.dp,
     extraTopGap: Dp = 4.dp,
-    bottomNavClearance: Dp = 104.dp
+    bottomNavClearance: Dp = 104.dp,
+    alwaysOnGlass: Boolean = false
 ): ScrollAwareGlassLayoutState {
     val frostedBackdropState = LocalFrostedBackdropState.current
     val tabContentGraphicsLayer = rememberGraphicsLayer()
@@ -207,22 +209,26 @@ fun rememberScrollAwareGlassLayout(
     val bottomContentPadding = navBarClearanceValue(navBarBottomPadding, bottomNavClearance)
 
     val rampDistancePx = with(density) { 48.dp.toPx() }.coerceAtLeast(1f)
-    val targetGlassProgress by remember(listState, rampDistancePx) {
+    val targetGlassProgress by remember(listState, rampDistancePx, alwaysOnGlass) {
         derivedStateOf {
-            val rawScrollPx = if (listState.firstVisibleItemIndex > 0) {
-                rampDistancePx
-            } else {
-                listState.firstVisibleItemScrollOffset.toFloat()
-            }
-            if (rawScrollPx <= 2f) {
-                0f
-            } else if (rawScrollPx >= rampDistancePx) {
+            if (alwaysOnGlass) {
                 1f
             } else {
-                val fraction = (rawScrollPx / rampDistancePx).coerceIn(0f, 1f)
-                val progress = (fraction * 0.88f + 0.12f).coerceIn(0f, 1f)
-                // Quantize to 0.04f steps during the short 48dp ramp to avoid per-pixel recompositions
-                ((progress * 25f).toInt() / 25f)
+                val rawScrollPx = if (listState.firstVisibleItemIndex > 0) {
+                    rampDistancePx
+                } else {
+                    listState.firstVisibleItemScrollOffset.toFloat()
+                }
+                if (rawScrollPx <= 2f) {
+                    0f
+                } else if (rawScrollPx >= rampDistancePx) {
+                    1f
+                } else {
+                    val fraction = (rawScrollPx / rampDistancePx).coerceIn(0f, 1f)
+                    val progress = (fraction * 0.88f + 0.12f).coerceIn(0f, 1f)
+                    // Quantize to 0.04f steps during the short 48dp ramp to avoid per-pixel recompositions
+                    ((progress * 25f).toInt() / 25f)
+                }
             }
         }
     }
@@ -324,33 +330,98 @@ fun BoxScope.ScrollAwareFixedHeader(
     layoutState: ScrollAwareGlassLayoutState,
     modifier: Modifier = Modifier,
     testTag: String = "shared_fixed_header",
+    alwaysFrosted: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val surfaceColor = MaterialTheme.colorScheme.surface
     val backgroundColor = MaterialTheme.colorScheme.background
+    val primaryColor = MaterialTheme.colorScheme.primary
     val isDarkHeader = LocalIsDarkTheme.current ?: (surfaceColor.luminance() < 0.5f)
-    val headerBaseBg = remember(isDarkHeader, surfaceColor, backgroundColor) {
-        if (isDarkHeader) {
+    val supportsRenderEffectBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    val headerBaseBg = remember(isDarkHeader, surfaceColor, backgroundColor, alwaysFrosted) {
+        if (alwaysFrosted) {
+            backgroundColor.copy(alpha = 0.92f)
+        } else if (isDarkHeader) {
             backgroundColor.copy(alpha = 0.22f)
         } else {
             surfaceColor.copy(alpha = 0.16f)
         }
     }
-    val headerOverlayBrush = remember(isDarkHeader) {
+    val headerOverlayBrush = remember(isDarkHeader, alwaysFrosted, supportsRenderEffectBlur) {
+        if (alwaysFrosted) {
+            if (isDarkHeader) {
+                if (supportsRenderEffectBlur) {
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xFF0F172A).copy(alpha = 0.84f),
+                            Color(0xFF1E293B).copy(alpha = 0.78f),
+                            Color(0xFF0F172A).copy(alpha = 0.74f)
+                        )
+                    )
+                } else {
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xFF0F172A).copy(alpha = 0.94f),
+                            Color(0xFF1E293B).copy(alpha = 0.91f),
+                            Color(0xFF0F172A).copy(alpha = 0.88f)
+                        )
+                    )
+                }
+            } else {
+                if (supportsRenderEffectBlur) {
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.84f),
+                            Color(0xFFF8FAFC).copy(alpha = 0.78f),
+                            Color(0xFFF4F6F9).copy(alpha = 0.74f)
+                        )
+                    )
+                } else {
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.94f),
+                            Color(0xFFF8FAFC).copy(alpha = 0.91f),
+                            Color(0xFFF4F6F9).copy(alpha = 0.88f)
+                        )
+                    )
+                }
+            }
+        } else {
+            if (isDarkHeader) {
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF0F172A).copy(alpha = 0.36f),
+                        Color(0xFF1E293B).copy(alpha = 0.28f),
+                        Color.Transparent
+                    )
+                )
+            } else {
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.32f),
+                        Color.White.copy(alpha = 0.22f),
+                        Color.Transparent
+                    )
+                )
+            }
+        }
+    }
+    val bottomHairlineBrush = remember(isDarkHeader, primaryColor) {
         if (isDarkHeader) {
-            Brush.verticalGradient(
+            Brush.horizontalGradient(
                 listOf(
-                    Color(0xFF0F172A).copy(alpha = 0.36f),
-                    Color(0xFF1E293B).copy(alpha = 0.28f),
-                    Color.Transparent
+                    Color.White.copy(alpha = 0.06f),
+                    Color.White.copy(alpha = 0.14f),
+                    Color.White.copy(alpha = 0.06f)
                 )
             )
         } else {
-            Brush.verticalGradient(
+            Brush.horizontalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.32f),
-                    Color.White.copy(alpha = 0.22f),
-                    Color.Transparent
+                    primaryColor.copy(alpha = 0.08f),
+                    Color(0xFF94A3B8).copy(alpha = 0.20f),
+                    primaryColor.copy(alpha = 0.08f)
                 )
             )
         }
@@ -365,11 +436,11 @@ fun BoxScope.ScrollAwareFixedHeader(
         shape = RoundedCornerShape(0.dp),
         baseBackgroundColor = headerBaseBg,
         overlayBrush = headerOverlayBrush,
-        restingTintBrush = null,
-        blurRadius = 10.dp,
-        glassProgressOverride = layoutState.targetGlassProgress,
+        restingTintBrush = if (alwaysFrosted) headerOverlayBrush else null,
+        blurRadius = if (alwaysFrosted) 18.dp else 10.dp,
+        glassProgressOverride = if (alwaysFrosted) 1f else layoutState.targetGlassProgress,
         border = null,
-        featherBottomEdge = true
+        featherBottomEdge = !alwaysFrosted
     ) {
         Box(
             modifier = Modifier
@@ -377,6 +448,15 @@ fun BoxScope.ScrollAwareFixedHeader(
                 .statusBarsPadding()
         ) {
             content()
+        }
+        if (alwaysFrosted) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(bottomHairlineBrush)
+            )
         }
     }
 }

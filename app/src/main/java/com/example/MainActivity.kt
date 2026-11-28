@@ -1298,14 +1298,22 @@ internal fun MyWalletBottomNavigationBar(
             ),
             label = "quick_add_fab_press_scale"
         )
-        val fabGradientBrush = LocalPrimaryCtaGradient.current
+        val royalIndigoColor = Color(0xFF3B38F5)
+        val fabGradientBrush = remember(isDark, royalIndigoColor) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color(0xFF818CF8).copy(alpha = 0.88f), // frosted bright top sheen
+                    royalIndigoColor.copy(alpha = 0.84f)    // rich Royal Indigo frosted glass fill (~84% opacity)
+                )
+            )
+        }
         val fabRimBorder = remember(isDark) {
             BorderStroke(
                 width = 1.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = if (isDark) 0.32f else 0.48f),
-                        Color(0xFFC4B5FD).copy(alpha = if (isDark) 0.16f else 0.24f)
+                        Color(0x73FFFFFF), // thin rim 0x73FFFFFF
+                        Color(0x26FFFFFF)  // frosted highlight
                     )
                 )
             )
@@ -1319,10 +1327,10 @@ internal fun MyWalletBottomNavigationBar(
                     scaleY = fabScale
                 }
                 .shadow(
-                    elevation = 8.dp,
+                    elevation = 10.dp,
                     shape = CircleShape,
-                    ambientColor = primary.copy(alpha = 0.30f),
-                    spotColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.38f)
+                    ambientColor = royalIndigoColor.copy(alpha = 0.35f),
+                    spotColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)
                 )
                 .clip(CircleShape)
                 .background(fabGradientBrush)
@@ -1338,6 +1346,20 @@ internal fun MyWalletBottomNavigationBar(
                 .testTag("floating_add_transaction_button"),
             contentAlignment = Alignment.Center
         ) {
+            // Subtle frosted glass highlight sheen
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0x26FFFFFF), // subtle frosted highlight
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.12f)
+                            )
+                        )
+                    )
+            )
             Icon(
                 imageVector = Icons.Rounded.Add,
                 contentDescription = "Add Transaction",
