@@ -439,7 +439,7 @@ fun HomeScreen(
 
         // 4. Dynamic Sections in User-Customized Order
         val orderedSections = UserSettingsPreferences.normalizeHomeSectionOrder(homeCustomization.sectionOrder)
-        orderedSections.forEach { sectionKey ->
+        for (sectionKey in orderedSections) {
             when (sectionKey) {
                 "budget" -> {
                     if (homeCustomization.showBudgetProgress) {
@@ -463,7 +463,7 @@ fun HomeScreen(
                                 currencySymbol = currencySymbol,
                                 isBangla = isBangla,
                                 isDarkTheme = isDarkTheme,
-                                onManageDebtsClick = { viewModel.openSubScreen(SubScreen.MANAGE_DEBTS) },
+                                onManageDebtsClick = { viewModel.openSubScreen(SubScreen.UPCOMING_BILLS) },
                                 onAccountClick = { accId -> viewModel.openAccountDetail(accId) },
                                 onAddDebtClick = { viewModel.openSubScreen(SubScreen.ADD_DEBT) }
                             )
@@ -603,7 +603,7 @@ fun HomeScreen(
                 }
             }
         }
-        }
+    }
 
         // Shared Fixed Liquid-Crystal Top Header (Profile, Greeting, Theme Toggle, Search, Notification)
         ScrollAwareFixedHeader(
@@ -667,11 +667,10 @@ private fun HomeHeader(
         .uppercase()
 
     val headerActionBg = remember(isDarkTheme) {
-        if (isDarkTheme) Color(0xFF1E293B).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.88f)
+        if (isDarkTheme) Color(0xFF1E293B).copy(alpha = 0.92f) else Color.White.copy(alpha = 0.94f)
     }
     val headerActionBorder = remember(isDarkTheme) {
-        if (isDarkTheme) BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
-        else BorderStroke(1.dp, Color.White.copy(alpha = 0.90f))
+        if (isDarkTheme) BorderStroke(1.dp, Color(0x33FFFFFF)) else BorderStroke(1.dp, Color(0x24FFFFFF))
     }
 
     Row(
@@ -704,90 +703,101 @@ private fun HomeHeader(
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp,
                     color = MaterialTheme.colorScheme.onBackground
-                )
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
         key(isDarkTheme) {
-            // Quick Theme Mode Toggle Button (Light / Dark / Auto)
-            Surface(
-                shape = CircleShape,
-                color = headerActionBg,
-                border = headerActionBorder,
-                shadowElevation = 0.dp,
-                onClick = onThemeToggle,
-                modifier = Modifier.size(42.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = when (themeMode) {
-                            com.example.data.model.ThemeMode.LIGHT -> Icons.Default.LightMode
-                            com.example.data.model.ThemeMode.DARK -> Icons.Default.DarkMode
-                            com.example.data.model.ThemeMode.AUTO -> Icons.Default.AutoAwesome
-                        },
-                        contentDescription = "Theme: ${themeMode.displayName}",
-                        tint = when (themeMode) {
-                            com.example.data.model.ThemeMode.LIGHT -> Color(0xFFF59E0B) // warm amber sun
-                            com.example.data.model.ThemeMode.DARK -> Color(0xFF818CF8) // indigo moon
-                            com.example.data.model.ThemeMode.AUTO -> MaterialTheme.colorScheme.primary
-                        },
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Surface(
-                shape = CircleShape,
-                color = headerActionBg,
-                border = headerActionBorder,
-                shadowElevation = 0.dp,
-                onClick = onSearchClick,
-                modifier = Modifier.size(42.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Surface(
-                shape = CircleShape,
-                color = headerActionBg,
-                border = headerActionBorder,
-                shadowElevation = 0.dp,
-                onClick = onNotificationClick,
-                modifier = Modifier
-                    .size(42.dp)
-                    .testTag("home_notification_btn")
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                // Quick Theme Mode Toggle Button (Light / Dark / Auto)
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = headerActionBg,
+                    border = headerActionBorder,
+                    shadowElevation = 4.dp,
+                    onClick = onThemeToggle,
+                    modifier = Modifier.height(38.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Notifications,
-                        contentDescription = "Notifications",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    // Red badge indicator for active alerts
-                    if (hasUnreadNotifications) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 9.dp, end = 9.dp)
-                                .size(8.dp)
-                                .background(ExpenseRed, CircleShape)
-                                .testTag("home_notification_badge")
+                    Box(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = when (themeMode) {
+                                com.example.data.model.ThemeMode.LIGHT -> Icons.Default.LightMode
+                                com.example.data.model.ThemeMode.DARK -> Icons.Default.DarkMode
+                                com.example.data.model.ThemeMode.AUTO -> Icons.Default.AutoAwesome
+                            },
+                            contentDescription = "Theme: ${themeMode.displayName}",
+                            tint = when (themeMode) {
+                                com.example.data.model.ThemeMode.LIGHT -> Color(0xFFF59E0B) // warm amber sun
+                                com.example.data.model.ThemeMode.DARK -> Color(0xFF818CF8) // indigo moon
+                                com.example.data.model.ThemeMode.AUTO -> MaterialTheme.colorScheme.primary
+                            },
+                            modifier = Modifier.size(19.dp)
                         )
+                    }
+                }
+
+                // Search Button Capsule
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = headerActionBg,
+                    border = headerActionBorder,
+                    shadowElevation = 4.dp,
+                    onClick = onSearchClick,
+                    modifier = Modifier.height(38.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                }
+
+                // Notifications Button Capsule
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = headerActionBg,
+                    border = headerActionBorder,
+                    shadowElevation = 4.dp,
+                    onClick = onNotificationClick,
+                    modifier = Modifier
+                        .height(38.dp)
+                        .testTag("home_notification_btn")
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = "Notifications",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(19.dp)
+                        )
+                        // Red badge indicator for active alerts
+                        if (hasUnreadNotifications) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 8.dp, end = 8.dp)
+                                    .size(7.dp)
+                                    .background(ExpenseRed, CircleShape)
+                                    .testTag("home_notification_badge")
+                            )
+                        }
                     }
                 }
             }

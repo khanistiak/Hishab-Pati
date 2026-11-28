@@ -116,11 +116,10 @@ import com.example.ui.screens.transaction.CategorySelectionSheetStyle
 import com.example.ui.screens.transaction.DisableSheetForceDark
 import com.example.ui.screens.transaction.SheetHeaderCircleActionButton
 
-enum class CategorySortType {
-    DEFAULT,
-    CUSTOM,
-    MOST_USED
-}
+import com.example.data.local.CategorySortType
+import com.example.data.local.loadCategorySortType
+import com.example.data.local.saveCategorySortType
+
 
 private val BUILT_IN_CATEGORY_IDS = setOf(
     // Standard default categories
@@ -151,6 +150,7 @@ private val COLOR_PALETTE_30 = listOf(
 private val STABLE_5_PREVIEW_COLORS = listOf("#FF4D4D", "#2196F3", "#10B981", "#FF9800", "#9C27B0")
 
 private val ICON_CATALOG_80 = listOf(
+    "bike", "shopping", "fuel", "phone", "groceries",
     "restaurant", "shopping_bag", "directions_car", "home", "payments",
     "medical_services", "movie", "face", "shopping_cart", "flight",
     "family_restroom", "receipt_long", "category", "savings", "trending_up",
@@ -194,7 +194,7 @@ fun CategoriesScreen(
 
     // List mode tab: 0 = Expense, 1 = Income, 2 = Transfer
     var selectedTab by androidx.compose.runtime.saveable.rememberSaveable(navScopeKey) { mutableIntStateOf(0) }
-    var sortType by remember { mutableStateOf(CategorySortType.DEFAULT) }
+    var sortType by remember(selectedTab) { mutableStateOf(viewModel.loadCategorySortType(selectedTab)) }
     var showSortMenu by remember { mutableStateOf(false) }
     var showRestoreDialog by remember { mutableStateOf(false) }
 
@@ -305,11 +305,13 @@ fun CategoriesScreen(
                     list.add(toIndex, item)
                     localList = list
                     sortType = CategorySortType.CUSTOM
+                    viewModel.saveCategorySortType(selectedTab, CategorySortType.CUSTOM)
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 }
             },
             onDragEnd = {
                 viewModel.updateCategoriesOrder(localList)
+                viewModel.saveCategorySortType(selectedTab, CategorySortType.CUSTOM)
             },
             onDragCancel = {
                 localList = activeList
@@ -426,6 +428,7 @@ fun CategoriesScreen(
                                 },
                                 onClick = {
                                     sortType = CategorySortType.DEFAULT
+                                    viewModel.saveCategorySortType(selectedTab, CategorySortType.DEFAULT)
                                     showSortMenu = false
                                 }
                             )
@@ -458,6 +461,7 @@ fun CategoriesScreen(
                                 },
                                 onClick = {
                                     sortType = CategorySortType.CUSTOM
+                                    viewModel.saveCategorySortType(selectedTab, CategorySortType.CUSTOM)
                                     showSortMenu = false
                                 }
                             )
@@ -490,6 +494,7 @@ fun CategoriesScreen(
                                 },
                                 onClick = {
                                     sortType = CategorySortType.MOST_USED
+                                    viewModel.saveCategorySortType(selectedTab, CategorySortType.MOST_USED)
                                     showSortMenu = false
                                 }
                             )
@@ -820,6 +825,7 @@ fun CategoriesScreen(
                         onClick = {
                             viewModel.restoreDefaultCategories()
                             sortType = CategorySortType.DEFAULT
+                            viewModel.saveCategorySortType(selectedTab, CategorySortType.DEFAULT)
                             showRestoreDialog = false
                         },
                         shape = RoundedCornerShape(20.dp),

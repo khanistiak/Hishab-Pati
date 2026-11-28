@@ -250,18 +250,6 @@ fun GoalDetailsScreen(
         else remainingAmount / (daysRemaining / 7.0)
     }
 
-    val backgroundBrush = remember(isDark) {
-        if (isDark) {
-            Brush.verticalGradient(
-                listOf(Color(0xFF090D16), Color(0xFF111827), Color(0xFF0B132B))
-            )
-        } else {
-            Brush.verticalGradient(
-                listOf(Color(0xFFEAEFFC), Color(0xFFF3F0FC), Color(0xFFF8FAFC))
-            )
-        }
-    }
-
     val indigoVioletGradient = remember {
         Brush.horizontalGradient(listOf(GoalRoyalIndigo, GoalElectricViolet))
     }

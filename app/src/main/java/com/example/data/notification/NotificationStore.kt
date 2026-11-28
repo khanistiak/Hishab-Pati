@@ -48,6 +48,17 @@ class NotificationStore(
         notifyUpdated()
     }
 
+    fun undoDismissAll(ids: Collection<String>) {
+        val current = getDismissedIds().toMutableSet()
+        current.removeAll(ids)
+        prefs.edit()
+            .putStringSet(KEY_DISMISSED_IDS, current)
+            .putBoolean(KEY_ALL_CLEARED, false)
+            .remove(KEY_CLEARED_TIMESTAMP)
+            .apply()
+        notifyUpdated()
+    }
+
     fun isAllCleared(): Boolean {
         return prefs.getBoolean(KEY_ALL_CLEARED, false)
     }

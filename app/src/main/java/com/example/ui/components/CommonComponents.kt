@@ -274,6 +274,23 @@ fun getIconForName(iconName: String): ImageVector {
         "handshake", "debt", "loan" -> Icons.Default.Handshake
         "paid" -> Icons.Default.Paid
         "lightbulb" -> Icons.Default.Lightbulb
+        "bike", "motorcycle", "two_wheeler", "cycling" -> Icons.Default.TwoWheeler
+        "shopping", "retail", "store" -> Icons.Default.ShoppingBag
+        "fuel", "gas_station", "petrol", "petrol_pump" -> Icons.Default.LocalGasStation
+        "phone", "call", "mobile" -> Icons.Default.PhoneAndroid
+        "groceries", "grocery", "supermarket", "basket" -> Icons.Default.LocalGroceryStore
+        "car", "vehicle", "automobile" -> Icons.Default.DirectionsCar
+        "bus", "commute", "transit" -> Icons.Default.DirectionsBus
+        "food", "dining", "tea", "cafe" -> Icons.Default.Restaurant
+        "wallet", "card" -> Icons.Default.AccountBalanceWallet
+        "bills", "utilities", "electricity" -> Icons.Default.Payments
+        "rent", "housing", "apartment" -> Icons.Default.Home
+        "health", "pharmacy", "medicine" -> Icons.Default.LocalPharmacy
+        "education", "books", "study" -> Icons.Default.School
+        "entertainment", "movie", "fun" -> Icons.Default.Movie
+        "travel", "flight", "trip" -> Icons.Default.Flight
+        "gift", "present" -> Icons.Default.CardGiftcard
+        "work", "freelance", "salary" -> Icons.Default.Work
         else -> Icons.Default.Category
     }
 }

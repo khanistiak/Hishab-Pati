@@ -2,6 +2,14 @@ package com.example.ui.screens.accounts
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.pdf.PdfDocument
+import android.graphics.Paint
+import android.graphics.Color as AndroidColor
+import android.net.Uri
+import android.widget.Toast
+import androidx.core.content.FileProvider
+import java.io.File
+import java.io.FileOutputStream
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -578,41 +586,113 @@ fun shareCreditCardStatement(
     language: AppLanguage
 ) {
     val isBn = language == AppLanguage.BANGLA
-    val recentLines = accountTxs.take(10).joinToString("\n") { tx ->
-        val sign = if (tx.type == TransactionType.INCOME ||
-            (tx.type == TransactionType.TRANSFER && tx.toAccountId == account.id) ||
-            (tx.type == TransactionType.CC_PAYMENT && tx.toAccountId == account.id)
-        ) "+" else "-"
-        val dateStr = DateFormatter.formatDateGroup(tx.timestamp, language)
-        "• $dateStr | ${tx.title.ifBlank { tx.category }}: $sign${CurrencyFormatter.format(tx.amount, currencySymbol, language = language)}"
-    }
+    try {
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4 size
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas = page.canvas
 
-    val statusText = when {
-        cycle.isPaid -> if (isBn) "পরিশোধিত" else "Paid"
-        cycle.isOverdue -> if (isBn) "বকেয়া (মেয়াদ উত্তীর্ণ)" else "Overdue"
-        else -> if (isBn) "বকেয়া" else "Due"
-    }
-
-    val body = buildString {
-        appendLine("${AppStrings.t("app_name", language)} — ${account.name}")
-        appendLine("${cycle.label} ${if (isBn) "বিলিং স্টেটমেন্ট" else "Billing Statement"}")
-        appendLine("────────────────────────")
-        appendLine("${if (isBn) "স্টেটমেন্ট বিল" else "Statement Bill"}: ${CurrencyFormatter.format(cycle.billAmount, currencySymbol, language = language)}")
-        appendLine("${if (isBn) "পরিশোধের তারিখ" else "Due Date"}: ${cycle.dueDate}")
-        appendLine("${if (isBn) "ন্যূনতম বকেয়া" else "Minimum Due"}: ${CurrencyFormatter.format(cycle.minPayment, currencySymbol, language = language)}")
-        appendLine("${if (isBn) "সাইকেল খরচ" else "Cycle Spend"}: ${CurrencyFormatter.format(cycle.cycleSpend, currencySymbol, language = language)}")
-        appendLine("${if (isBn) "অবস্থা" else "Status"}: $statusText")
-        if (recentLines.isNotBlank()) {
-            appendLine()
-            appendLine(if (isBn) "সাম্প্রতিক লেনদেন:" else "Recent Entries:")
-            appendLine(recentLines)
+        val titlePaint = Paint().apply {
+            textSize = 20f
+            isFakeBoldText = true
+            color = AndroidColor.parseColor("#0F172A")
         }
-    }
+        val subtitlePaint = Paint().apply {
+            textSize = 12f
+            color = AndroidColor.parseColor("#64748B")
+        }
+        val headerPaint = Paint().apply {
+            textSize = 14f
+            isFakeBoldText = true
+            color = AndroidColor.parseColor("#4F46E5")
+        }
+        val textPaint = Paint().apply {
+            textSize = 11f
+            color = AndroidColor.parseColor("#1E293B")
+        }
+        val linePaint = Paint().apply {
+            color = AndroidColor.parseColor("#CBD5E1")
+            strokeWidth = 1f
+        }
 
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "${account.name} — ${cycle.label}")
-        putExtra(Intent.EXTRA_TEXT, body)
+        var y = 45f
+        canvas.drawText("Hishabpati — Credit Card Statement", 40f, y, titlePaint)
+        y += 22f
+        val maskedNumber = account.accountNumberLast4.takeLast(4).let { if (it.isNotBlank()) "•••• $it" else "•••• 0000" }
+        canvas.drawText("Account: ${account.name} ($maskedNumber)", 40f, y, subtitlePaint)
+        y += 18f
+        canvas.drawText("Billing Cycle: ${cycle.label}", 40f, y, subtitlePaint)
+        y += 14f
+        canvas.drawLine(40f, y, 555f, y, linePaint)
+        y += 24f
+
+        // Summary Box
+        canvas.drawText(if (isBn) "স্টেটমেন্ট সারসংক্ষেপ" else "Statement Summary", 40f, y, headerPaint)
+        y += 20f
+        canvas.drawText("${if (isBn) "স্টেটমেন্ট বিল" else "Statement Bill"}: ${CurrencyFormatter.format(cycle.billAmount, currencySymbol, language = language)}", 50f, y, textPaint)
+        y += 18f
+        canvas.drawText("${if (isBn) "পরিশোধের তারিখ" else "Due Date"}: ${cycle.dueDate}", 50f, y, textPaint)
+        y += 18f
+        canvas.drawText("${if (isBn) "সাইকেল খরচ" else "Total Cycle Spend"}: ${CurrencyFormatter.format(cycle.cycleSpend, currencySymbol, language = language)}", 50f, y, textPaint)
+        y += 18f
+        val statusText = when {
+            cycle.isPaid -> if (isBn) "পরিশোধিত" else "Paid"
+            cycle.isOverdue -> if (isBn) "বকেয়া (মেয়াদ উত্তীর্ণ)" else "Overdue"
+            else -> if (isBn) "বকেয়া" else "Due"
+        }
+        canvas.drawText("${if (isBn) "অবস্থা" else "Status"}: $statusText", 50f, y, textPaint)
+        y += 30f
+
+        // Transactions Table Header
+        canvas.drawText(if (isBn) "সাইকেল লেনদেন" else "Cycle Transactions", 40f, y, headerPaint)
+        y += 20f
+        canvas.drawText(if (isBn) "তারিখ" else "Date", 40f, y, textPaint)
+        canvas.drawText(if (isBn) "বিবরণ" else "Description", 150f, y, textPaint)
+        canvas.drawText(if (isBn) "পরিমাণ" else "Amount", 460f, y, textPaint)
+        y += 6f
+        canvas.drawLine(40f, y, 555f, y, linePaint)
+        y += 18f
+
+        val displayTxs = accountTxs.take(22)
+        if (displayTxs.isEmpty()) {
+            canvas.drawText(if (isBn) "কোনো লেনদেন পাওয়া যায়নি" else "No transactions found in this cycle", 40f, y, textPaint)
+        } else {
+            for (tx in displayTxs) {
+                if (y > 780f) break
+                val dateStr = DateFormatter.formatDateGroup(tx.timestamp, language)
+                val desc = tx.title.ifBlank { tx.category }
+                val sign = if (tx.type == TransactionType.INCOME ||
+                    (tx.type == TransactionType.TRANSFER && tx.toAccountId == account.id) ||
+                    (tx.type == TransactionType.CC_PAYMENT && tx.toAccountId == account.id)
+                ) "+" else "-"
+                val amtStr = "$sign${CurrencyFormatter.format(tx.amount, currencySymbol, language = language)}"
+
+                canvas.drawText(dateStr, 40f, y, textPaint)
+                canvas.drawText(desc.take(35), 150f, y, textPaint)
+                canvas.drawText(amtStr, 460f, y, textPaint)
+                y += 18f
+            }
+        }
+
+        pdfDocument.finishPage(page)
+
+        val dir = File(context.cacheDir, "statements")
+        if (!dir.exists()) dir.mkdirs()
+        val file = File(dir, "statement_${account.id}_${System.currentTimeMillis()}.pdf")
+        val outputStream = FileOutputStream(file)
+        pdfDocument.writeTo(outputStream)
+        pdfDocument.close()
+        outputStream.close()
+
+        val uri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "${account.name} Statement — ${cycle.label}")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, AppStrings.t("share_statement", language)))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Could not generate PDF statement: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
     }
-    context.startActivity(Intent.createChooser(intent, AppStrings.t("share_statement", language)))
 }

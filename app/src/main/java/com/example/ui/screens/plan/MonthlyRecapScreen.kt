@@ -114,25 +114,6 @@ fun MonthlyRecapScreen(
 
     val palette = rememberRecapCardPalette(isDark = isDark)
 
-    val backgroundBrush = remember(isDark) {
-        if (isDark) {
-            Brush.verticalGradient(
-                listOf(
-                    Color(0xFF090D16),
-                    Color(0xFF111827),
-                    Color(0xFF0B132B)
-                )
-            )
-        } else {
-            Brush.verticalGradient(
-                listOf(
-                    Color(0xFFEAF4F8),
-                    Color(0xFFF4F2FA)
-                )
-            )
-        }
-    }
-
     val listState = viewModel.rememberScreenLazyListState(
         screenOverride = com.example.ui.SubScreen.MONTHLY_RECAP
     )
@@ -169,7 +150,6 @@ fun MonthlyRecapScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(backgroundBrush)
     ) {
         LazyColumn(
             state = listState,

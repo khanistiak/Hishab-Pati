@@ -1,6 +1,7 @@
 package com.example.ui.screens.accounts
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -140,30 +141,18 @@ fun AccountsScreen(
         accounts.filter { it.isHidden }
     }
 
-    val backgroundBrush = remember(isDark) {
-        if (isDark) {
-            Brush.verticalGradient(
-                listOf(
-                    Color(0xFF090D16),
-                    Color(0xFF111827),
-                    Color(0xFF0B132B)
-                )
-            )
-        } else {
-            Brush.verticalGradient(
-                listOf(
-                    Color(0xFFEAF4F8),
-                    Color(0xFFF4F2FA)
-                )
-            )
-        }
-    }
-
     val emeraldColor = if (isDark) Color(0xFF34D399) else Color(0xFF059669)
     val coralColor = if (isDark) Color(0xFFFB7185) else Color(0xFFDC2626)
     val bentoCardBg = if (isDark) Color(0xFF192234) else Color.White
-    val pillBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.80f)
-    val headerBtnBg = if (isDark) Color(0xFF192234) else Color.White
+    val bentoCardBorder = BorderStroke(1.dp, if (isDark) Color(0x22FFFFFF) else Color(0xFFE2E8F0))
+    val pillBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.85f)
+    val headerBtnBg = if (isDark) {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+    } else {
+        Color.White.copy(alpha = 0.85f)
+    }
+    val headerBtnBorder = BorderStroke(1.dp, if (isDark) Color(0x33FFFFFF) else Color(0xFFE2E8F0))
+    val headerBtnElevation = if (isDark) 0.dp else 1.dp
     val dividerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isDark) 0.08f else 0.06f)
 
     val listState = viewModel.rememberScreenLazyListState(
@@ -172,14 +161,13 @@ fun AccountsScreen(
     val scrollLayout = rememberScrollAwareGlassLayout(
         listState = listState,
         defaultHeaderHeight = 64.dp,
-        extraTopGap = 0.dp,
+        extraTopGap = 4.dp,
         bottomNavClearance = 32.dp
     )
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(backgroundBrush)
     ) {
         LazyColumn(
             state = listState,
@@ -192,8 +180,8 @@ fun AccountsScreen(
                 )
                 .testTag("accounts_lazy_column"),
             contentPadding = PaddingValues(
-                top = scrollLayout.contentPadding.calculateTopPadding() + 14.dp,
-                bottom = 32.dp
+                top = scrollLayout.contentPadding.calculateTopPadding() + 8.dp,
+                bottom = maxOf(scrollLayout.contentPadding.calculateBottomPadding(), 32.dp)
             )
         ) {
             // 1. Open-Canvas Net Worth Summary + Ratio Bar
@@ -218,6 +206,7 @@ fun AccountsScreen(
                     groupByType = groupByType,
                     language = language,
                     pillBg = pillBg,
+                    isDark = isDark,
                     onSortClick = { showSortSheet = true },
                     onReorderClick = { showReorderSheet = true },
                     onToggleViewMode = { viewModel.setAccountGroupByType(!groupByType) }
@@ -234,6 +223,7 @@ fun AccountsScreen(
                             .padding(horizontal = 16.dp),
                         shape = RoundedCornerShape(24.dp),
                         color = bentoCardBg,
+                        border = bentoCardBorder,
                         shadowElevation = if (isDark) 0.dp else 1.5.dp
                     ) {
                         Column(
@@ -403,6 +393,7 @@ fun AccountsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(24.dp),
                             color = bentoCardBg,
+                            border = bentoCardBorder,
                             shadowElevation = if (isDark) 0.dp else 1.5.dp
                         ) {
                             Column(modifier = Modifier.padding(horizontal = 16.dp)) {
@@ -480,15 +471,16 @@ fun AccountsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
                     shape = CircleShape,
                     color = headerBtnBg,
-                    shadowElevation = if (isDark) 0.dp else 2.dp,
+                    border = headerBtnBorder,
+                    shadowElevation = headerBtnElevation,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(42.dp)
                         .testTag("accounts_back_button"),
                     onClick = onBack
                 ) {
@@ -506,7 +498,7 @@ fun AccountsScreen(
 
                 Text(
                     text = AppStrings.t("accounts", language),
-                    style = MaterialTheme.typography.headlineSmall.copy(
+                    style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
                     ),
@@ -519,9 +511,10 @@ fun AccountsScreen(
                     Surface(
                         shape = CircleShape,
                         color = headerBtnBg,
-                        shadowElevation = if (isDark) 0.dp else 2.dp,
+                        border = headerBtnBorder,
+                        shadowElevation = headerBtnElevation,
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(42.dp)
                             .testTag("accounts_transfer_button"),
                         onClick = { viewModel.openTransferFromAccount(null) }
                     ) {
@@ -538,9 +531,10 @@ fun AccountsScreen(
                     Surface(
                         shape = CircleShape,
                         color = headerBtnBg,
-                        shadowElevation = if (isDark) 0.dp else 2.dp,
+                        border = headerBtnBorder,
+                        shadowElevation = headerBtnElevation,
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(42.dp)
                             .testTag("accounts_add_button"),
                         onClick = { viewModel.openAddAccount() }
                     ) {
@@ -852,10 +846,12 @@ private fun AccountsControlStrip(
     groupByType: Boolean,
     language: AppLanguage,
     pillBg: Color,
+    isDark: Boolean = false,
     onSortClick: () -> Unit,
     onReorderClick: () -> Unit,
     onToggleViewMode: () -> Unit
 ) {
+    val pillBorder = BorderStroke(1.dp, if (isDark) Color(0x22FFFFFF) else Color(0xFFE2E8F0))
     val sortShortName = when (sortOption) {
         AccountSortOption.CUSTOM -> if (language == AppLanguage.BANGLA) "কাস্টম" else "Custom"
         else -> sortOption.getDisplayName(language)
@@ -880,6 +876,12 @@ private fun AccountsControlStrip(
             } else {
                 pillBg
             },
+            border = if (sortOption != AccountSortOption.CUSTOM) {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+            } else {
+                pillBorder
+            },
+            shadowElevation = if (isDark) 0.dp else 1.dp,
             onClick = onSortClick
         ) {
             Row(
@@ -927,6 +929,8 @@ private fun AccountsControlStrip(
                     .testTag("accounts_reorder_pill"),
                 shape = CircleShape,
                 color = pillBg,
+                border = pillBorder,
+                shadowElevation = if (isDark) 0.dp else 1.dp,
                 onClick = onReorderClick
             ) {
                 Row(
@@ -958,6 +962,8 @@ private fun AccountsControlStrip(
                     .testTag("accounts_view_mode_toggle_pill"),
                 shape = CircleShape,
                 color = pillBg,
+                border = pillBorder,
+                shadowElevation = if (isDark) 0.dp else 1.dp,
                 onClick = onToggleViewMode
             ) {
                 Row(
@@ -1060,6 +1066,7 @@ private fun AccountSectionBentoBlock(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             color = cardBg,
+            border = BorderStroke(1.dp, if (isDark) Color(0x22FFFFFF) else Color(0xFFE2E8F0)),
             shadowElevation = if (isDark) 0.dp else 1.5.dp
         ) {
             Column(

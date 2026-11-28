@@ -2,6 +2,7 @@ package com.example.ui.screens.plan
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -295,6 +296,13 @@ internal fun CurrencySearchBottomSheet(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(rowBg)
+                                .then(
+                                    if (isSelected) {
+                                        Modifier.border(BorderStroke(1.5.dp, primary.copy(alpha = 0.65f)), RoundedCornerShape(14.dp))
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                                 .clickable { onSelect(currency) }
                                 .padding(horizontal = 8.dp, vertical = 12.dp)
                                 .testTag("currency_picker_item_${currency.code}"),

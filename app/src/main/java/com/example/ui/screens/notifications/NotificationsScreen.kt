@@ -4,6 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.expandVertically
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -147,6 +150,17 @@ fun NotificationsScreen(
     var selectedFilter by remember { mutableStateOf(NotificationCategory.ALL) }
     var isNavigating by remember { mutableStateOf(false) }
 
+    var clearedNotificationsBackup by remember { mutableStateOf<List<AppNotification>?>(null) }
+    var showClearUndoToast by remember { mutableStateOf(false) }
+
+    if (showClearUndoToast) {
+        androidx.compose.runtime.LaunchedEffect(showClearUndoToast) {
+            kotlinx.coroutines.delay(4000L)
+            showClearUndoToast = false
+            clearedNotificationsBackup = null
+        }
+    }
+
     val extendedSettings by viewModel.extendedSettings.collectAsState()
 
     // Real notifications derived exclusively from actual user data (empty on fresh install)
@@ -208,426 +222,494 @@ fun NotificationsScreen(
         )
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Back Button
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                    modifier = Modifier.size(42.dp),
-                    onClick = onBack
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = if (isBn) "পেছনে" else "Back",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Text(
-                    text = AppStrings.t("notifications", language),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-
-                // Clear All Button (top bar)
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+    Box(modifier = modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                Row(
                     modifier = Modifier
-                        .size(42.dp)
-                        .testTag("btn_clear_all_notifications"),
-                    onClick = {
-                        if (notifications.isEmpty()) {
-                            viewModel.userNotificationMessage.value = if (isBn) {
-                                "মুছে ফেলার মতো কোনো নোটিফিকেশন নেই"
-                            } else {
-                                "No notifications to clear"
-                            }
-                        } else {
-                            val allIds = notifications.map { it.id }
-                            notificationStore.dismissAll(allIds)
-                            notifications.clear()
-                            com.example.data.notification.NotificationHelper.cancelAllNotifications(context)
-                            viewModel.userNotificationMessage.value = if (isBn) {
-                                "সব নোটিফিকেশন মুছে ফেলা হয়েছে"
-                            } else {
-                                "All notifications cleared"
-                            }
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Back Button
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        modifier = Modifier.size(42.dp),
+                        onClick = onBack
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = if (isBn) "পেছনে" else "Back",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Text(
+                        text = AppStrings.t("notifications", language),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    // Clear All Button (top bar)
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .size(42.dp)
+                            .testTag("btn_clear_all_notifications"),
+                        onClick = {
+                            if (notifications.isEmpty()) {
+                                viewModel.userNotificationMessage.value = if (isBn) {
+                                    "মুছে ফেলার মতো কোনো নোটিফিকেশন নেই"
+                                } else {
+                                    "No notifications to clear"
+                                }
+                            } else {
+                                clearedNotificationsBackup = notifications.toList()
+                                val allIds = notifications.map { it.id }
+                                notificationStore.dismissAll(allIds)
+                                notifications.clear()
+                                com.example.data.notification.NotificationHelper.cancelAllNotifications(context)
+                                showClearUndoToast = true
+                            }
+                        }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = if (isBn) "সব মুছুন" else "Clear all notifications",
+                                tint = ExpenseRed,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Settings gear icon
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        modifier = Modifier.size(42.dp),
+                        onClick = { viewModel.openSubScreen(SubScreen.SETTINGS) }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Notification Settings",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                // Filter Chips Bar
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = if (isBn) "সব মুছুন" else "Clear all notifications",
-                            tint = ExpenseRed,
-                            modifier = Modifier.size(20.dp)
+                    item {
+                        val isSelected = selectedFilter == NotificationCategory.ALL
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedFilter = NotificationCategory.ALL },
+                            label = { Text(AppStrings.t("all", language), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        )
+                    }
+
+                    item {
+                        val isSelected = selectedFilter == NotificationCategory.UNREAD
+                        val unreadLabel = if (isBn) {
+                            "অপঠিত • ${CurrencyFormatter.convertToBanglaDigits(unreadCount.toString())}"
+                        } else {
+                            "Unread • $unreadCount"
+                        }
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedFilter = NotificationCategory.UNREAD },
+                            label = { Text(unreadLabel, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        )
+                    }
+
+                    item {
+                        val isSelected = selectedFilter == NotificationCategory.BILLS
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedFilter = NotificationCategory.BILLS },
+                            label = { Text(AppStrings.t("bills", language), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        )
+                    }
+
+                    item {
+                        val isSelected = selectedFilter == NotificationCategory.INSIGHTS
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedFilter = NotificationCategory.INSIGHTS },
+                            label = { Text(AppStrings.t("insights", language), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        )
+                    }
+
+                    item {
+                        val isSelected = selectedFilter == NotificationCategory.ALERTS
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedFilter = NotificationCategory.ALERTS },
+                            label = { Text(AppStrings.t("alerts", language), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            )
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                // Settings gear icon
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                    modifier = Modifier.size(42.dp),
-                    onClick = { viewModel.openSubScreen(SubScreen.SETTINGS) }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Notification Settings",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
-                        )
+                // Empty State
+                if (filteredNotifications.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 40.dp, vertical = 60.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(76.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.NotificationsNone,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(38.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = if (isBn) "কোনো নোটিফিকেশন নেই" else "No Notifications",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 17.sp
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Text(
+                                text = if (isBn) {
+                                    "সব নোটিফিকেশন পড়া বা মুছে ফেলা হয়েছে। নতুন নোটিফিকেশন আসলে এখানে দেখতে পাবেন।"
+                                } else {
+                                    "You're all caught up! New alerts, reminders, and updates will appear here."
+                                },
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 18.sp
+                                ),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    // Notifications List with Swipe-to-Dismiss (Requirement 3)
+                    val listState = viewModel.rememberScreenLazyListState(
+                        screenOverride = SubScreen.NOTIFICATIONS
+                    )
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("notifications_lazy_column"),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        groupedNotifications.forEach { (groupTitle, list) ->
+                            item(key = "header_$groupTitle") {
+                                Text(
+                                    text = groupTitle,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        letterSpacing = 1.1.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                    ),
+                                    modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp)
+                                )
+                            }
+
+                            items(list, key = { it.id }) { notif ->
+                                // Responsive SwipeToDismissBox implementation
+                                val dismissState = rememberSwipeToDismissBoxState(
+                                    positionalThreshold = { totalDistance -> totalDistance * 0.35f },
+                                    confirmValueChange = { dismissValue ->
+                                        if (dismissValue == SwipeToDismissBoxValue.StartToEnd ||
+                                            dismissValue == SwipeToDismissBoxValue.EndToStart
+                                        ) {
+                                            notificationStore.dismissNotification(notif.id)
+                                            notifications.removeAll { it.id == notif.id }
+                                            com.example.data.notification.NotificationHelper.cancelNotification(context, notif.id)
+                                            viewModel.userNotificationMessage.value = if (isBn) {
+                                                "নোটিফিকেশন সরানো হয়েছে"
+                                            } else {
+                                                "Notification dismissed"
+                                            }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                )
+
+                                SwipeToDismissBox(
+                                    state = dismissState,
+                                    backgroundContent = {
+                                        val direction = dismissState.dismissDirection
+                                        if (direction != SwipeToDismissBoxValue.Settled) {
+                                            val isDismissingToEnd = direction == SwipeToDismissBoxValue.StartToEnd
+                                            val alignment = if (isDismissingToEnd) Alignment.CenterStart else Alignment.CenterEnd
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clip(RoundedCornerShape(20.dp))
+                                                    .background(ExpenseRed)
+                                                    .clickable {
+                                                        notificationStore.dismissNotification(notif.id)
+                                                        notifications.removeAll { it.id == notif.id }
+                                                        com.example.data.notification.NotificationHelper.cancelNotification(context, notif.id)
+                                                        viewModel.userNotificationMessage.value = if (isBn) {
+                                                            "নোটিফিকেশন সরানো হয়েছে"
+                                                        } else {
+                                                            "Notification dismissed"
+                                                        }
+                                                    }
+                                                    .padding(horizontal = 24.dp),
+                                                contentAlignment = alignment
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    if (isDismissingToEnd) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Delete,
+                                                            contentDescription = if (isBn) "মুছে ফেলুন" else "Delete",
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
+                                                        Text(
+                                                            text = if (isBn) "মুছে ফেলুন" else "Delete",
+                                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = Color.White
+                                                            )
+                                                        )
+                                                    } else {
+                                                        Text(
+                                                            text = if (isBn) "মুছে ফেলুন" else "Delete",
+                                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = Color.White
+                                                            )
+                                                        )
+                                                        Icon(
+                                                            imageVector = Icons.Default.Delete,
+                                                            contentDescription = if (isBn) "মুছে ফেলুন" else "Delete",
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Box(modifier = Modifier.fillMaxSize())
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .testTag("notification_swipe_${notif.id}")
+                                ) {
+                                    NotificationCard(
+                                        notif = notif,
+                                        isBn = isBn,
+                                        onClick = { handleNotificationClick(notif) }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Clear All Button below notification list (Requirement 3)
+                        if (notifications.isNotEmpty()) {
+                            item(key = "clear_all_footer") {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shadowElevation = 1.dp,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .clickable {
+                                            clearedNotificationsBackup = notifications.toList()
+                                            val allIds = notifications.map { it.id }
+                                            notificationStore.dismissAll(allIds)
+                                            notifications.clear()
+                                            com.example.data.notification.NotificationHelper.cancelAllNotifications(context)
+                                            showClearUndoToast = true
+                                        }
+                                        .testTag("btn_clear_all_notifications_bottom")
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 14.dp, horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = null,
+                                            tint = ExpenseRed,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = if (isBn) "সব নোটিফিকেশন মুছুন" else "Clear All Notifications",
+                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = ExpenseRed,
+                                                fontSize = 15.sp
+                                            )
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(28.dp))
+                            }
+                        }
                     }
                 }
             }
         }
-    ) { innerPadding ->
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+
+        // Floating Bottom Capsule Pill Toast (Undo banner)
+        AnimatedVisibility(
+            visible = showClearUndoToast,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp, start = 20.dp, end = 20.dp)
+                .zIndex(10f)
         ) {
-            // Filter Chips Bar
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = Color(0xFF1E293B),
+                shadowElevation = 6.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FFFFFF)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("notification_undo_toast")
             ) {
-                item {
-                    val isSelected = selectedFilter == NotificationCategory.ALL
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { selectedFilter = NotificationCategory.ALL },
-                        label = { Text(AppStrings.t("all", language), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                }
-
-                item {
-                    val isSelected = selectedFilter == NotificationCategory.UNREAD
-                    val unreadLabel = if (isBn) {
-                        "অপঠিত • ${CurrencyFormatter.convertToBanglaDigits(unreadCount.toString())}"
-                    } else {
-                        "Unread • $unreadCount"
-                    }
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { selectedFilter = NotificationCategory.UNREAD },
-                        label = { Text(unreadLabel, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                }
-
-                item {
-                    val isSelected = selectedFilter == NotificationCategory.BILLS
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { selectedFilter = NotificationCategory.BILLS },
-                        label = { Text(AppStrings.t("bills", language), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                }
-
-                item {
-                    val isSelected = selectedFilter == NotificationCategory.INSIGHTS
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { selectedFilter = NotificationCategory.INSIGHTS },
-                        label = { Text(AppStrings.t("insights", language), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                }
-
-                item {
-                    val isSelected = selectedFilter == NotificationCategory.ALERTS
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { selectedFilter = NotificationCategory.ALERTS },
-                        label = { Text(AppStrings.t("alerts", language), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Empty State
-            if (filteredNotifications.isEmpty()) {
-                Box(
+                Row(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 40.dp, vertical = 60.dp),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                    Text(
+                        text = if (isBn) "সব নোটিফিকেশন মুছে ফেলা হয়েছে" else "Notifications cleared",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = Color.White,
+                            fontWeight = FontWeight.Medium
+                        )
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable {
+                                clearedNotificationsBackup?.let { backup ->
+                                    val allIds = backup.map { it.id }
+                                    notificationStore.undoDismissAll(allIds)
+                                    notifications.clear()
+                                    notifications.addAll(backup)
+                                }
+                                showClearUndoToast = false
+                                clearedNotificationsBackup = null
+                                viewModel.userNotificationMessage.value = if (isBn) {
+                                    "পূর্বাবস্থায় ফেরানো হয়েছে"
+                                } else {
+                                    "Notifications restored"
+                                }
+                            }
+                            .testTag("btn_undo_clear_notifications")
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(76.dp)
+                        Box(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.NotificationsNone,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(38.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = if (isBn) "কোনো নোটিফিকেশন নেই" else "No Notifications",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 17.sp
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Text(
-                            text = if (isBn) {
-                                "সব নোটিফিকেশন পড়া বা মুছে ফেলা হয়েছে। নতুন নোটিফিকেশন আসলে এখানে দেখতে পাবেন।"
-                            } else {
-                                "You're all caught up! New alerts, reminders, and updates will appear here."
-                            },
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 18.sp
-                            ),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                }
-            } else {
-                // Notifications List with Swipe-to-Dismiss (Requirement 3)
-                val listState = viewModel.rememberScreenLazyListState(
-                    screenOverride = SubScreen.NOTIFICATIONS
-                )
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("notifications_lazy_column"),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    groupedNotifications.forEach { (groupTitle, list) ->
-                        item(key = "header_$groupTitle") {
                             Text(
-                                text = groupTitle,
+                                text = if (isBn) "আনডু" else "Undo",
                                 style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    letterSpacing = 1.1.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                                ),
-                                modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp)
-                            )
-                        }
-
-                        items(list, key = { it.id }) { notif ->
-                            // Responsive SwipeToDismissBox implementation
-                            val dismissState = rememberSwipeToDismissBoxState(
-                                positionalThreshold = { totalDistance -> totalDistance * 0.35f },
-                                confirmValueChange = { dismissValue ->
-                                    if (dismissValue == SwipeToDismissBoxValue.StartToEnd ||
-                                        dismissValue == SwipeToDismissBoxValue.EndToStart
-                                    ) {
-                                        notificationStore.dismissNotification(notif.id)
-                                        notifications.removeAll { it.id == notif.id }
-                                        com.example.data.notification.NotificationHelper.cancelNotification(context, notif.id)
-                                        viewModel.userNotificationMessage.value = if (isBn) {
-                                            "নোটিফিকেশন সরানো হয়েছে"
-                                        } else {
-                                            "Notification dismissed"
-                                        }
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                }
-                            )
-
-                            SwipeToDismissBox(
-                                state = dismissState,
-                                backgroundContent = {
-                                    val direction = dismissState.dismissDirection
-                                    if (direction != SwipeToDismissBoxValue.Settled) {
-                                        val isDismissingToEnd = direction == SwipeToDismissBoxValue.StartToEnd
-                                        val alignment = if (isDismissingToEnd) Alignment.CenterStart else Alignment.CenterEnd
-
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .clip(RoundedCornerShape(20.dp))
-                                                .background(ExpenseRed)
-                                                .clickable {
-                                                    notificationStore.dismissNotification(notif.id)
-                                                    notifications.removeAll { it.id == notif.id }
-                                                    com.example.data.notification.NotificationHelper.cancelNotification(context, notif.id)
-                                                    viewModel.userNotificationMessage.value = if (isBn) {
-                                                        "নোটিফিকেশন সরানো হয়েছে"
-                                                    } else {
-                                                        "Notification dismissed"
-                                                    }
-                                                }
-                                                .padding(horizontal = 24.dp),
-                                            contentAlignment = alignment
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                if (isDismissingToEnd) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Delete,
-                                                        contentDescription = if (isBn) "মুছে ফেলুন" else "Delete",
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(24.dp)
-                                                    )
-                                                    Text(
-                                                        text = if (isBn) "মুছে ফেলুন" else "Delete",
-                                                        style = MaterialTheme.typography.labelMedium.copy(
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = Color.White
-                                                        )
-                                                    )
-                                                } else {
-                                                    Text(
-                                                        text = if (isBn) "মুছে ফেলুন" else "Delete",
-                                                        style = MaterialTheme.typography.labelMedium.copy(
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = Color.White
-                                                        )
-                                                    )
-                                                    Icon(
-                                                        imageVector = Icons.Default.Delete,
-                                                        contentDescription = if (isBn) "মুছে ফেলুন" else "Delete",
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(24.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        Box(modifier = Modifier.fillMaxSize())
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .testTag("notification_swipe_${notif.id}")
-                            ) {
-                                NotificationCard(
-                                    notif = notif,
-                                    isBn = isBn,
-                                    onClick = { handleNotificationClick(notif) }
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    fontWeight = FontWeight.Bold
                                 )
-                            }
-                        }
-                    }
-
-                    // Clear All Button below notification list (Requirement 3)
-                    if (notifications.isNotEmpty()) {
-                        item(key = "clear_all_footer") {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 1.dp,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .clickable {
-                                        val allIds = notifications.map { it.id }
-                                        notificationStore.dismissAll(allIds)
-                                        notifications.clear()
-                                        com.example.data.notification.NotificationHelper.cancelAllNotifications(context)
-                                        viewModel.userNotificationMessage.value = if (isBn) {
-                                            "সব নোটিফিকেশন মুছে ফেলা হয়েছে"
-                                        } else {
-                                            "All notifications cleared"
-                                        }
-                                    }
-                                    .testTag("btn_clear_all_notifications_bottom")
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 14.dp, horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = null,
-                                        tint = ExpenseRed,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = if (isBn) "সব নোটিফিকেশন মুছুন" else "Clear All Notifications",
-                                        style = MaterialTheme.typography.titleMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            color = ExpenseRed,
-                                            fontSize = 15.sp
-                                        )
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(28.dp))
+                            )
                         }
                     }
                 }

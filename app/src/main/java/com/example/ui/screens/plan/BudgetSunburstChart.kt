@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.TransactionEntity
 import com.example.data.model.AppLanguage
+import com.example.ui.components.getIconForName
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.util.AppStrings
@@ -76,6 +78,7 @@ private data class SunburstCategorySlice(
     val hasLimit: Boolean,
     val percentage: Float,
     val color: Color,
+    val iconName: String = "category",
     val startAngle: Float,
     val sweepAngle: Float,
     val outerSlices: List<SunburstSubSlice>
@@ -509,10 +512,18 @@ fun BudgetSunburstCard(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(16.dp)
                                         .clip(CircleShape)
-                                        .background(slice.color)
-                                )
+                                        .background(slice.color.copy(alpha = 0.16f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = getIconForName(slice.iconName),
+                                        contentDescription = null,
+                                        tint = slice.color,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                }
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = slice.label,
@@ -564,6 +575,7 @@ private fun buildSunburstSlices(
         val label: String,
         val categoryName: String,
         val subcategoryName: String,
+        val iconName: String,
         val spent: Double,
         val limit: Double,
         val hasLimit: Boolean,
@@ -587,6 +599,7 @@ private fun buildSunburstSlices(
                 label = model.displayName,
                 categoryName = model.categoryName,
                 subcategoryName = model.subcategoryName,
+                iconName = model.categoryIcon,
                 spent = model.spent,
                 limit = model.limit,
                 hasLimit = true,
@@ -605,6 +618,7 @@ private fun buildSunburstSlices(
                 label = if (isBn) "বাজেটবিহীন" else "Unbudgeted",
                 categoryName = "",
                 subcategoryName = "",
+                iconName = "category",
                 spent = unbudgetedTotal,
                 limit = 0.0,
                 hasLimit = false,
@@ -754,6 +768,7 @@ private fun buildSunburstSlices(
             hasLimit = entry.hasLimit,
             percentage = entry.percentage,
             color = entry.color,
+            iconName = entry.iconName,
             startAngle = currentStartAngle,
             sweepAngle = sweep,
             outerSlices = outerSlices

@@ -373,7 +373,7 @@ private fun AvailableContent(
                     .testTag("update_later_button")
             ) {
                 Text(
-                    text = if (isBangla) "এখন নয়" else "Not Now",
+                    text = if (isBangla) "পরে মনে করিয়ে দিন" else "Remind Later",
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

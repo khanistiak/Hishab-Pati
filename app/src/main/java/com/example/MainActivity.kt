@@ -49,6 +49,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.example.data.model.TransactionType
 import com.example.ui.util.CurrencyFormatter
@@ -59,7 +61,10 @@ import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -140,6 +145,7 @@ import com.example.ui.screens.plan.AllSavingsGoalsScreen
 import com.example.ui.screens.plan.DebtDetailsScreen
 import com.example.ui.screens.plan.GoalDetailsScreen
 import com.example.ui.screens.plan.ManageDebtsScreen
+import com.example.ui.screens.plan.UpcomingBillsScreen
 import com.example.ui.screens.plan.NewSavingsGoalScreen
 import com.example.ui.screens.plan.CalendarScreen
 import com.example.ui.screens.plan.CurrencyConverterScreen
@@ -301,6 +307,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleNotificationIntent(intent: Intent, viewModel: MainViewModel) {
+        if (intent.getBooleanExtra(NotificationHelper.EXTRA_IS_UPDATE_NOTIFICATION, false)) {
+            NotificationHelper.cancelUpdateNotification(this)
+            viewModel.showUpdateDialog()
+            intent.removeExtra(NotificationHelper.EXTRA_IS_UPDATE_NOTIFICATION)
+            return
+        }
+
         val notifId = intent.getStringExtra(NotificationHelper.EXTRA_NOTIFICATION_ID) ?: return
         val destTypeStr = intent.getStringExtra(NotificationHelper.EXTRA_DESTINATION_TYPE) ?: return
         val entityId = intent.getStringExtra(NotificationHelper.EXTRA_TARGET_ENTITY_ID)
@@ -734,6 +747,12 @@ fun MyWalletApp(viewModel: MainViewModel) {
                         onBack = { viewModel.closeSubScreen() }
                     )
                 }
+                SubScreen.UPCOMING_BILLS -> {
+                    UpcomingBillsScreen(
+                        viewModel = viewModel,
+                        onBack = { viewModel.closeSubScreen(SubScreen.UPCOMING_BILLS) }
+                    )
+                }
                 SubScreen.MANAGE_DEBTS -> {
                     ManageDebtsScreen(
                         viewModel = viewModel,
@@ -862,64 +881,147 @@ fun MyWalletApp(viewModel: MainViewModel) {
                         .testTag("screen_lock_overlay"),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.background,
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        MaterialTheme.colorScheme.background
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
-                            modifier = Modifier.size(72.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 32.dp)
+                                .widthIn(max = 420.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
+                            // Refined Frosted Ring Lock Badge
+                            Box(
+                                modifier = Modifier
+                                    .size(96.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                                    .border(
+                                        width = 1.5.dp,
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                            )
+                                        ),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(72.dp),
+                                    shadowElevation = 4.dp
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = "Locked",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(34.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(28.dp))
+
+                            Text(
+                                text = "Hishab Pati is Locked",
+                                style = MaterialTheme.typography.headlineSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 22.sp,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                ),
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Text(
+                                text = "Unlock with your device screen lock to securely access your wallets, budgets, and transactions.",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp
+                                ),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(36.dp))
+
+                            val unlockCtaGradient = LocalPrimaryCtaGradient.current
+                            Button(
+                                onClick = { promptDeviceUnlock() },
+                                shape = RoundedCornerShape(50),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color.Transparent,
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = PaddingValues(0.dp),
+                                elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(unlockCtaGradient)
+                                    .testTag("screen_lock_unlock_button")
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.LockOpen,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "Unlock App",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = "Locked",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(34.dp)
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Secured with Biometric & Device Credential",
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        fontSize = 12.sp
+                                    )
                                 )
                             }
-                        }
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Text(
-                            text = "Hishab Pati is Locked",
-                            fontSize = 21.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Unlock with your device screen lock to access your wallets and transactions.",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(28.dp))
-                        val unlockCtaGradient = LocalPrimaryCtaGradient.current
-                        Button(
-                            onClick = { promptDeviceUnlock() },
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.Transparent,
-                                contentColor = Color.White
-                            ),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                            modifier = Modifier
-                                .height(48.dp)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(unlockCtaGradient)
-                                .testTag("screen_lock_unlock_button")
-                        ) {
-                            Text(
-                                text = "Unlock App",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
-                                modifier = Modifier.padding(horizontal = 24.dp)
-                            )
                         }
                     }
                 }

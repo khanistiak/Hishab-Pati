@@ -30,7 +30,23 @@ data class GitHubReleaseInfo(
     val apkDownloadUrl: String,
     val apkAssetName: String,
     val apkSizeBytes: Long
-)
+) {
+    fun toJsonString(): String {
+        val obj = org.json.JSONObject()
+        obj.put("tag_name", tagName)
+        obj.put("name", releaseName)
+        obj.put("body", releaseNotes)
+        obj.put("published_at", publishedAt)
+        val asset = org.json.JSONObject()
+        asset.put("name", apkAssetName)
+        asset.put("browser_download_url", apkDownloadUrl)
+        asset.put("size", apkSizeBytes)
+        val assetsArray = org.json.JSONArray()
+        assetsArray.put(asset)
+        obj.put("assets", assetsArray)
+        return obj.toString()
+    }
+}
 
 sealed class UpdateState {
     data object Idle : UpdateState()
@@ -66,6 +82,10 @@ class GitHubUpdateManager {
 
     fun resetToIdle() {
         _updateState.value = UpdateState.Idle
+    }
+
+    fun setAvailable(releaseInfo: GitHubReleaseInfo) {
+        _updateState.value = UpdateState.Available(releaseInfo)
     }
 
     fun cancelDownload(fallbackRelease: GitHubReleaseInfo? = null) {
@@ -368,10 +388,9 @@ class GitHubUpdateManager {
             val cleaned = normalizeVersionTag(tag)
             if (cleaned.isBlank()) return null
             val parts = cleaned.split('.')
-            if (parts.isEmpty() || parts.size > 3) return null
+            if (parts.isEmpty()) return null
             val numbers = parts.map { part ->
-                if (part.isEmpty() || !part.all { it.isDigit() }) return null
-                part.toIntOrNull() ?: return null
+                part.filter { it.isDigit() }.toIntOrNull() ?: 0
             }
             val major = numbers.getOrElse(0) { 0 }
             val minor = numbers.getOrElse(1) { 0 }
@@ -383,11 +402,17 @@ class GitHubUpdateManager {
             remoteTag: String,
             currentVersion: String = BuildConfig.VERSION_NAME
         ): Boolean {
-            val remote = parseSemanticVersion(remoteTag) ?: return false
-            val current = parseSemanticVersion(currentVersion) ?: return false
-            if (remote.first != current.first) return remote.first > current.first
-            if (remote.second != current.second) return remote.second > current.second
-            return remote.third > current.third
+            val remote = parseSemanticVersion(remoteTag)
+            val current = parseSemanticVersion(currentVersion)
+            if (remote != null && current != null) {
+                if (remote.first != current.first) return remote.first > current.first
+                if (remote.second != current.second) return remote.second > current.second
+                if (remote.third != current.third) return remote.third > current.third
+                return false
+            }
+            val remoteDigits = remoteTag.filter { it.isDigit() }.toIntOrNull() ?: 0
+            val currentDigits = currentVersion.filter { it.isDigit() }.toIntOrNull() ?: 0
+            return remoteDigits > currentDigits
         }
 
         @Suppress("UNCHECKED_CAST")

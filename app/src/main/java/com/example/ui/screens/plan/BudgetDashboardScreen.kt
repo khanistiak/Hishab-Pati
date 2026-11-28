@@ -161,6 +161,7 @@ fun BudgetDashboardScreen(
     var selectedYear by remember { mutableIntStateOf(initialYearMonth.first) }
     var selectedMonth by remember { mutableIntStateOf(initialYearMonth.second) }
     var showZeroSpendCategories by remember { mutableStateOf(false) }
+    var showUnbudgetedCategories by remember { mutableStateOf(false) }
 
     val selectedMonthKey = remember(selectedYear, selectedMonth) {
         String.format(Locale.US, "%04d-%02d", selectedYear, selectedMonth + 1)
@@ -255,10 +256,10 @@ fun BudgetDashboardScreen(
     }
 
     val activeBudgetModels = remember(activeCategoryBudgets, categories, monthExpenses, language, pinnedBudgetKeys) {
-        val catMap = categories.associateBy { it.name.lowercase(Locale.ENGLISH) }
+        val catMap = categories.associateBy { it.name.trim().lowercase(Locale.ENGLISH) }
         activeCategoryBudgets
             .map { b ->
-                val cat = catMap[b.categoryName.lowercase(Locale.ENGLISH)]
+                val cat = catMap[b.categoryName.trim().lowercase(Locale.ENGLISH)]
                 val matchingTxs = monthExpenses.filter { tx ->
                     FinancialIntegrityValidator.isMatchingBudgetTransaction(tx, b)
                 }
@@ -277,8 +278,8 @@ fun BudgetDashboardScreen(
                     categoryName = b.categoryName,
                     subcategoryName = b.subcategoryName,
                     displayName = disp,
-                    categoryIcon = b.iconName.ifBlank { cat?.iconName ?: "category" },
-                    categoryColorHex = b.colorHex.ifBlank { cat?.colorHex ?: "#4F46E5" },
+                    categoryIcon = cat?.iconName?.ifBlank { null } ?: b.iconName.ifBlank { "category" },
+                    categoryColorHex = cat?.colorHex?.ifBlank { null } ?: b.colorHex.ifBlank { "#4F46E5" },
                     limit = limit,
                     spent = spent,
                     remaining = remaining,
@@ -346,13 +347,14 @@ fun BudgetDashboardScreen(
             .map { catName ->
                 val matchingTxs = monthExpenses.filter { it.category.equals(catName, ignoreCase = true) }
                 val spent = matchingTxs.sumOf { it.amount }
+                val matchedCat = categories.firstOrNull { it.name.trim().equals(catName.trim(), ignoreCase = true) }
                 CategoryBudgetUiModel(
                     budget = null,
                     categoryName = catName,
                     subcategoryName = "",
-                    displayName = catName,
-                    categoryIcon = "category",
-                    categoryColorHex = "#64748B",
+                    displayName = matchedCat?.getDisplayName(language) ?: catName,
+                    categoryIcon = matchedCat?.iconName?.ifBlank { null } ?: "category",
+                    categoryColorHex = matchedCat?.colorHex?.ifBlank { null } ?: "#64748B",
                     limit = 0.0,
                     spent = spent,
                     remaining = -spent,
@@ -725,18 +727,32 @@ fun BudgetDashboardScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { showUnbudgetedCategories = !showUnbudgetedCategories }
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .testTag("toggle_unbudgeted_categories"),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "${AppStrings.t("unbudgeted_categories", language)} ($unbudgetedCountText)",
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.5.sp,
-                                color = MaterialTheme.colorScheme.onBackground
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "${AppStrings.t("unbudgeted_categories", language)} ($unbudgetedCountText)",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.5.sp,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
                             )
-                        )
+                            Icon(
+                                imageVector = if (showUnbudgetedCategories) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (showUnbudgetedCategories) "Collapse" else "Expand",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         if (unbudgetedSpent > 0.001) {
                             Text(
                                 text = CurrencyFormatter.format(unbudgetedSpent, currencySymbol, language = language),
@@ -749,111 +765,113 @@ fun BudgetDashboardScreen(
                     }
                 }
 
-                items(unbudgetedWithSpend, key = { "unbudgeted_${it.uniqueKey}" }) { model ->
-                    UnbudgetedCategoryCard(
-                        model = model,
-                        currencySymbol = currencySymbol,
-                        language = language,
-                        isDark = isDark,
-                        cardColor = cardColor,
-                        borderColor = cardBorderColor,
-                        onCardClick = {
-                            // Push BudgetDetailsScreen onto back stack so Back always returns cleanly to BudgetDashboard
-                            viewModel.openBudgetDetails(
-                                BudgetDetailsArgs(
-                                    budgetId = null,
-                                    categoryName = model.categoryName,
-                                    subcategoryName = model.subcategoryName,
-                                    year = selectedYear,
-                                    month = selectedMonth,
-                                    iconName = model.categoryIcon,
-                                    colorHex = model.categoryColorHex
+                if (showUnbudgetedCategories) {
+                    items(unbudgetedWithSpend, key = { "unbudgeted_${it.uniqueKey}" }) { model ->
+                        UnbudgetedCategoryCard(
+                            model = model,
+                            currencySymbol = currencySymbol,
+                            language = language,
+                            isDark = isDark,
+                            cardColor = cardColor,
+                            borderColor = cardBorderColor,
+                            onCardClick = {
+                                // Push BudgetDetailsScreen onto back stack so Back always returns cleanly to BudgetDashboard
+                                viewModel.openBudgetDetails(
+                                    BudgetDetailsArgs(
+                                        budgetId = null,
+                                        categoryName = model.categoryName,
+                                        subcategoryName = model.subcategoryName,
+                                        year = selectedYear,
+                                        month = selectedMonth,
+                                        iconName = model.categoryIcon,
+                                        colorHex = model.categoryColorHex
+                                    )
                                 )
-                            )
-                        },
-                        onSetLimit = {
-                            viewModel.openAddBudget(
-                                budget = null,
-                                defaultCategory = model.categoryName,
-                                defaultMonthKey = selectedMonthKey
-                            )
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                }
+                            },
+                            onSetLimit = {
+                                viewModel.openAddBudget(
+                                    budget = null,
+                                    defaultCategory = model.categoryName,
+                                    defaultMonthKey = selectedMonthKey
+                                )
+                            },
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
 
-                if (unbudgetedZeroSpend.isNotEmpty()) {
-                    item(key = "zero_spend_toggle") {
-                        val zeroCountText = if (isBn) {
-                            CurrencyFormatter.convertToBanglaDigits(unbudgetedZeroSpend.size.toString())
-                        } else {
-                            unbudgetedZeroSpend.size.toString()
-                        }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = cardColor,
-                                border = BorderStroke(1.dp, cardBorderColor),
+                    if (unbudgetedZeroSpend.isNotEmpty()) {
+                        item(key = "zero_spend_toggle") {
+                            val zeroCountText = if (isBn) {
+                                CurrencyFormatter.convertToBanglaDigits(unbudgetedZeroSpend.size.toString())
+                            } else {
+                                unbudgetedZeroSpend.size.toString()
+                            }
+                            Box(
                                 modifier = Modifier
-                                    .clip(CircleShape)
-                                    .clickable { showZeroSpendCategories = !showZeroSpendCategories }
-                                    .testTag("toggle_zero_spend_categories")
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Surface(
+                                    shape = CircleShape,
+                                    color = cardColor,
+                                    border = BorderStroke(1.dp, cardBorderColor),
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable { showZeroSpendCategories = !showZeroSpendCategories }
+                                        .testTag("toggle_zero_spend_categories")
                                 ) {
-                                    Text(
-                                        text = if (showZeroSpendCategories) {
-                                            "${AppStrings.t("hide_zero_spend_categories", language)} ($zeroCountText)"
-                                        } else {
-                                            "${AppStrings.t("show_zero_spend_categories", language)} ($zeroCountText)"
-                                        },
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Icon(
-                                        imageVector = if (showZeroSpendCategories) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (showZeroSpendCategories) {
+                                                "${AppStrings.t("hide_zero_spend_categories", language)} ($zeroCountText)"
+                                            } else {
+                                                "${AppStrings.t("show_zero_spend_categories", language)} ($zeroCountText)"
+                                            },
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Icon(
+                                            imageVector = if (showZeroSpendCategories) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    if (showZeroSpendCategories) {
-                        items(unbudgetedZeroSpend, key = { "zero_${it.uniqueKey}" }) { model ->
-                            UnbudgetedCategoryCard(
-                                model = model,
-                                currencySymbol = currencySymbol,
-                                language = language,
-                                isDark = isDark,
-                                cardColor = cardColor,
-                                borderColor = cardBorderColor,
-                                onCardClick = {
-                                    viewModel.openAddBudget(
-                                        budget = null,
-                                        defaultCategory = model.categoryName,
-                                        defaultMonthKey = selectedMonthKey
-                                    )
-                                },
-                                onSetLimit = {
-                                    viewModel.openAddBudget(
-                                        budget = null,
-                                        defaultCategory = model.categoryName,
-                                        defaultMonthKey = selectedMonthKey
-                                    )
-                                },
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
+                        if (showZeroSpendCategories) {
+                            items(unbudgetedZeroSpend, key = { "zero_${it.uniqueKey}" }) { model ->
+                                UnbudgetedCategoryCard(
+                                    model = model,
+                                    currencySymbol = currencySymbol,
+                                    language = language,
+                                    isDark = isDark,
+                                    cardColor = cardColor,
+                                    borderColor = cardBorderColor,
+                                    onCardClick = {
+                                        viewModel.openAddBudget(
+                                            budget = null,
+                                            defaultCategory = model.categoryName,
+                                            defaultMonthKey = selectedMonthKey
+                                        )
+                                    },
+                                    onSetLimit = {
+                                        viewModel.openAddBudget(
+                                            budget = null,
+                                            defaultCategory = model.categoryName,
+                                            defaultMonthKey = selectedMonthKey
+                                        )
+                                    },
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
                         }
                     }
                 }

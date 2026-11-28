@@ -28,6 +28,9 @@ import com.example.data.firebase.FirestoreWalletRepository
 import com.example.data.local.AppDatabase
 import com.example.data.local.ExtendedSettingsState
 import com.example.data.local.UserSettingsPreferences
+import com.example.data.local.CategorySortType
+import com.example.data.local.loadCategorySortType
+import com.example.data.local.saveCategorySortType
 import com.example.data.local.entity.AccountEntity
 import com.example.data.local.entity.AppSettingsEntity
 import com.example.data.local.entity.BudgetEntity
@@ -45,8 +48,10 @@ import com.example.data.model.DebtType
 import com.example.data.model.ThemeColorOption
 import com.example.data.model.ThemeMode
 import com.example.data.model.TransactionType
+import com.example.data.notification.NotificationHelper
 import com.example.data.notification.NotificationStore
 import com.example.data.repository.WalletRepository
+import com.example.ui.screens.plan.RateFetchResult
 import com.example.data.update.GitHubReleaseInfo
 import com.example.data.update.GitHubUpdateManager
 import com.example.data.update.InstallApkResult
@@ -133,7 +138,8 @@ enum class SubScreen {
     BACKUP_RESTORE,
     ABOUT,
     FILTERED_REPORTS,
-    ALL_SAVINGS_GOALS
+    ALL_SAVINGS_GOALS,
+    UPCOMING_BILLS
 }
 
 data class FilteredReportArgs(
@@ -1749,6 +1755,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadCategorySortType(tabIndex: Int): CategorySortType {
+        return UserSettingsPreferences.loadCategorySortType(getApplication(), tabIndex)
+    }
+
+    fun saveCategorySortType(tabIndex: Int, sortType: CategorySortType) {
+        UserSettingsPreferences.saveCategorySortType(getApplication(), tabIndex, sortType)
+    }
+
     fun deleteCategory(id: String) {
         viewModelScope.launch {
             repository.deleteCategory(id)
@@ -2443,24 +2457,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun checkForUpdatesOnLaunch() {
         val appContext = getApplication<Application>()
-        if (!UserSettingsPreferences.shouldRunAutoUpdateCheck(appContext)) return
+        val isBangla = settings.value?.language == AppLanguage.BANGLA
 
         viewModelScope.launch {
-            val result = updateManager.checkForUpdate(appContext)
-            if (result is UpdateState.UpToDate || result is UpdateState.Available) {
-                val now = System.currentTimeMillis()
-                UserSettingsPreferences.setLastUpdateCheckTimestamp(appContext, now)
-                lastUpdateCheckTimestamp.value = now
-            }
-            if (result is UpdateState.Available) {
-                val skipped = UserSettingsPreferences.getSkippedUpdateVersion(appContext)
-                val normalizedSkipped = skipped?.let { GitHubUpdateManager.normalizeVersionTag(it) }
-                if (normalizedSkipped != result.releaseInfo.versionName &&
-                    skipped != result.releaseInfo.tagName
-                ) {
-                    updatePermissionNotice.value = null
-                    isUpdateDialogVisible.value = true
+            try {
+                // 1. Check if we already have a cached update that is newer than current app version
+                val cached = UserSettingsPreferences.getCachedAvailableUpdate(appContext)
+                if (cached != null) {
+                    if (GitHubUpdateManager.isNewerVersion(cached.tagName, BuildConfig.VERSION_NAME)) {
+                        val skipped = UserSettingsPreferences.getSkippedUpdateVersion(appContext)
+                        val normalizedSkipped = skipped?.let { GitHubUpdateManager.normalizeVersionTag(it) }
+                        val isSkipped = normalizedSkipped == cached.versionName || skipped == cached.tagName
+                        if (!isSkipped) {
+                            updateManager.setAvailable(cached)
+                            // Daily reminder popup: prompt once every ~24 hours if not updated
+                            if (UserSettingsPreferences.shouldShowDailyUpdatePopup(appContext)) {
+                                updatePermissionNotice.value = null
+                                isUpdateDialogVisible.value = true
+                                UserSettingsPreferences.setLastUpdatePopupTimestamp(appContext, System.currentTimeMillis())
+                            }
+                        }
+                    } else {
+                        // User already updated! Clean up stale cached release and update notification
+                        UserSettingsPreferences.clearCachedAvailableUpdate(appContext)
+                        UserSettingsPreferences.setLastNotifiedUpdateVersion(appContext, null)
+                        NotificationHelper.cancelUpdateNotification(appContext)
+                    }
                 }
+
+                // 2. Run remote update check if throttle permits
+                if (!UserSettingsPreferences.shouldRunAutoUpdateCheck(appContext)) return@launch
+
+                val result = updateManager.checkForUpdate(appContext)
+                if (result is UpdateState.UpToDate || result is UpdateState.Available) {
+                    val now = System.currentTimeMillis()
+                    UserSettingsPreferences.setLastUpdateCheckTimestamp(appContext, now)
+                    lastUpdateCheckTimestamp.value = now
+                }
+
+                if (result is UpdateState.Available) {
+                    val releaseInfo = result.releaseInfo
+                    UserSettingsPreferences.setCachedAvailableUpdate(appContext, releaseInfo.toJsonString())
+
+                    val skipped = UserSettingsPreferences.getSkippedUpdateVersion(appContext)
+                    val normalizedSkipped = skipped?.let { GitHubUpdateManager.normalizeVersionTag(it) }
+                    val isSkipped = normalizedSkipped == releaseInfo.versionName || skipped == releaseInfo.tagName
+
+                    if (!isSkipped) {
+                        // Post system notification once per new version
+                        val lastNotified = UserSettingsPreferences.getLastNotifiedUpdateVersion(appContext)
+                        if (lastNotified != releaseInfo.versionName) {
+                            NotificationHelper.postUpdateAvailableNotification(
+                                context = appContext,
+                                releaseInfo = releaseInfo,
+                                isBn = isBangla
+                            )
+                            UserSettingsPreferences.setLastNotifiedUpdateVersion(appContext, releaseInfo.versionName)
+                        }
+
+                        // Daily in-app update popup check
+                        if (UserSettingsPreferences.shouldShowDailyUpdatePopup(appContext)) {
+                            updatePermissionNotice.value = null
+                            isUpdateDialogVisible.value = true
+                            UserSettingsPreferences.setLastUpdatePopupTimestamp(appContext, System.currentTimeMillis())
+                        }
+                    }
+                } else if (result is UpdateState.UpToDate) {
+                    UserSettingsPreferences.clearCachedAvailableUpdate(appContext)
+                    UserSettingsPreferences.setLastNotifiedUpdateVersion(appContext, null)
+                    NotificationHelper.cancelUpdateNotification(appContext)
+                }
+            } catch (_: Exception) {
+                // Safeguard against network or parsing glitches on launch
             }
         }
     }
@@ -2475,36 +2543,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updatePermissionNotice.value = null
 
         viewModelScope.launch {
-            val result = updateManager.checkForUpdate(appContext)
-            if (result is UpdateState.UpToDate || result is UpdateState.Available) {
-                val now = System.currentTimeMillis()
-                UserSettingsPreferences.setLastUpdateCheckTimestamp(appContext, now)
-                lastUpdateCheckTimestamp.value = now
-            }
-            when (result) {
-                is UpdateState.Available -> {
-                    isUpdateDialogVisible.value = true
+            try {
+                val result = updateManager.checkForUpdate(appContext)
+                if (result is UpdateState.UpToDate || result is UpdateState.Available) {
+                    val now = System.currentTimeMillis()
+                    UserSettingsPreferences.setLastUpdateCheckTimestamp(appContext, now)
+                    lastUpdateCheckTimestamp.value = now
                 }
-                is UpdateState.UpToDate -> {
-                    isUpdateDialogVisible.value = false
-                    userNotificationMessage.value = if (isBangla) {
-                        "আপটুডেট • v${BuildConfig.VERSION_NAME}"
-                    } else {
-                        "Up to date • v${BuildConfig.VERSION_NAME}"
+                when (result) {
+                    is UpdateState.Available -> {
+                        val releaseInfo = result.releaseInfo
+                        UserSettingsPreferences.setCachedAvailableUpdate(appContext, releaseInfo.toJsonString())
+                        val lastNotified = UserSettingsPreferences.getLastNotifiedUpdateVersion(appContext)
+                        if (lastNotified != releaseInfo.versionName) {
+                            NotificationHelper.postUpdateAvailableNotification(
+                                context = appContext,
+                                releaseInfo = releaseInfo,
+                                isBn = isBangla
+                            )
+                            UserSettingsPreferences.setLastNotifiedUpdateVersion(appContext, releaseInfo.versionName)
+                        }
+                        UserSettingsPreferences.setLastUpdatePopupTimestamp(appContext, System.currentTimeMillis())
+                        isUpdateDialogVisible.value = true
                     }
-                }
-                is UpdateState.Error -> {
-                    isUpdateDialogVisible.value = false
-                    updateManager.resetToIdle()
-                    userNotificationMessage.value = if (isBangla) {
-                        "আপডেট যাচাই করা যায়নি"
-                    } else {
-                        "Couldn't check for updates"
+                    is UpdateState.UpToDate -> {
+                        UserSettingsPreferences.clearCachedAvailableUpdate(appContext)
+                        UserSettingsPreferences.setLastNotifiedUpdateVersion(appContext, null)
+                        NotificationHelper.cancelUpdateNotification(appContext)
+                        isUpdateDialogVisible.value = false
+                        userNotificationMessage.value = if (isBangla) {
+                            "আপটুডেট • v${BuildConfig.VERSION_NAME}"
+                        } else {
+                            "Up to date • v${BuildConfig.VERSION_NAME}"
+                        }
                     }
+                    is UpdateState.Error -> {
+                        isUpdateDialogVisible.value = false
+                        updateManager.resetToIdle()
+                        userNotificationMessage.value = if (isBangla) {
+                            "আপডেট যাচাই করা যায়নি"
+                        } else {
+                            "Couldn't check for updates"
+                        }
+                    }
+                    else -> Unit
                 }
-                else -> Unit
+            } catch (_: Exception) {
+                isUpdateDialogVisible.value = false
+                updateManager.resetToIdle()
+                userNotificationMessage.value = if (isBangla) {
+                    "আপডেট যাচাই করা যায়নি"
+                } else {
+                    "Couldn't check for updates"
+                }
             }
         }
+    }
+
+    fun showUpdateDialog() {
+        val appContext = getApplication<Application>()
+        val current = updateState.value
+        if (current !is UpdateState.Available && current !is UpdateState.Downloading && current !is UpdateState.ReadyToInstall) {
+            val cached = UserSettingsPreferences.getCachedAvailableUpdate(appContext)
+            if (cached != null && GitHubUpdateManager.isNewerVersion(cached.tagName, BuildConfig.VERSION_NAME)) {
+                updateManager.setAvailable(cached)
+            } else {
+                checkForUpdatesManually()
+            }
+        }
+        isUpdateDialogVisible.value = true
     }
 
     fun startUpdateDownload(releaseInfo: GitHubReleaseInfo) {
@@ -2553,12 +2660,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun skipUpdateVersion(version: String) {
         val appContext = getApplication<Application>()
         UserSettingsPreferences.setSkippedUpdateVersion(appContext, version)
+        UserSettingsPreferences.setLastUpdatePopupTimestamp(appContext, System.currentTimeMillis())
+        NotificationHelper.cancelUpdateNotification(appContext)
         updatePermissionNotice.value = null
         isUpdateDialogVisible.value = false
         updateManager.resetToIdle()
     }
 
     fun dismissUpdateDialog() {
+        val appContext = getApplication<Application>()
+        UserSettingsPreferences.setLastUpdatePopupTimestamp(appContext, System.currentTimeMillis())
         updatePermissionNotice.value = null
         isUpdateDialogVisible.value = false
         if (updateState.value is UpdateState.Error) {
@@ -2603,7 +2714,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (currencyRefreshJob?.isActive == true) return
         currencyRefreshJob = viewModelScope.launch {
             _currencyConverterState.update { it.copy(isRefreshing = true) }
-            val result = currencyRateRepository.fetchLiveRates()
+            val result = try {
+                currencyRateRepository.fetchLiveRates()
+            } catch (e: Exception) {
+                RateFetchResult(false, currencyRateRepository.loadCachedRatesPerUsd(), currencyRateRepository.getLastUpdatedMillis())
+            }
             _currencyConverterState.update { current ->
                 current.copy(
                     ratesPerUsd = result.ratesPerUsd,
@@ -2614,10 +2729,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (showToast) {
                 val lang = settings.value?.language ?: AppLanguage.ENGLISH
+                val formatter = SimpleDateFormat("h:mm a, MMM d", Locale.US)
+                val timeStr = try { formatter.format(Date(result.lastUpdatedMillis)) } catch (_: Exception) { "" }
                 userNotificationMessage.value = if (result.isLiveSuccess) {
-                    AppStrings.t("exchange_rates_updated", lang)
+                    if (lang == AppLanguage.BANGLA) "বিনিময় হার সফলভাবে আপডেট করা হয়েছে ($timeStr)" else "Exchange rates updated successfully (Updated $timeStr)"
                 } else {
-                    AppStrings.t("offline_cached_rates", lang)
+                    if (lang == AppLanguage.BANGLA) "অফলাইন বা ক্যাশড হার ব্যবহার করা হচ্ছে ($timeStr)" else "Using offline or cached rates (Updated $timeStr)"
                 }
             }
         }

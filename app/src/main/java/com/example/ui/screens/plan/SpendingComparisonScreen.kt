@@ -195,32 +195,12 @@ fun SpendingComparisonScreen(
         bottomNavClearance = 32.dp
     )
 
-    val backgroundBrush = remember(isDark) {
-        if (isDark) {
-            Brush.verticalGradient(
-                listOf(
-                    Color(0xFF090D16),
-                    Color(0xFF111827),
-                    Color(0xFF0B132B)
-                )
-            )
-        } else {
-            Brush.verticalGradient(
-                listOf(
-                    Color(0xFFEAF4F8),
-                    Color(0xFFF4F2FA)
-                )
-            )
-        }
-    }
-
     val cardColor = if (isDark) CardBackgroundDark else MaterialTheme.colorScheme.surfaceContainerLowest
     val cardBorderColor = if (isDark) Color(0x22FFFFFF) else Color(0x146366F1)
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(backgroundBrush)
     ) {
         LazyColumn(
             state = listState,

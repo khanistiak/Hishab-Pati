@@ -193,7 +193,7 @@ fun BudgetDetailsScreen(
     }
 
     val matchedCategory = remember(categories, currentArgs.categoryName) {
-        categories.firstOrNull { it.name.equals(currentArgs.categoryName, ignoreCase = true) }
+        categories.firstOrNull { it.name.trim().equals(currentArgs.categoryName.trim(), ignoreCase = true) }
     }
 
     val displayName = remember(activeBudget, matchedCategory, currentArgs, language) {
@@ -206,12 +206,12 @@ fun BudgetDetailsScreen(
         }
     }
 
-    val iconName = activeBudget?.iconName?.ifBlank { null }
-        ?: matchedCategory?.iconName?.ifBlank { null }
-        ?: currentArgs.iconName
-    val colorHex = activeBudget?.colorHex?.ifBlank { null }
-        ?: matchedCategory?.colorHex?.ifBlank { null }
-        ?: currentArgs.colorHex
+    val iconName = matchedCategory?.iconName?.ifBlank { null }
+        ?: activeBudget?.iconName?.ifBlank { null }
+        ?: currentArgs.iconName.ifBlank { "category" }
+    val colorHex = matchedCategory?.colorHex?.ifBlank { null }
+        ?: activeBudget?.colorHex?.ifBlank { null }
+        ?: currentArgs.colorHex.ifBlank { "#4F46E5" }
 
     val hasDefinedBudget = activeBudget != null && activeBudget.monthlyLimit > 0.0
     val budgetLimit = activeBudget?.monthlyLimit?.coerceAtLeast(0.0) ?: 0.0
@@ -256,14 +256,24 @@ fun BudgetDetailsScreen(
     }
 
     // Filter transactions matching this budget for the currently viewed period
-    val periodTransactions = remember(transactions, viewingYear, viewingMonth, currentArgs, activeBudget) {
+    val targetSubcategoryName = activeBudget?.subcategoryName?.trim()?.ifBlank { null }
+        ?: currentArgs.subcategoryName.trim().ifBlank { null }
+    val targetCategoryName = activeBudget?.categoryName?.trim()?.ifBlank { null }
+        ?: currentArgs.categoryName.trim().ifBlank { null }
+    val isSpecificSubcategoryBudget = targetSubcategoryName != null
+
+    val periodTransactions = remember(transactions, viewingYear, viewingMonth, currentArgs, activeBudget, targetSubcategoryName, targetCategoryName) {
         transactions.filter { tx ->
             if (!FinancialIntegrityValidator.isInYearMonth(tx.timestamp, viewingYear, viewingMonth)) return@filter false
-            if (activeBudget != null) {
+            if (!FinancialIntegrityValidator.isEligibleExpense(tx)) return@filter false
+            if (targetSubcategoryName != null && targetCategoryName != null) {
+                // Strictly isolate to the selected subcategory (e.g. "Cha Pani" under "Personal Care")
+                tx.category.trim().equals(targetCategoryName, ignoreCase = true) &&
+                    tx.subcategory.trim().equals(targetSubcategoryName, ignoreCase = true)
+            } else if (activeBudget != null) {
                 FinancialIntegrityValidator.isMatchingBudgetTransaction(tx, activeBudget)
             } else {
-                FinancialIntegrityValidator.isEligibleExpense(tx) &&
-                    tx.category.trim().equals(currentArgs.categoryName.trim(), ignoreCase = true) &&
+                tx.category.trim().equals(currentArgs.categoryName.trim(), ignoreCase = true) &&
                     (currentArgs.subcategoryName.isBlank() ||
                         tx.subcategory.trim().equals(currentArgs.subcategoryName.trim(), ignoreCase = true))
             }
@@ -294,7 +304,7 @@ fun BudgetDetailsScreen(
     }
 
     // Past 3 billing periods relative to presentMonth (e.g. Oct, Sep, Aug)
-    val pastBillingPeriods = remember(transactions, presentYear, presentMonth, currentArgs, activeBudget, language) {
+    val pastBillingPeriods = remember(transactions, presentYear, presentMonth, currentArgs, activeBudget, language, targetSubcategoryName, targetCategoryName) {
         (1..3).map { offset ->
             val cal = Calendar.getInstance().apply {
                 set(Calendar.YEAR, presentYear)
@@ -307,11 +317,14 @@ fun BudgetDetailsScreen(
             val maxD = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
             val pSpent = transactions.filter { tx ->
                 if (!FinancialIntegrityValidator.isInYearMonth(tx.timestamp, pYear, pMonth)) return@filter false
-                if (activeBudget != null) {
+                if (!FinancialIntegrityValidator.isEligibleExpense(tx)) return@filter false
+                if (targetSubcategoryName != null && targetCategoryName != null) {
+                    tx.category.trim().equals(targetCategoryName, ignoreCase = true) &&
+                        tx.subcategory.trim().equals(targetSubcategoryName, ignoreCase = true)
+                } else if (activeBudget != null) {
                     FinancialIntegrityValidator.isMatchingBudgetTransaction(tx, activeBudget)
                 } else {
-                    FinancialIntegrityValidator.isEligibleExpense(tx) &&
-                        tx.category.trim().equals(currentArgs.categoryName.trim(), ignoreCase = true) &&
+                    tx.category.trim().equals(currentArgs.categoryName.trim(), ignoreCase = true) &&
                         (currentArgs.subcategoryName.isBlank() ||
                             tx.subcategory.trim().equals(currentArgs.subcategoryName.trim(), ignoreCase = true))
                 }
@@ -349,19 +362,44 @@ fun BudgetDetailsScreen(
     // Category & Subcategory breakdown for currently viewed period
     val uncategorizedLabel = AppStrings.t("uncategorized_label", language)
     val isMultiScopeBudget = activeBudget != null && (activeBudget.isManual || activeBudget.parsedCategories().size > 1)
-    val subcategoryBreakdown = remember(periodTransactions, uncategorizedLabel, isMultiScopeBudget) {
-        periodTransactions
-            .groupBy { tx ->
-                if (isMultiScopeBudget) {
-                    val cat = tx.category.ifBlank { uncategorizedLabel }
-                    if (tx.subcategory.isNotBlank()) "$cat • ${tx.subcategory}" else cat
-                } else {
-                    tx.subcategory.ifBlank { uncategorizedLabel }
-                }
+    val subcategoryBreakdown = remember(
+        periodTransactions,
+        uncategorizedLabel,
+        isMultiScopeBudget,
+        isSpecificSubcategoryBudget,
+        targetSubcategoryName
+    ) {
+        if (isSpecificSubcategoryBudget) {
+            val subName = targetSubcategoryName ?: ""
+            val matchingAmount = periodTransactions
+                .filter { it.subcategory.trim().equals(subName, ignoreCase = true) }
+                .sumOf { it.amount }
+            val genuineUncatAmount = periodTransactions
+                .filter { it.subcategory.isBlank() }
+                .sumOf { it.amount }
+
+            val list = mutableListOf<Pair<String, Double>>()
+            if (matchingAmount > 0.001) {
+                list.add(subName to matchingAmount)
             }
-            .mapValues { entry -> entry.value.sumOf { it.amount } }
-            .toList()
-            .sortedByDescending { it.second }
+            if (genuineUncatAmount > 0.001) {
+                list.add(uncategorizedLabel to genuineUncatAmount)
+            }
+            list
+        } else {
+            periodTransactions
+                .groupBy { tx ->
+                    if (isMultiScopeBudget) {
+                        val cat = tx.category.ifBlank { uncategorizedLabel }
+                        if (tx.subcategory.isNotBlank()) "$cat • ${tx.subcategory}" else cat
+                    } else {
+                        tx.subcategory.ifBlank { uncategorizedLabel }
+                    }
+                }
+                .mapValues { entry -> entry.value.sumOf { it.amount } }
+                .toList()
+                .sortedByDescending { it.second }
+        }
     }
 
     // Transactions grouped by date
@@ -1232,9 +1270,14 @@ fun BudgetDetailsScreen(
                                     .padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                val txCat = remember(categories, tx.category) {
+                                    categories.firstOrNull { it.name.trim().equals(tx.category.trim(), ignoreCase = true) }
+                                }
+                                val txIcon = txCat?.iconName?.ifBlank { null } ?: iconName
+                                val txColor = txCat?.colorHex?.ifBlank { null } ?: colorHex
                                 CategoryIcon(
-                                    iconName = iconName,
-                                    colorHex = colorHex,
+                                    iconName = txIcon,
+                                    colorHex = txColor,
                                     size = 42.dp
                                 )
 
@@ -1479,11 +1522,14 @@ fun BudgetDetailsScreen(
 
     // Transaction Details Modal Bottom Sheet
     selectedTransactionForDetails?.let { tx ->
+        val txCat = categories.firstOrNull { it.name.trim().equals(tx.category.trim(), ignoreCase = true) }
+        val sheetIcon = txCat?.iconName?.ifBlank { null } ?: iconName
+        val sheetColor = txCat?.colorHex?.ifBlank { null } ?: colorHex
         TransactionDetailsSheet(
             transaction = tx,
             budgetName = displayName,
-            categoryIcon = iconName,
-            categoryColorHex = colorHex,
+            categoryIcon = sheetIcon,
+            categoryColorHex = sheetColor,
             currencySymbol = currencySymbol,
             accounts = accounts,
             language = language,

@@ -299,7 +299,11 @@ object UserSettingsPreferences {
 
     private const val KEY_LAST_UPDATE_CHECK_MS = "lastUpdateCheckTimestamp"
     private const val KEY_SKIPPED_UPDATE_VERSION = "skippedUpdateVersion"
+    private const val KEY_LAST_UPDATE_POPUP_MS = "lastUpdatePopupTimestamp"
+    private const val KEY_LAST_NOTIFIED_UPDATE_VERSION = "lastNotifiedUpdateVersion"
+    private const val KEY_CACHED_AVAILABLE_UPDATE_JSON = "cachedAvailableUpdateJson"
     const val UPDATE_CHECK_THROTTLE_MS = 12L * 60L * 60L * 1000L
+    const val DAILY_UPDATE_POPUP_INTERVAL_MS = 24L * 60L * 60L * 1000L
 
     fun getLastUpdateCheckTimestamp(context: Context): Long {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -335,6 +339,68 @@ object UserSettingsPreferences {
         val lastChecked = getLastUpdateCheckTimestamp(context)
         if (lastChecked <= 0L) return true
         return (nowMillis - lastChecked) >= throttleMs
+    }
+
+    fun getLastUpdatePopupTimestamp(context: Context): Long {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getLong(KEY_LAST_UPDATE_POPUP_MS, 0L)
+    }
+
+    fun setLastUpdatePopupTimestamp(context: Context, timestampMillis: Long) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putLong(KEY_LAST_UPDATE_POPUP_MS, timestampMillis).apply()
+    }
+
+    fun shouldShowDailyUpdatePopup(
+        context: Context,
+        nowMillis: Long = System.currentTimeMillis(),
+        intervalMs: Long = DAILY_UPDATE_POPUP_INTERVAL_MS
+    ): Boolean {
+        val lastPopup = getLastUpdatePopupTimestamp(context)
+        if (lastPopup <= 0L) return true
+        return (nowMillis - lastPopup) >= intervalMs
+    }
+
+    fun getLastNotifiedUpdateVersion(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_LAST_NOTIFIED_UPDATE_VERSION, null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun setLastNotifiedUpdateVersion(context: Context, version: String?) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            if (version.isNullOrBlank()) {
+                remove(KEY_LAST_NOTIFIED_UPDATE_VERSION)
+            } else {
+                putString(KEY_LAST_NOTIFIED_UPDATE_VERSION, version.trim())
+            }
+        }.apply()
+    }
+
+    fun getCachedAvailableUpdate(context: Context): com.example.data.update.GitHubReleaseInfo? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val raw = prefs.getString(KEY_CACHED_AVAILABLE_UPDATE_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
+        return try {
+            com.example.data.update.GitHubUpdateManager.parseLatestRelease(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun setCachedAvailableUpdate(context: Context, rawJson: String?) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            if (rawJson.isNullOrBlank()) {
+                remove(KEY_CACHED_AVAILABLE_UPDATE_JSON)
+            } else {
+                putString(KEY_CACHED_AVAILABLE_UPDATE_JSON, rawJson)
+            }
+        }.apply()
+    }
+
+    fun clearCachedAvailableUpdate(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove(KEY_CACHED_AVAILABLE_UPDATE_JSON).apply()
     }
 
     private const val HOME_CUSTOMIZATION_PREFS_NAME = "hishab_pati_home_customization"
@@ -499,6 +565,28 @@ object UserSettingsPreferences {
         prefs.edit().putString(KEY_SAVINGS_GOAL_CONTRIBUTIONS, array.toString()).apply()
     }
 }
+
+enum class CategorySortType {
+    DEFAULT,
+    CUSTOM,
+    MOST_USED
+}
+
+fun UserSettingsPreferences.loadCategorySortType(context: Context, tabIndex: Int): CategorySortType {
+    val prefs = context.getSharedPreferences("hishab_pati_extended_settings", Context.MODE_PRIVATE)
+    val raw = prefs.getString("category_sort_type_tab_$tabIndex", CategorySortType.DEFAULT.name)
+    return try {
+        CategorySortType.valueOf(raw ?: CategorySortType.DEFAULT.name)
+    } catch (_: Exception) {
+        CategorySortType.DEFAULT
+    }
+}
+
+fun UserSettingsPreferences.saveCategorySortType(context: Context, tabIndex: Int, sortType: CategorySortType) {
+    val prefs = context.getSharedPreferences("hishab_pati_extended_settings", Context.MODE_PRIVATE)
+    prefs.edit().putString("category_sort_type_tab_$tabIndex", sortType.name).apply()
+}
+
 
 
 

@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.data.update.GitHubReleaseInfo
 import com.example.ui.screens.notifications.AppNotification
 
 object NotificationHelper {
@@ -20,6 +21,10 @@ object NotificationHelper {
     const val CHANNEL_ID = "hishab_pati_notifications"
     private const val CHANNEL_NAME = "Hishab Pati Alerts & Reminders"
     private const val CHANNEL_DESC = "Bill reminders, budget alerts, and transaction notifications"
+
+    const val UPDATE_CHANNEL_ID = "hishab_pati_updates"
+    private const val UPDATE_CHANNEL_NAME = "App Updates"
+    private const val UPDATE_CHANNEL_DESC = "Notifications about new releases and updates for Hishab Pati"
 
     const val ACTION_NOTIFICATION_CLICK = "com.example.ACTION_NOTIFICATION_CLICK"
     const val ACTION_NOTIFICATION_DISMISSED = "com.example.ACTION_NOTIFICATION_DISMISSED"
@@ -29,17 +34,26 @@ object NotificationHelper {
     const val EXTRA_TARGET_ENTITY_ID = "EXTRA_TARGET_ENTITY_ID"
     const val EXTRA_TARGET_SEARCH_QUERY = "EXTRA_TARGET_SEARCH_QUERY"
     const val EXTRA_TARGET_AMOUNT = "EXTRA_TARGET_AMOUNT"
+    const val EXTRA_IS_UPDATE_NOTIFICATION = "EXTRA_IS_UPDATE_NOTIFICATION"
+    const val UPDATE_NOTIFICATION_ID = 2027001
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
-            val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, importance).apply {
+            val notificationManager: NotificationManager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            val mainChannel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = CHANNEL_DESC
                 enableVibration(true)
             }
-            val notificationManager: NotificationManager =
-                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            notificationManager.createNotificationChannel(mainChannel)
+
+            val updateChannel = NotificationChannel(UPDATE_CHANNEL_ID, UPDATE_CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH).apply {
+                description = UPDATE_CHANNEL_DESC
+                enableVibration(true)
+                setShowBadge(true)
+            }
+            notificationManager.createNotificationChannel(updateChannel)
         }
     }
 
@@ -138,5 +152,87 @@ object NotificationHelper {
         activeNotifs.forEach { notif ->
             postSystemNotification(context, notif, isBn)
         }
+    }
+
+    fun postUpdateAvailableNotification(
+        context: Context,
+        releaseInfo: GitHubReleaseInfo,
+        isBn: Boolean
+    ) {
+        val manager = NotificationManagerCompat.from(context)
+        if (!manager.areNotificationsEnabled()) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ActivityCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                return
+            }
+        }
+
+        createNotificationChannel(context)
+
+        val contentIntent = Intent(context, MainActivity::class.java).apply {
+            action = ACTION_NOTIFICATION_CLICK
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_IS_UPDATE_NOTIFICATION, true)
+        }
+
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            UPDATE_NOTIFICATION_ID,
+            contentIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = if (isBn) {
+            "নতুন আপডেট উপলব্ধ • v${releaseInfo.versionName}"
+        } else {
+            "New Update Available • v${releaseInfo.versionName}"
+        }
+
+        val cleanNotes = releaseInfo.releaseNotes
+            .lines()
+            .map { it.trim().removePrefix("-").removePrefix("*").trim() }
+            .filter { it.isNotBlank() && !it.startsWith("#") }
+            .take(3)
+            .joinToString("\n")
+
+        val message = if (cleanNotes.isNotBlank()) {
+            cleanNotes
+        } else if (isBn) {
+            "হিসাব পাতি-এর নতুন সংস্করণ ডাউনলোড করতে ট্যাপ করুন।"
+        } else {
+            "Tap to download and install the latest version."
+        }
+
+        val builder = NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(if (cleanNotes.isNotBlank()) cleanNotes.replace("\n", " • ") else message)
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .setBigContentTitle(title)
+                    .bigText(message)
+                    .setSummaryText(if (isBn) "অ্যাপ আপডেট" else "App Update")
+            )
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(contentPendingIntent)
+            .setAutoCancel(true)
+
+        try {
+            manager.notify(UPDATE_NOTIFICATION_ID, builder.build())
+        } catch (_: SecurityException) {
+            // Notifications disallowed
+        } catch (_: Exception) {
+            // Guard against any system notification error
+        }
+    }
+
+    fun cancelUpdateNotification(context: Context) {
+        val manager = NotificationManagerCompat.from(context)
+        manager.cancel(UPDATE_NOTIFICATION_ID)
     }
 }

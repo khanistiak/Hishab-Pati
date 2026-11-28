@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +51,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -95,6 +97,8 @@ import com.example.ui.theme.TransferBlue
 import com.example.ui.util.AppStrings
 import com.example.ui.util.CurrencyFormatter
 import com.example.ui.util.DateFormatter
+import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 enum class AccountTxFilter(val label: String) {
@@ -212,54 +216,79 @@ fun AccountDetailScreen(
     val utilizationPercent = (utilizationRatio * 100).toInt()
 
     // Mock/Dynamic billing cycles matching video (Oct 2026, Sep 2026, Aug 2026, Jul 2026)
-    val billingCycles = remember(account) {
+    val billDay = remember(account) {
+        val digits = account.billingDate.filter { it.isDigit() }
+        digits.toIntOrNull()?.coerceIn(1, 28) ?: 20
+    }
+
+    // Dynamic bill-date-to-bill-date billing cycles
+    val billingCycles = remember(account, accountTxs, billDay) {
         val dueStr = account.paymentDueDate.ifBlank { "10 Nov 2026" }
-        listOf(
-            BillingCycleOption(
-                id = "cycle_oct_2026",
-                label = "Oct 2026",
-                billAmount = 503.50,
-                isPaid = false,
-                isOverdue = true,
-                dueDate = dueStr,
-                cycleSpend = 9003.50,
-                minPayment = if (account.minPayment > 0) account.minPayment else 25.18,
-                apr = "—"
-            ),
-            BillingCycleOption(
-                id = "cycle_sep_2026",
-                label = "Sep 2026",
-                billAmount = 6500.00,
-                isPaid = true,
-                isOverdue = false,
-                dueDate = "10 Oct 2026",
-                cycleSpend = 6500.00,
-                minPayment = 325.00,
-                apr = "—"
-            ),
-            BillingCycleOption(
-                id = "cycle_aug_2026",
-                label = "Aug 2026",
-                billAmount = 7499.00,
-                isPaid = false,
-                isOverdue = false,
-                dueDate = "10 Sep 2026",
-                cycleSpend = 7499.00,
-                minPayment = 375.00,
-                apr = "—"
-            ),
-            BillingCycleOption(
-                id = "cycle_jul_2026",
-                label = "Jul 2026",
-                billAmount = 5200.00,
-                isPaid = true,
-                isOverdue = false,
-                dueDate = "10 Aug 2026",
-                cycleSpend = 5200.00,
-                minPayment = 260.00,
-                apr = "—"
+        val cycles = mutableListOf<BillingCycleOption>()
+        val cal = Calendar.getInstance()
+
+        for (i in 0..3) {
+            val endCal = (cal.clone() as Calendar).apply {
+                add(Calendar.MONTH, -i)
+                set(Calendar.DAY_OF_MONTH, billDay)
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }
+            val endMillis = endCal.timeInMillis
+
+            val startCal = (endCal.clone() as Calendar).apply {
+                add(Calendar.MONTH, -1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val startMillis = startCal.timeInMillis
+
+            val cycleTxs = accountTxs.filter { tx ->
+                val isExp = tx.type == TransactionType.EXPENSE || (tx.type == TransactionType.TRANSFER && tx.accountId == account.id)
+                isExp && tx.timestamp in startMillis..endMillis
+            }
+            val spend = cycleTxs.sumOf { it.amount }
+
+            val monthFormat = SimpleDateFormat("MMM yyyy", Locale.US)
+            val dayFormat = SimpleDateFormat("d MMM", Locale.US)
+            val label = monthFormat.format(endCal.time)
+            val dateRangeStr = "${dayFormat.format(startCal.time)} - ${dayFormat.format(endCal.time)}"
+
+            cycles.add(
+                BillingCycleOption(
+                    id = "cycle_$i",
+                    label = "$label ($dateRangeStr)",
+                    billAmount = spend,
+                    isPaid = i > 0,
+                    isOverdue = i == 0,
+                    dueDate = dueStr,
+                    cycleSpend = spend,
+                    minPayment = 0.0,
+                    apr = "—"
+                )
             )
-        )
+        }
+        cycles
+    }
+
+    // Transactions after bill date count towards upcoming bill (unbilled)
+    val upcomingBillAmount = remember(account, accountTxs, billDay) {
+        val currentEndCal = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, billDay)
+            set(Calendar.HOUR_OF_DAY, 23)
+            set(Calendar.MINUTE, 59)
+            set(Calendar.SECOND, 59)
+            set(Calendar.MILLISECOND, 999)
+        }
+        val latestBillMillis = currentEndCal.timeInMillis
+        accountTxs.filter { tx ->
+            val isExp = tx.type == TransactionType.EXPENSE || (tx.type == TransactionType.TRANSFER && tx.accountId == account.id)
+            isExp && tx.timestamp > latestBillMillis
+        }.sumOf { it.amount }
     }
 
     val selectedCycle = billingCycles.getOrNull(selectedCycleIndex) ?: billingCycles.first()
@@ -675,7 +704,7 @@ fun AccountDetailScreen(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = "Unbilled: ${CurrencyFormatter.format(2450.0, currencySymbol)} (next bill)",
+                                    text = "Upcoming bill (Unbilled): ${CurrencyFormatter.format(upcomingBillAmount, currencySymbol)}",
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurface
@@ -684,7 +713,7 @@ fun AccountDetailScreen(
                             }
                         }
 
-                        // 3 Stats inside cycle: Min payment | APR | Cycle spend
+                        // Stats inside cycle: Statement bill | Cycle spend (Min payment & APR removed)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -699,7 +728,7 @@ fun AccountDetailScreen(
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
-                                        text = "Min payment",
+                                        text = "Statement bill",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 10.sp
@@ -707,38 +736,10 @@ fun AccountDetailScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = CurrencyFormatter.format(selectedCycle.minPayment, currencySymbol),
+                                        text = CurrencyFormatter.format(selectedCycle.billAmount, currencySymbol),
                                         style = MaterialTheme.typography.bodyMedium.copy(
                                             fontWeight = FontWeight.Bold,
-                                            color = ExpenseRed,
-                                            fontSize = 12.sp
-                                        )
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(10.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = "APR",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 10.sp
-                                        )
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = selectedCycle.apr,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface,
+                                            color = MaterialTheme.colorScheme.primary,
                                             fontSize = 12.sp
                                         )
                                     )
@@ -1219,81 +1220,125 @@ fun AccountDetailScreen(
 
         AlertDialog(
             onDismissRequest = { showPayBillDialog = false },
+            containerColor = Color(0xFFF4F6F9),
+            shape = RoundedCornerShape(28.dp),
             title = {
-                Text(
-                    text = "Pay Credit Card Bill",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    ) {
+                        Text(
+                            text = account.name,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
+                    Text(
+                        text = "Pay Credit Card Bill",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    )
+                }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Transfer payment to ${account.name} to reduce outstanding balance.",
-                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    )
-
-                    // Source account selection
-                    Text(
-                        text = "Pay From Account:",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
-                    )
-
-                    ExposedDropdownMenuBox(
-                        expanded = sourceExpanded,
-                        onExpandedChange = { sourceExpanded = it }
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White,
+                        shadowElevation = 1.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                     ) {
-                        val sourceAccount = accounts.firstOrNull { it.id == selectedSourceAccountId }
-                        OutlinedTextField(
-                            value = sourceAccount?.let { "${it.name} (${CurrencyFormatter.format(it.balance, currencySymbol)})" } ?: "Select Account",
-                            onValueChange = {},
-                            readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sourceExpanded) },
+                        Column(
                             modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp)
-                        )
-                        ExposedDropdownMenu(
-                            expanded = sourceExpanded,
-                            onDismissRequest = { sourceExpanded = false }
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            nonCcAccounts.forEach { acc ->
-                                DropdownMenuItem(
-                                    text = { Text("${acc.name} — ${CurrencyFormatter.format(acc.balance, currencySymbol)}") },
-                                    onClick = {
-                                        selectedSourceAccountId = acc.id
-                                        sourceExpanded = false
+                            Text(
+                                text = "Pay From Account",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            )
+
+                            ExposedDropdownMenuBox(
+                                expanded = sourceExpanded,
+                                onExpandedChange = { sourceExpanded = it }
+                            ) {
+                                val sourceAccount = accounts.firstOrNull { it.id == selectedSourceAccountId }
+                                OutlinedTextField(
+                                    value = sourceAccount?.let { "${it.name} (${CurrencyFormatter.format(it.balance, currencySymbol)})" } ?: "Select Account",
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sourceExpanded) },
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = sourceExpanded,
+                                    onDismissRequest = { sourceExpanded = false }
+                                ) {
+                                    nonCcAccounts.forEach { acc ->
+                                        DropdownMenuItem(
+                                            text = { Text("${acc.name} — ${CurrencyFormatter.format(acc.balance, currencySymbol)}") },
+                                            onClick = {
+                                                selectedSourceAccountId = acc.id
+                                                sourceExpanded = false
+                                            }
+                                        )
                                     }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Text(
+                                text = "Payment Amount",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            )
+
+                            OutlinedTextField(
+                                value = paymentAmountText,
+                                onValueChange = { paymentAmountText = it },
+                                label = { Text("Enter amount") },
+                                prefix = { Text("$currencySymbol ", fontWeight = FontWeight.Bold) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                            )
+
+                            // Quick amount chips: Full Outstanding vs Statement Bill
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = paymentAmountText == outstandingAmount.toString(),
+                                    onClick = { paymentAmountText = outstandingAmount.toString() },
+                                    label = { Text("Full (${CurrencyFormatter.format(outstandingAmount, currencySymbol)})") },
+                                    shape = RoundedCornerShape(50)
+                                )
+                                FilterChip(
+                                    selected = paymentAmountText == selectedCycle.billAmount.toString(),
+                                    onClick = { paymentAmountText = selectedCycle.billAmount.toString() },
+                                    label = { Text("Statement Bill") },
+                                    shape = RoundedCornerShape(50)
                                 )
                             }
-                        }
-                    }
-
-                    // Payment Amount
-                    OutlinedTextField(
-                        value = paymentAmountText,
-                        onValueChange = { paymentAmountText = it },
-                        label = { Text("Payment Amount") },
-                        prefix = { Text("$currencySymbol ", fontWeight = FontWeight.Bold) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                    )
-
-                    // Quick amount chips: Full Outstanding vs Min Payment
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = paymentAmountText == outstandingAmount.toString(),
-                            onClick = { paymentAmountText = outstandingAmount.toString() },
-                            label = { Text("Full (${CurrencyFormatter.format(outstandingAmount, currencySymbol)})") }
-                        )
-                        if (account.minPayment > 0) {
-                            FilterChip(
-                                selected = paymentAmountText == account.minPayment.toString(),
-                                onClick = { paymentAmountText = account.minPayment.toString() },
-                                label = { Text("Min (${CurrencyFormatter.format(account.minPayment, currencySymbol)})") }
-                            )
                         }
                     }
                 }
@@ -1302,7 +1347,7 @@ fun AccountDetailScreen(
                 Button(
                     onClick = {
                         val amount = paymentAmountText.toDoubleOrNull() ?: 0.0
-                        if (amount > 0 && selectedSourceAccountId.isNotBlank()) {
+                        if (amount > 0 && !amount.isNaN() && selectedSourceAccountId.isNotBlank()) {
                             viewModel.recordCreditCardPayment(
                                 fromAccountId = selectedSourceAccountId,
                                 creditCardId = account.id,
@@ -1312,14 +1357,19 @@ fun AccountDetailScreen(
                             showPayBillDialog = false
                         }
                     },
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.height(46.dp)
                 ) {
-                    Text("Confirm Payment", fontWeight = FontWeight.Bold)
+                    Text("Confirm Payment", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showPayBillDialog = false }) {
-                    Text("Cancel")
+                OutlinedButton(
+                    onClick = { showPayBillDialog = false },
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.height(46.dp)
+                ) {
+                    Text("Cancel", fontWeight = FontWeight.SemiBold)
                 }
             }
         )
@@ -1327,68 +1377,176 @@ fun AccountDetailScreen(
 
     // View Billing Cycle Details Dialog
     if (showBillingCycleDialog) {
+        val statusText = if (selectedCycle.isPaid) "Paid" else if (selectedCycle.isOverdue) "Overdue" else "Due"
+        val statusColor = if (selectedCycle.isPaid) IncomeGreen else ExpenseRed
+
         AlertDialog(
             onDismissRequest = { showBillingCycleDialog = false },
+            containerColor = Color(0xFFF4F6F9),
+            shape = RoundedCornerShape(28.dp),
             title = {
-                Text(
-                    text = "${selectedCycle.label} Billing Cycle",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = account.name,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium
+                            )
+                        )
+                        Text(
+                            text = selectedCycle.label,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = statusColor.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = statusText,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = statusColor
+                            ),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+                }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Statement details for cycle ending in ${selectedCycle.label}:", style = MaterialTheme.typography.bodySmall)
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // Summary Card (Bento Style)
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White,
+                        shadowElevation = 1.dp,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Statement Bill",
+                                    style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                Text(
+                                    text = CurrencyFormatter.format(selectedCycle.billAmount, currencySymbol),
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                )
+                            }
 
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Statement Bill:", style = MaterialTheme.typography.bodyMedium)
-                        Text(CurrencyFormatter.format(selectedCycle.billAmount, currencySymbol), fontWeight = FontWeight.Bold)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Cycle Date Range",
+                                    style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                Text(
+                                    text = selectedCycle.label,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Due Date",
+                                    style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                Text(
+                                    text = selectedCycle.dueDate,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, color = if (selectedCycle.isOverdue) ExpenseRed else MaterialTheme.colorScheme.onSurface)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Total Cycle Spend",
+                                    style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                Text(
+                                    text = CurrencyFormatter.format(selectedCycle.cycleSpend, currencySymbol),
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                )
+                            }
+                        }
                     }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Due Date:", style = MaterialTheme.typography.bodyMedium)
-                        Text(selectedCycle.dueDate, fontWeight = FontWeight.SemiBold, color = if (selectedCycle.isOverdue) ExpenseRed else MaterialTheme.colorScheme.onSurface)
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Minimum Due:", style = MaterialTheme.typography.bodyMedium)
-                        Text(CurrencyFormatter.format(selectedCycle.minPayment, currencySymbol), fontWeight = FontWeight.SemiBold)
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Total Cycle Spend:", style = MaterialTheme.typography.bodyMedium)
-                        Text(CurrencyFormatter.format(selectedCycle.cycleSpend, currencySymbol), fontWeight = FontWeight.SemiBold)
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Status:", style = MaterialTheme.typography.bodyMedium)
-                        Text(if (selectedCycle.isPaid) "Paid" else if (selectedCycle.isOverdue) "Overdue" else "Due", fontWeight = FontWeight.Bold, color = if (selectedCycle.isPaid) IncomeGreen else ExpenseRed)
+
+                    // Share PDF Statement action button
+                    OutlinedButton(
+                        onClick = {
+                            shareCreditCardStatement(
+                                context = context,
+                                account = account,
+                                cycle = selectedCycle,
+                                accountTxs = accountTxs,
+                                currencySymbol = currencySymbol,
+                                language = language
+                            )
+                        },
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Share,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = AppStrings.t("share_statement", language),
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        )
                     }
                 }
             },
             confirmButton = {
-                Button(onClick = { showBillingCycleDialog = false }, shape = RoundedCornerShape(12.dp)) {
-                    Text("Done")
+                Button(
+                    onClick = { showBillingCycleDialog = false },
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                ) {
+                    Text("Done", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = {
-                        shareCreditCardStatement(
-                            context = context,
-                            account = account,
-                            cycle = selectedCycle,
-                            accountTxs = accountTxs,
-                            currencySymbol = currencySymbol,
-                            language = language
-                        )
-                    },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Share,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(AppStrings.t("share_statement", language))
-                }
-            }
+            dismissButton = {}
         )
     }
 }

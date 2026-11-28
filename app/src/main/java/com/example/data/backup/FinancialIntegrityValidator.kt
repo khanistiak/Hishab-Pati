@@ -72,6 +72,14 @@ object FinancialIntegrityValidator {
 
         val txCat = tx.category.trim()
         val txSub = tx.subcategory.trim()
+
+        // 1. Strict isolation when budget is set for a specific subcategory
+        if (budget.subcategoryName.isNotBlank()) {
+            val catMatches = txCat.equals(budget.categoryName.trim(), ignoreCase = true)
+            val subMatches = txSub.equals(budget.subcategoryName.trim(), ignoreCase = true)
+            return catMatches && subMatches
+        }
+
         val multiCategories = budget.parsedCategories()
         val multiSubPairs = budget.parsedSubcategoryPairs()
 
@@ -89,7 +97,7 @@ object FinancialIntegrityValidator {
             return matchesWholeCategory
         }
 
-        if (multiCategories.isNotEmpty()) {
+        if (budget.selectedCategories.isNotBlank() && multiCategories.isNotEmpty()) {
             return multiCategories.any { cat -> txCat.equals(cat, ignoreCase = true) }
         }
 

@@ -35,6 +35,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contactless
@@ -92,12 +93,19 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.data.local.entity.AccountEntity
 import com.example.data.model.AccountType
 import com.example.ui.MainViewModel
+import com.example.ui.components.HishabPatiDatePickerDialog
+import com.example.ui.components.HishabPatiDatePickerStyle
 import com.example.ui.components.ScrollAwareFixedHeader
 import com.example.ui.components.TranslucentCard
 import com.example.ui.components.recordFrostedBackdrop
 import com.example.ui.components.rememberScrollAwareGlassLayout
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.util.CurrencyFormatter
+import com.example.ui.util.DateFormatter
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 data class CardColorPreset(
     val name: String,
@@ -252,6 +260,28 @@ fun EditAccountScreen(
     var paymentDueDateText by remember {
         mutableStateOf(account?.paymentDueDate ?: "")
     }
+    var showBillingDatePicker by remember { mutableStateOf(false) }
+    var showDueDatePicker by remember { mutableStateOf(false) }
+
+    val parseDateToMillis: (String) -> Long = { str ->
+        val trimmed = str.trim()
+        if (trimmed.isEmpty()) {
+            System.currentTimeMillis()
+        } else if (trimmed.all { it.isDigit() }) {
+            val day = trimmed.toIntOrNull() ?: 1
+            Calendar.getInstance().apply {
+                set(Calendar.DAY_OF_MONTH, day.coerceIn(1, 31))
+            }.timeInMillis
+        } else {
+            HishabPatiDatePickerStyle.parseManualDateInput(trimmed) ?: System.currentTimeMillis()
+        }
+    }
+
+    val formatDateToString: (Long) -> String = { millis ->
+        val sdf = SimpleDateFormat("d MMM", Locale.US)
+        DateFormatter.localizeText(sdf.format(Date(millis)), settings?.language ?: com.example.data.model.AppLanguage.ENGLISH)
+    }
+
     var cardNetwork by remember {
         val stored = account?.notes?.split("|")?.firstOrNull { it.startsWith("Network:") }?.removePrefix("Network:")?.trim()
         mutableStateOf(stored ?: "")
@@ -752,38 +782,80 @@ fun EditAccountScreen(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     // Bill Date
-                                    OutlinedTextField(
-                                        value = billingDateText,
-                                        onValueChange = { billingDateText = it },
-                                        label = { Text("Bill / Cycle Date") },
-                                        placeholder = { Text("e.g. 15th") },
-                                        modifier = Modifier.weight(1f),
-                                        shape = RoundedCornerShape(14.dp),
-                                        singleLine = true,
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                            unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { showBillingDatePicker = true }
+                                    ) {
+                                        OutlinedTextField(
+                                            value = billingDateText,
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            enabled = false,
+                                            label = { Text("Bill / Cycle Date") },
+                                            placeholder = { Text("e.g. 20 Nov") },
+                                            trailingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.CalendarMonth,
+                                                    contentDescription = "Select Bill Date",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("billing_date_field"),
+                                            shape = RoundedCornerShape(14.dp),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                disabledContainerColor = MaterialTheme.colorScheme.surface,
+                                                disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                disabledTrailingIconColor = MaterialTheme.colorScheme.primary
+                                            )
                                         )
-                                    )
+                                    }
 
                                     // Due Date
-                                    OutlinedTextField(
-                                        value = paymentDueDateText,
-                                        onValueChange = { paymentDueDateText = it },
-                                        label = { Text("Due Date") },
-                                        placeholder = { Text("e.g. 10 Nov") },
-                                        modifier = Modifier.weight(1f),
-                                        shape = RoundedCornerShape(14.dp),
-                                        singleLine = true,
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                            unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { showDueDatePicker = true }
+                                    ) {
+                                        OutlinedTextField(
+                                            value = paymentDueDateText,
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            enabled = false,
+                                            label = { Text("Due Date") },
+                                            placeholder = { Text("e.g. 10 Dec") },
+                                            trailingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.CalendarMonth,
+                                                    contentDescription = "Select Due Date",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("due_date_field"),
+                                            shape = RoundedCornerShape(14.dp),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                disabledContainerColor = MaterialTheme.colorScheme.surface,
+                                                disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                disabledTrailingIconColor = MaterialTheme.colorScheme.primary
+                                            )
                                         )
-                                    )
+                                    }
                                 }
                             }
                         }
                     }
+
+
 
                     // Credit Card Outstanding Section (CRITICAL USER REQUIREMENT)
                     item {
@@ -1593,6 +1665,32 @@ fun EditAccountScreen(
                 }
             }
         }
+
+            if (showBillingDatePicker) {
+                HishabPatiDatePickerDialog(
+                    initialSelectedDateMillis = parseDateToMillis(billingDateText),
+                    onDateSelected = { millis ->
+                        billingDateText = formatDateToString(millis)
+                        showBillingDatePicker = false
+                    },
+                    onDismissRequest = { showBillingDatePicker = false },
+                    language = settings?.language ?: com.example.data.model.AppLanguage.ENGLISH,
+                    titleText = "Select Bill / Cycle Date"
+                )
+            }
+
+            if (showDueDatePicker) {
+                HishabPatiDatePickerDialog(
+                    initialSelectedDateMillis = parseDateToMillis(paymentDueDateText),
+                    onDateSelected = { millis ->
+                        paymentDueDateText = formatDateToString(millis)
+                        showDueDatePicker = false
+                    },
+                    onDismissRequest = { showDueDatePicker = false },
+                    language = settings?.language ?: com.example.data.model.AppLanguage.ENGLISH,
+                    titleText = "Select Payment Due Date"
+                )
+            }
 
             // Fixed, scroll-aware frosted-glass top header matching Home and Plan tabs
             ScrollAwareFixedHeader(

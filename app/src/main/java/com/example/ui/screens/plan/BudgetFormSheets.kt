@@ -103,6 +103,7 @@ internal val BUDGET_ACCENT_COLORS = listOf(
 )
 
 internal val BUDGET_ICON_CATALOG = listOf(
+    "bike", "shopping", "fuel", "phone", "groceries",
     "wallet", "payments", "savings", "account_balance", "credit_card", "paid",
     "restaurant", "fastfood", "local_cafe", "shopping_cart", "shopping_bag", "storefront",
     "directions_bike", "directions_car", "local_gas_station", "directions_bus", "local_taxi", "flight",

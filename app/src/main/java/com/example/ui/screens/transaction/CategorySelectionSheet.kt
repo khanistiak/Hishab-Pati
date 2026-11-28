@@ -88,6 +88,9 @@ import com.example.data.model.AppLanguage
 import com.example.data.model.TransactionType
 import com.example.ui.components.CategoryIcon
 import com.example.ui.util.CurrencyFormatter
+import androidx.compose.ui.platform.LocalContext
+import com.example.data.local.CategorySortType
+import com.example.data.local.loadCategorySortType
 
 /**
  * Visual styling tokens consistent with the Edit Budget category picker design.
@@ -332,17 +335,32 @@ fun CategorySelectionBottomSheet(
         )
     }
 
-    val filteredList = remember(categories, selectedType, searchQuery) {
+    val context = LocalContext.current
+    val tabIndex = when (selectedType) {
+        TransactionType.INCOME -> 1
+        TransactionType.TRANSFER -> 2
+        else -> 0
+    }
+    val sortType = remember(tabIndex) {
+        com.example.data.local.UserSettingsPreferences.loadCategorySortType(context, tabIndex)
+    }
+
+    val filteredList = remember(categories, selectedType, searchQuery, sortType) {
         val typeFiltered = when (selectedType) {
             TransactionType.INCOME -> categories.filter { it.isIncome && !it.isTransfer }
             TransactionType.TRANSFER -> categories.filter { it.isTransfer }
             else -> categories.filter { !it.isIncome && !it.isTransfer }
         }.filter { it.isActive }
 
+        val sorted = when (sortType) {
+            CategorySortType.DEFAULT, CategorySortType.CUSTOM -> typeFiltered.sortedBy { it.sortOrder }
+            CategorySortType.MOST_USED -> typeFiltered.sortedBy { it.sortOrder }
+        }
+
         if (searchQuery.isBlank()) {
-            typeFiltered
+            sorted
         } else {
-            typeFiltered.filter {
+            sorted.filter {
                 it.name.contains(searchQuery, ignoreCase = true) ||
                 it.nameBn.contains(searchQuery, ignoreCase = true)
             }

@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -11,7 +12,13 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,14 +42,18 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -78,6 +90,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private enum class ReloadToastType {
+    LOADING,
+    SUCCESS,
+    OFFLINE_CACHED
+}
+
+private data class ReloadPillToastData(
+    val type: ReloadToastType,
+    val message: String,
+    val id: Long = System.currentTimeMillis()
+)
+
 private enum class CurrencyPickerTarget {
     FROM,
     TO
@@ -109,6 +133,46 @@ fun CurrencyConverterScreen(
 
     LaunchedEffect(Unit) {
         viewModel.ensureCurrencyRatesFresh()
+    }
+
+    var reloadToast by remember { mutableStateOf<ReloadPillToastData?>(null) }
+    var isManualReloadActive by remember { mutableStateOf(false) }
+
+    LaunchedEffect(uiState.isRefreshing) {
+        if (isManualReloadActive && !uiState.isRefreshing) {
+            isManualReloadActive = false
+            val timeStr = formatUpdatedTime(uiState.lastUpdatedMillis, language)
+            val successMsg = if (timeStr.isNotBlank() && timeStr != "—") {
+                if (language == AppLanguage.BANGLA) "বিনিময় হার আপডেট সম্পন্ন ($timeStr)" else "Exchange rates updated ($timeStr)"
+            } else {
+                if (language == AppLanguage.BANGLA) "বিনিময় হার আপডেট সম্পন্ন" else "Exchange rates updated"
+            }
+            val cachedMsg = if (language == AppLanguage.BANGLA) {
+                "হার আপডেট করা যায়নি — সংরক্ষিত হার ব্যবহার হচ্ছে"
+            } else {
+                "Could not refresh rates — using saved rates"
+            }
+
+            reloadToast = if (uiState.isOfflineFallback) {
+                ReloadPillToastData(
+                    type = ReloadToastType.OFFLINE_CACHED,
+                    message = cachedMsg
+                )
+            } else {
+                ReloadPillToastData(
+                    type = ReloadToastType.SUCCESS,
+                    message = successMsg
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(reloadToast) {
+        val current = reloadToast ?: return@LaunchedEffect
+        if (current.type != ReloadToastType.LOADING) {
+            delay(3200L)
+            reloadToast = null
+        }
     }
 
     var pickerTarget by remember { mutableStateOf<CurrencyPickerTarget?>(null) }
@@ -176,16 +240,6 @@ fun CurrencyConverterScreen(
         prioritized + remaining
     }
 
-    val backgroundBrush = if (isDark) {
-        Brush.verticalGradient(
-            colors = listOf(Color(0xFF090D16), Color(0xFF111827), Color(0xFF0B132B))
-        )
-    } else {
-        Brush.verticalGradient(
-            colors = listOf(Color(0xFFEAF4F8), Color(0xFFF0F5FA), Color(0xFFF4F2FA))
-        )
-    }
-
     val cardColor = if (isDark) CardBackgroundDark else Color.White
     val dividerColor = if (isDark) Color(0x18FFFFFF) else Color(0xFFF1F5F9)
     val listState = rememberLazyListState()
@@ -199,7 +253,6 @@ fun CurrencyConverterScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(backgroundBrush)
     ) {
         LazyColumn(
             state = listState,
@@ -338,8 +391,34 @@ fun CurrencyConverterScreen(
                     cardColor = cardColor,
                     tint = if (uiState.isRefreshing) primary else MaterialTheme.colorScheme.onSurface,
                     iconRotation = if (uiState.isRefreshing) refreshSpin else 0f,
-                    onClick = { viewModel.refreshCurrencyRates(showToast = true) },
+                    onClick = {
+                        isManualReloadActive = true
+                        reloadToast = ReloadPillToastData(
+                            type = ReloadToastType.LOADING,
+                            message = if (language == AppLanguage.BANGLA) "বিনিময় হার আপডেট করা হচ্ছে..." else "Updating exchange rates..."
+                        )
+                        viewModel.refreshCurrencyRates(showToast = false)
+                    },
                     modifier = Modifier.testTag("currency_refresh_button")
+                )
+            }
+        }
+
+        // Floating round pill-shaped notification banner/toast near bottom
+        AnimatedVisibility(
+            visible = reloadToast != null,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp, start = 20.dp, end = 20.dp),
+            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(tween(180)),
+            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(tween(180))
+        ) {
+            reloadToast?.let { toast ->
+                ReloadPillToast(
+                    toast = toast,
+                    isDark = isDark,
+                    primary = primary
                 )
             }
         }
@@ -749,6 +828,13 @@ private fun AllCurrenciesBentoCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(rowTint)
+                        .then(
+                            if (isSelectedTarget) {
+                                Modifier.border(BorderStroke(1.5.dp, primary.copy(alpha = 0.65f)), RoundedCornerShape(12.dp))
+                            } else {
+                                Modifier
+                            }
+                        )
                         .clickable { onSelectTargetCurrency(targetCur.code) }
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                         .testTag("all_currency_row_${targetCur.code}"),
@@ -841,4 +927,90 @@ private fun formatUpdatedTime(millis: Long, language: AppLanguage): String {
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     clipboard?.setPrimaryClip(ClipData.newPlainText("Converted Amount", text))
+}
+
+@Composable
+private fun ReloadPillToast(
+    toast: ReloadPillToastData,
+    isDark: Boolean,
+    primary: Color,
+    modifier: Modifier = Modifier
+) {
+    val pillBg = if (isDark) {
+        Color(0xFF1E293B).copy(alpha = 0.96f)
+    } else {
+        Color(0xFF0F172A).copy(alpha = 0.94f)
+    }
+    val pillBorder = BorderStroke(
+        width = 1.dp,
+        color = if (isDark) Color(0x33FFFFFF) else Color(0x24FFFFFF)
+    )
+    val textPrimaryColor = Color.White
+
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = pillBg,
+        border = pillBorder,
+        shadowElevation = 8.dp,
+        modifier = modifier.testTag("currency_reload_pill_toast")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            when (toast.type) {
+                ReloadToastType.LOADING -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.White
+                    )
+                }
+                ReloadToastType.SUCCESS -> {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF10B981).copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = Color(0xFF34D399),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+                ReloadToastType.OFFLINE_CACHED -> {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFF59E0B).copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Info,
+                            contentDescription = null,
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = toast.message,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    color = textPrimaryColor,
+                    fontSize = 13.sp
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }
